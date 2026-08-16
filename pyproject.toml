@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rebar-autolayout"
+version = "0.1.0"
+description = "Auto-layout of additional rebar from LIRA-SAPR mosaics (Qmonitoring × A101)"
+requires-python = ">=3.10"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.pyright]
+extraPaths = ["src"]
+
+[tool.ruff]
+line-length = 100

@@ -1,0 +1,16 @@
+# Core
+ezdxf>=1.1          # DXF parsing (3DFACE, blocks, ACI colors -> RGB)
+numpy>=1.26
+shapely>=2.0        # geometry (zones, rectangles) — used from stage B onward
+
+# PNG ingest path (stage A, fallback source)
+opencv-python>=4.9
+Pillow>=10.0
+
+# Optimization (stage C/D — later)
+# pulp>=2.8
+# ortools>=9.9
+
+# Dev
+pytest>=8.0
+ruff>=0.6

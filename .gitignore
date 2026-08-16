@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+/build/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Organizers' source data — keep locally, don't commit (см. docs/context.md → Data).
+# The directory contains large and potentially non-public DXF/DWG/PDF/PNG/PCP/LIR files.
+/Дополнительные материалы/
+
+# Heavy input binaries outside the data directory. Track via LFS only if explicitly needed.
+*.dwg
+*.pdf
+*.dxf
+*.png
+*.shk
+
+# Outputs
+/out/
+/artifacts/
+*.json.out
