@@ -16,6 +16,8 @@ def _normalised(text: str) -> str:
 
 def _find_data_dir(name: str) -> Path:
     expected = _normalised(name)
+    if not DATA_DIR.is_dir():
+        return DATA_DIR / name
     for candidate in DATA_DIR.iterdir():
         if candidate.is_dir() and _normalised(candidate.name) == expected:
             return candidate
