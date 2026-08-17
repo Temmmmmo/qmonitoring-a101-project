@@ -12,11 +12,13 @@
    задачи покрытия, выводы из ТЗ и открытые вопросы стадий B-D.
 3. [`docs/optimization-architecture.md`](docs/optimization-architecture.md) — единые
    контракты, границы слоёв и порядок добавления алгоритмов.
-4. [`docs/mvp-roadmap.md`](docs/mvp-roadmap.md) — ближайший порядок работ и критерии
+4. [`docs/algorithms.md`](docs/algorithms.md) — описание встроенных алгоритмов, общих
+   сервисов и Mermaid-схем архитектуры.
+5. [`docs/mvp-roadmap.md`](docs/mvp-roadmap.md) — ближайший порядок работ и критерии
    локальной демонстрации.
-5. [`docs/stage-a-parser-spec.md`](docs/stage-a-parser-spec.md) — спецификация уже
+6. [`docs/stage-a-parser-spec.md`](docs/stage-a-parser-spec.md) — спецификация уже
    реализованного DXF-ingest.
-6. [`src/rebar/models.py`](src/rebar/models.py) — публичный контракт данных. Поля и
+7. [`src/rebar/models.py`](src/rebar/models.py) — публичный контракт данных. Поля и
    сигнатуры не менять без явного согласования.
 
 ## Текущее состояние
@@ -35,7 +37,8 @@
 - `optimization/contracts/` — единые вход и выход всех методов;
 - `optimization/adapters/` — граница с `Mosaic`;
 - `optimization/services/` — общие формулы и независимая проверка;
-- `optimization/algorithms/` — отдельный модуль на каждый алгоритм (`bbox`, `bsp`);
+- `optimization/algorithms/` — отдельный модуль на каждый алгоритм (`bbox`, `bsp`,
+  `greedy`, `greedy-priority`);
 - `reporting/` и `scripts/compare_optimizers.py` — локальное сравнение через SVG/HTML.
 
 Это baseline с явно указанными аппроксимациями, не готовая инженерная выдача.
@@ -68,7 +71,8 @@
 Не смешивать уровни метрик: одна `LayoutZone` — одна деталь, а `bar_count` — число
 стержней внутри неё. `LayoutSolution` относится к одному направлению. Для итогового
 графика плиты нужен планируемый агрегат четырёх направлений `PlateSolution`; результаты
-однонаправленного smoke-теста `bbox/BSP` с лимитом `1/4` не являются «Точкой 3».
+однонаправленного smoke-теста baseline-алгоритмов с маленьким лимитом не являются
+«Точкой 3».
 
 До уточнения этих вопросов не фиксировать необратимую модель стадий B-D и не обучать ML,
 который напрямую выдаёт арматуру. Новые оптимизаторы добавлять отдельными файлами в

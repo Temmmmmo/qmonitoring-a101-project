@@ -32,9 +32,7 @@ class OptimizerRegistry:
             raise KeyError(f"неизвестный алгоритм {name!r}; доступны: {available}") from error
         optimizer = factory()
         if optimizer.name.strip().casefold() != normalized:
-            raise ValueError(
-                f"factory {normalized!r} вернула алгоритм с именем {optimizer.name!r}"
-            )
+            raise ValueError(f"factory {normalized!r} вернула алгоритм с именем {optimizer.name!r}")
         return optimizer
 
     def names(self) -> tuple[str, ...]:
@@ -44,9 +42,16 @@ class OptimizerRegistry:
 def built_in_optimizer_registry() -> OptimizerRegistry:
     """Создать новый registry со всеми встроенными алгоритмами."""
 
-    from .algorithms import BspOptimizer, StrongestBBoxOptimizer
+    from .algorithms import (
+        BspOptimizer,
+        GreedyStripOptimizer,
+        PriorityGreedyOptimizer,
+        StrongestBBoxOptimizer,
+    )
 
     registry = OptimizerRegistry()
     registry.register(StrongestBBoxOptimizer.name, StrongestBBoxOptimizer)
     registry.register(BspOptimizer.name, BspOptimizer)
+    registry.register(GreedyStripOptimizer.name, GreedyStripOptimizer)
+    registry.register(PriorityGreedyOptimizer.name, PriorityGreedyOptimizer)
     return registry

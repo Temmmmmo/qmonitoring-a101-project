@@ -22,6 +22,7 @@ Python-ядро для автоматической раскладки допо�
 Подробная постановка и нерешённые инженерные вопросы находятся в
 [`docs/optimization-notes.md`](docs/optimization-notes.md), устройство взаимозаменяемых
 алгоритмов — в [`docs/optimization-architecture.md`](docs/optimization-architecture.md),
+их пошаговая работа и Mermaid-схемы — в [`docs/algorithms.md`](docs/algorithms.md),
 ближайший план — в [`docs/mvp-roadmap.md`](docs/mvp-roadmap.md).
 
 ## Статус
@@ -43,12 +44,13 @@ Python-ядро для автоматической раскладки допо�
 - единые контракты `LayoutProblem` и `LayoutSolution`, не меняющие `Mosaic`;
 - адаптер `Mosaic -> DemandMap -> LayoutProblem`;
 - registry для выбора алгоритма по имени;
-- алгоритмы `bbox` и `bsp` в отдельных модулях;
+- алгоритмы `bbox`, `bsp`, быстрый полосовой `greedy` и цвето-приоритетный
+  `greedy-priority` в отдельных модулях;
 - общие детализация, расчёт массы, валидация и метрики;
 - автономный HTML/SVG-отчёт сравнения и общий `solutions.json`;
-- 11 тестов контракта, алгоритмов и отчёта, включая реальный DXF.
+- 12 тестов контракта, алгоритмов и отчёта, включая реальный DXF.
 
-Оба алгоритма пока являются baseline. Это ещё не финальная инженерная раскладка: правила
+Все алгоритмы пока являются baseline. Это ещё не финальная инженерная раскладка: правила
 покрытия, зазоров и геометрии проёмов требуют подтверждения. `LayoutZone` уже соответствует
 требуемому ТЗ типу выхода: прямоугольник, длина, ширина, диаметр, шаг и количество.
 
@@ -83,7 +85,7 @@ src/rebar/
     contracts/       единые LayoutProblem и LayoutSolution
     adapters/        Mosaic -> задача оптимизации
     services/        общие геометрия, детализация и проверка
-    algorithms/      отдельные bbox.py, bsp.py; здесь появятся greedy.py/cpsat.py
+    algorithms/      bbox.py, bsp.py, greedy.py, greedy_priority.py и общая механика
     registry.py      выбор реализации по стабильному имени
   reporting/         автономные SVG/HTML-отчёты, отдельно от ядра оптимизации
 scripts/
@@ -97,6 +99,7 @@ docs/
   stage-a-parser-spec.md     спецификация завершённой стадии A
   optimization-notes.md     постановка стадий B-D и открытые вопросы
   optimization-architecture.md  контракт и порядок добавления алгоритмов
+  algorithms.md             алгоритмы, кодовые пути и Mermaid-архитектура
   mvp-roadmap.md             порядок работ и критерии локального MVP
 ```
 
@@ -165,7 +168,7 @@ python3 -m ruff check src tests scripts
 python3 -m compileall -q src tests scripts
 ```
 
-На полном локальном датасете ожидается `34 passed`. Без датасета тесты, зависящие от
+На полном локальном датасете ожидается `35 passed`. Без датасета тесты, зависящие от
 реальных файлов, будут отмечены как `skipped`.
 
 GitHub Actions запускает те же проверки на каждый push и pull request:
@@ -205,7 +208,7 @@ python3 scripts/verify_stage_a.py \
 ```bash
 python3 scripts/compare_optimizers.py \
   "Дополнительные материалы/Нижнее армирование вдоль ОСИ Х.dxf" \
-  --algorithms bbox bsp \
+  --algorithms bbox bsp greedy greedy-priority \
   --max-details 4
 ```
 
@@ -223,7 +226,7 @@ python3 scripts/compare_optimizers.py \
 from rebar.optimization import AlgorithmRequest, built_in_optimizer_registry
 
 registry = built_in_optimizer_registry()
-optimizer = registry.create("bsp")  # либо "bbox", позже "greedy" / "cpsat"
+optimizer = registry.create("greedy-priority")  # также bbox / bsp / greedy
 solution = optimizer.solve(problem, AlgorithmRequest(max_details=4))
 ```
 

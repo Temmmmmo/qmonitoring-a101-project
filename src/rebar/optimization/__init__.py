@@ -1,7 +1,13 @@
 """Публичный API оптимизации; внутренняя структура скрыта за стабильными импортами."""
 
 from .adapters import MissingRebarSpecificationError, build_demand_map, build_layout_problem
-from .algorithms import BspOptimizer, LayoutOptimizer, StrongestBBoxOptimizer
+from .algorithms import (
+    BspOptimizer,
+    GreedyStripOptimizer,
+    LayoutOptimizer,
+    PriorityGreedyOptimizer,
+    StrongestBBoxOptimizer,
+)
 from .contracts import (
     AlgorithmRequest,
     DemandCell,
@@ -35,8 +41,10 @@ __all__ = [
     "MissingRebarSpecificationError",
     "ObjectiveWeights",
     "OptimizerRegistry",
+    "PriorityGreedyOptimizer",
     "SolutionStatus",
     "StrongestBBoxOptimizer",
+    "GreedyStripOptimizer",
     "build_zone",
     "built_in_optimizer_registry",
     "build_demand_map",

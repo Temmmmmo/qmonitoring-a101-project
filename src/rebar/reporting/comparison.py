@@ -71,7 +71,7 @@ def _solution_card(problem: LayoutProblem, solution: LayoutSolution) -> str:
         <div class="metric"><strong>{metrics.total_mass_kg:.1f}</strong><span>кг</span></div>
         <div class="metric"><strong>{metrics.detail_count}</strong><span>деталей</span></div>
         <div class="metric"><strong>{metrics.overcovered_cell_count}</strong><span>лишних КЭ</span></div>
-        <div class="metric {'bad' if metrics.under_reinforced_cell_count else ''}">
+        <div class="metric {"bad" if metrics.under_reinforced_cell_count else ""}">
           <strong>{metrics.under_reinforced_cell_count}</strong><span>недоарм. КЭ</span></div>
       </div>
       <div class="drawing">{render_solution_svg(problem, solution)}</div>
@@ -88,7 +88,12 @@ def _solution_card(problem: LayoutProblem, solution: LayoutSolution) -> str:
 def generate_comparison_report(
     mosaic: Mosaic,
     out_dir: Path,
-    algorithm_names: tuple[str, ...] = ("bbox", "bsp"),
+    algorithm_names: tuple[str, ...] = (
+        "bbox",
+        "bsp",
+        "greedy",
+        "greedy-priority",
+    ),
     *,
     max_details: int = 8,
     detail_penalty_kg: float = 0.0,

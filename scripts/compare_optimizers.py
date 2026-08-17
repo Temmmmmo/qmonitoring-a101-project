@@ -19,7 +19,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("dxf", type=Path, help="путь к DXF с доступным совместимым .shk")
     parser.add_argument("--out-dir", type=Path, default=REPO_ROOT / "artifacts/comparison")
-    parser.add_argument("--algorithms", nargs="+", default=["bbox", "bsp"])
+    parser.add_argument(
+        "--algorithms",
+        nargs="+",
+        default=["bbox", "bsp", "greedy", "greedy-priority"],
+    )
     parser.add_argument("--max-details", type=int, default=8)
     parser.add_argument("--detail-penalty-kg", type=float, default=0.0)
     parser.add_argument("--min-width-cells", type=int, default=2)
