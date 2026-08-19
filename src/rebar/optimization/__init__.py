@@ -2,6 +2,7 @@
 
 from .adapters import MissingRebarSpecificationError, build_demand_map, build_layout_problem
 from .algorithms import (
+    AgglomerativeOptimizer,
     BspOptimizer,
     GreedyStripOptimizer,
     LayoutOptimizer,
@@ -26,6 +27,7 @@ from .registry import OptimizerRegistry, built_in_optimizer_registry
 from .services import build_zone, demanded_cells, evaluate_layout
 
 __all__ = [
+    "AgglomerativeOptimizer",
     "AlgorithmRequest",
     "BspOptimizer",
     "DemandCell",

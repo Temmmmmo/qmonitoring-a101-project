@@ -17,10 +17,12 @@ def test_report_embeds_svg_and_exports_common_json(tmp_path, splittable_mosaic):
     payload = json.loads((tmp_path / "solutions.json").read_text(encoding="utf-8"))
     assert "<svg" in document
     assert "<img" not in document
+    assert "Валидатор проверяет полную" in document
     assert [solution["algorithm"] for solution in payload["solutions"]] == [
         "bbox",
         "bsp",
         "greedy",
         "greedy-priority",
+        "agglomerative",
     ]
     assert payload["units"] == "mm"

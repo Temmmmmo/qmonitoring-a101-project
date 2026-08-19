@@ -10,7 +10,12 @@ from dataclasses import dataclass
 from rebar.models import Axis
 
 from ..contracts import DemandCell, LayoutProblem, LayoutZone
-from .geometry import GEOMETRY_TOLERANCE_MM, cell_bbox, point_in_bbox
+from .geometry import (
+    GEOMETRY_TOLERANCE_MM,
+    cell_bbox,
+    polygon_bbox_intersection_area,
+    polygon_in_bbox,
+)
 
 STEEL_KG_PER_M_PER_MM2 = 0.006165
 
@@ -55,6 +60,27 @@ def prepare_detailing(problem: LayoutProblem) -> DetailingContext:
     )
 
 
+def rebar_mass_kg(
+    diameter_mm: int,
+    installed_length_mm: float,
+    bar_count: int,
+) -> float:
+    """Посчитать массу одинаковых продольных стержней одной зоны."""
+
+    if diameter_mm <= 0:
+        raise ValueError("диаметр арматуры должен быть положительным")
+    if installed_length_mm <= 0:
+        raise ValueError("установленная длина должна быть положительной")
+    if bar_count < 2:
+        raise ValueError("в прямоугольной зоне должно быть не меньше двух стержней")
+    return (
+        STEEL_KG_PER_M_PER_MM2
+        * diameter_mm**2
+        * (installed_length_mm / 1000.0)
+        * bar_count
+    )
+
+
 def build_zone(
     problem: LayoutProblem,
     cell_ids: Iterable[int],
@@ -64,12 +90,7 @@ def build_zone(
     collect_coverage: bool = True,
     context: DetailingContext | None = None,
 ) -> LayoutZone:
-    """Детализировать охватывающий прямоугольник по единым формулам.
-
-    Это временная MVP-детализация. Минимальная ширина оценивается через медианный
-    поперечный размер КЭ, а достаточность покрытия — по центроидам. Обе аппроксимации
-    записываются в ``meta`` и должны быть заменены после подтверждения правил инженером.
-    """
+    """Детализировать охватывающий прямоугольник по единым формулам."""
 
     ids = tuple(sorted(set(cell_ids)))
     if not ids:
@@ -83,6 +104,10 @@ def build_zone(
     level = problem.demand.level(level_index)
     if level.additional is None:
         raise ValueError(f"уровень {level_index} не задаёт дополнительную арматуру")
+    if level.additional.step <= 0:
+        raise ValueError("шаг арматуры должен быть положительным")
+    if level.additional.diameter <= 0:
+        raise ValueError("диаметр арматуры должен быть положительным")
     if any(cell.level_index > level_index for cell in selected):
         raise ValueError("уровень зоны слабее требования выбранных КЭ")
 
@@ -97,7 +122,14 @@ def build_zone(
     raw_width = ymax - ymin if axis is Axis.X else xmax - xmin
     typical_cell_width = context.typical_transverse_cell_size_mm
     minimum_width = problem.constraints.min_width_cells * typical_cell_width
-    width = max(raw_width, minimum_width)
+    target_width = max(raw_width, minimum_width)
+    width_spaces = max(
+        1,
+        math.ceil(
+            (target_width - GEOMETRY_TOLERANCE_MM) / level.additional.step
+        ),
+    )
+    width = float(width_spaces * level.additional.step)
     width_padding = (width - raw_width) / 2.0
     anchorage = problem.constraints.anchorage_diameters * level.additional.diameter
 
@@ -107,22 +139,22 @@ def build_zone(
         bbox = (xmin - width_padding, ymin - anchorage, xmax + width_padding, ymax + anchorage)
 
     installed_length = required_length + 2.0 * anchorage
-    bar_count = math.ceil(width / level.additional.step) + 1
-    mass = (
-        STEEL_KG_PER_M_PER_MM2
-        * level.additional.diameter**2
-        * (installed_length / 1000.0)
-        * bar_count
-    )
+    bar_count = width_spaces + 1
+    mass = rebar_mass_kg(level.additional.diameter, installed_length, bar_count)
 
     covered: list[int] = []
     overcovered: list[int] = []
     if collect_coverage:
         for cell in problem.demand.cells:
-            if not point_in_bbox(cell.centroid, bbox):
+            intersection_area = polygon_bbox_intersection_area(cell.poly, bbox)
+            if intersection_area <= GEOMETRY_TOLERANCE_MM:
                 continue
             cell_level = problem.demand.level(cell.level_index)
-            if cell_level.requires_extra is True and level_index >= cell.level_index:
+            if (
+                cell_level.requires_extra is True
+                and level_index >= cell.level_index
+                and polygon_in_bbox(cell.poly, bbox)
+            ):
                 covered.append(cell.id)
             if cell_level.requires_extra is not True or level_index > cell.level_index:
                 overcovered.append(cell.id)
@@ -141,9 +173,11 @@ def build_zone(
         overcovered_cell_ids=tuple(overcovered),
         meta={
             "seed_cell_ids": ids,
-            "coverage_rule": "cell_centroid_inside_zone",
+            "coverage_rule": "full_cell_polygon_inside_zone",
             "minimum_width_rule": "median_transverse_cell_size",
             "typical_transverse_cell_size_mm": typical_cell_width,
+            "minimum_width_mm": minimum_width,
+            "width_space_count": width_spaces,
             "anchorage_each_end_mm": anchorage,
         },
     )

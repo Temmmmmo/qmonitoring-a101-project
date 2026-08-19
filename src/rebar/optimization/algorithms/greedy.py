@@ -17,11 +17,11 @@ from ..contracts import (
 )
 from ..services import (
     DetailingContext,
-    bboxes_overlap,
     build_zone,
     demanded_cells,
     evaluate_layout,
     prepare_detailing,
+    zones_conflict,
 )
 from ..services.geometry import GEOMETRY_TOLERANCE_MM, cell_bbox
 
@@ -224,7 +224,7 @@ class GreedyStripOptimizer:
                 (
                     index
                     for index in range(len(zones) - 1)
-                    if bboxes_overlap(zones[index].bbox, zones[index + 1].bbox)
+                    if zones_conflict(problem, zones[index], zones[index + 1])
                 ),
                 None,
             )

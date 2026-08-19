@@ -45,8 +45,8 @@ def splittable_mosaic() -> Mosaic:
         xmin = column * 500
         cells.append(
             Cell(
-                [(xmin, 0), (xmin + 500, 0), (xmin + 500, 500), (xmin, 500)],
-                (xmin + 250, 250),
+                [(xmin, 0), (xmin + 500, 0), (xmin + 500, 600), (xmin, 600)],
+                (xmin + 250, 300),
                 254,
                 levels[1],
             )
@@ -55,8 +55,8 @@ def splittable_mosaic() -> Mosaic:
         xmin = column * 500
         cells.append(
             Cell(
-                [(xmin, 500), (xmin + 500, 500), (xmin + 500, 1000), (xmin, 1000)],
-                (xmin + 250, 750),
+                [(xmin, 600), (xmin + 500, 600), (xmin + 500, 1200), (xmin, 1200)],
+                (xmin + 250, 900),
                 2,
                 levels[2],
             )
@@ -65,6 +65,6 @@ def splittable_mosaic() -> Mosaic:
         direction=Direction(Layer.BOTTOM, Axis.X),
         cells=cells,
         legend=levels,
-        bbox=(0, 0, 4000, 1000),
+        bbox=(0, 0, 4000, 1200),
         meta={},
     )

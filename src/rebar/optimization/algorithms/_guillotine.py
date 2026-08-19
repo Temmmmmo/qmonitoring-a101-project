@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ..contracts import AlgorithmRequest, LayoutProblem, LayoutZone
-from ..services import DetailingContext, bboxes_overlap, build_zone
+from ..services import DetailingContext, build_zone, zones_conflict
 
 
 @dataclass(frozen=True)
@@ -86,8 +86,8 @@ def generate_splits(
                 )
                 if not problem.constraints.allow_overlaps:
                     other_zones = [*zones[:leaf_index], *zones[leaf_index + 1 :]]
-                    if bboxes_overlap(left_zone.bbox, right_zone.bbox) or any(
-                        bboxes_overlap(candidate.bbox, other.bbox)
+                    if zones_conflict(problem, left_zone, right_zone) or any(
+                        zones_conflict(problem, candidate, other)
                         for candidate in (left_zone, right_zone)
                         for other in other_zones
                     ):

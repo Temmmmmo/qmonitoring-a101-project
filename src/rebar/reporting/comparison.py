@@ -69,7 +69,7 @@ def _solution_card(problem: LayoutProblem, solution: LayoutSolution) -> str:
         <div><h2>{html.escape(solution.algorithm)}</h2>
           <p>{html.escape(solution.status.value)} · {solution.runtime_ms:.1f} мс</p></div>
         <div class="metric"><strong>{metrics.total_mass_kg:.1f}</strong><span>кг</span></div>
-        <div class="metric"><strong>{metrics.detail_count}</strong><span>деталей</span></div>
+        <div class="metric"><strong>{metrics.detail_count}</strong><span>прямоугольных зон</span></div>
         <div class="metric"><strong>{metrics.overcovered_cell_count}</strong><span>лишних КЭ</span></div>
         <div class="metric {"bad" if metrics.under_reinforced_cell_count else ""}">
           <strong>{metrics.under_reinforced_cell_count}</strong><span>недоарм. КЭ</span></div>
@@ -93,6 +93,7 @@ def generate_comparison_report(
         "bsp",
         "greedy",
         "greedy-priority",
+        "agglomerative",
     ),
     *,
     max_details: int = 8,
@@ -134,11 +135,12 @@ def generate_comparison_report(
 <html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
 <title>Сравнение алгоритмов раскладки</title><style>{PAGE_STYLE}</style></head><body>
 <header><h1>Локальное сравнение алгоритмов</h1><p>{source}</p>
-<p>Миллиметры · максимум деталей: {max_details} · пересечения: {overlap_mode} ·
+<p>Миллиметры · максимум зон: {max_details} · пересечения: {overlap_mode} ·
 JSON: solutions.json</p></header>
-<main><div class="notice"><strong>MVP-ограничение.</strong> Сейчас покрытие проверяется по
-центроиду КЭ, а минимальная ширина оценивается через медианный размер КЭ. Это позволяет
-сравнивать алгоритмы на одном контракте, но не заменяет инженерную верификацию.</div>{cards}</main>
+<main><div class="notice"><strong>MVP-ограничение.</strong> Валидатор проверяет полную
+геометрию КЭ, кратность ширины шагу, 40d, массу, пересечения и подтверждённый зазор для
+одинаковых шагов. Медианный размер КЭ для минимальной ширины, зазор разных шагов и
+контуры проёмов всё ещё требуют инженерного уточнения.</div>{cards}</main>
 </body></html>"""
     report_path = out_dir / "index.html"
     report_path.write_text(page, encoding="utf-8")

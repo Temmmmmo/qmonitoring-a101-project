@@ -43,6 +43,7 @@ def built_in_optimizer_registry() -> OptimizerRegistry:
     """Создать новый registry со всеми встроенными алгоритмами."""
 
     from .algorithms import (
+        AgglomerativeOptimizer,
         BspOptimizer,
         GreedyStripOptimizer,
         PriorityGreedyOptimizer,
@@ -50,6 +51,7 @@ def built_in_optimizer_registry() -> OptimizerRegistry:
     )
 
     registry = OptimizerRegistry()
+    registry.register(AgglomerativeOptimizer.name, AgglomerativeOptimizer)
     registry.register(StrongestBBoxOptimizer.name, StrongestBBoxOptimizer)
     registry.register(BspOptimizer.name, BspOptimizer)
     registry.register(GreedyStripOptimizer.name, GreedyStripOptimizer)

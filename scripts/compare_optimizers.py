@@ -22,7 +22,7 @@ def main() -> None:
     parser.add_argument(
         "--algorithms",
         nargs="+",
-        default=["bbox", "bsp", "greedy", "greedy-priority"],
+        default=["bbox", "bsp", "greedy", "greedy-priority", "agglomerative"],
     )
     parser.add_argument("--max-details", type=int, default=8)
     parser.add_argument("--detail-penalty-kg", type=float, default=0.0)

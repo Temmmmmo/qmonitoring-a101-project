@@ -65,6 +65,7 @@ class LayoutConstraints:
     anchorage_diameters: float = 40.0
     allow_overcoverage: bool = True
     allow_overlaps: bool = False
+    enforce_zone_gap: bool = True
 
     def __post_init__(self) -> None:
         if self.min_width_cells < 1:
