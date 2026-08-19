@@ -28,8 +28,8 @@ def render_mosaic(mosaic: Mosaic, out_path: str, px_per_mm: float = 0.05) -> str
 
     xmin, ymin, xmax, ymax = mosaic.bbox
     padding = 2
-    width = max(1, int(round((xmax - xmin) * px_per_mm)) + 2 * padding)
-    height = max(1, int(round((ymax - ymin) * px_per_mm)) + 2 * padding)
+    width = max(1, round((xmax - xmin) * px_per_mm) + 2 * padding)
+    height = max(1, round((ymax - ymin) * px_per_mm) + 2 * padding)
     image = Image.new("RGB", (width, height), "white")
     draw = ImageDraw.Draw(image)
 

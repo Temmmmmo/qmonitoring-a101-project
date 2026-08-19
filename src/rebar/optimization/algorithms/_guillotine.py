@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from itertools import pairwise
 
 from ..contracts import AlgorithmRequest, LayoutProblem, LayoutZone
 from ..services import DetailingContext, build_zone, zones_conflict
@@ -64,7 +65,7 @@ def generate_splits(
         parent_cost = objective_cost(zones[leaf_index], request)
         for axis in (0, 1):
             coordinates = sorted({by_id[cell_id].centroid[axis] for cell_id in ids})
-            for lower, upper in zip(coordinates, coordinates[1:]):
+            for lower, upper in pairwise(coordinates):
                 cut = (lower + upper) / 2.0
                 left = tuple(cell_id for cell_id in ids if by_id[cell_id].centroid[axis] <= cut)
                 right = tuple(cell_id for cell_id in ids if by_id[cell_id].centroid[axis] > cut)

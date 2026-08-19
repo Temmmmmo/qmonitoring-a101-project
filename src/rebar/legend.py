@@ -13,9 +13,10 @@ parse_label реализован (семантика фиксирована). pa
 
 from __future__ import annotations
 
-import re
 import math
+import re
 import struct
+from itertools import pairwise
 from pathlib import Path
 
 from .models import Band, Rebar
@@ -120,7 +121,7 @@ def parse_shk(path: str) -> list[tuple[float, str]]:
             parsed.setdefault(following, upper)
 
     result = [(threshold, label) for label, threshold in parsed.items()]
-    if any(a[0] >= b[0] for a, b in zip(result, result[1:])):
+    if any(a[0] >= b[0] for a, b in pairwise(result)):
         raise ValueError(f"пороги .shk не возрастают: {path}")
     return result
 

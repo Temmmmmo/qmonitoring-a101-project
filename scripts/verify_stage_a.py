@@ -14,12 +14,12 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from ezdxf.colors import aci2rgb  # noqa: E402
-from PIL import Image  # noqa: E402
+from ezdxf.colors import aci2rgb
+from PIL import Image
 
-from rebar import Axis, Direction, Layer  # noqa: E402
-from rebar.dxf_ingest import read_mosaic  # noqa: E402
-from rebar.render import render_mosaic  # noqa: E402
+from rebar import Axis, Direction, Layer
+from rebar.dxf_ingest import read_mosaic
+from rebar.render import render_mosaic
 
 
 def _normalised(text: str) -> str:

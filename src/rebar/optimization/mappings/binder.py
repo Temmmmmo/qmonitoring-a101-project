@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, replace
+from itertools import pairwise
 from typing import Any
 
 from rebar.models import Band, Cell, Mosaic
@@ -56,7 +57,7 @@ def _read_scale_intervals(mosaic: Mosaic) -> tuple[_ScaleInterval, ...]:
     aci_values = [interval.aci for interval in intervals]
     if len(set(aci_values)) != len(aci_values):
         raise RebarMappingError("ACI цвета уровней шкалы должны быть уникальными")
-    for previous, current in zip(intervals, intervals[1:]):
+    for previous, current in pairwise(intervals):
         if not math.isclose(previous.upper_as, current.lower_as, abs_tol=1e-9):
             raise RebarMappingError("соседние интервалы шкалы As должны иметь общую границу")
     return tuple(intervals)

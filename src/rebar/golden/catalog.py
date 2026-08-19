@@ -6,7 +6,6 @@ from rebar.models import Axis, Direction, Layer
 
 from .models import GoldenCaseDefinition, GoldenSheetExpectation
 
-
 PLATE_ZERO_K09 = GoldenCaseDefinition(
     id="plate-zero-k09",
     title="Корпус 2.9 · плита нуля",
@@ -62,8 +61,10 @@ PLATE_ZERO_K09 = GoldenCaseDefinition(
         ),
     ),
     notes=(
-        "Ось X сопоставлена листам «вдоль Б.О.», ось Y — «вдоль Ц.О.» по фактической "
-        "ориентации стержней; обозначение требуется подтвердить у конструктора.",
+        (
+            "Ось X сопоставлена листам «вдоль Б.О.», ось Y — «вдоль Ц.О.» по фактической "
+            "ориентации стержней; обозначение требуется подтвердить у конструктора."
+        ),
         "Количество стержней — сумма колонки «Кол-во, шт.»; это не число LayoutZone.",
         "PDF используется как числовой и визуальный эталон, DWG пока не разобран.",
     ),
@@ -80,4 +81,3 @@ def get_golden_case(case_id: str) -> GoldenCaseDefinition:
     except KeyError as error:
         available = ", ".join(sorted(GOLDEN_CASES))
         raise KeyError(f"Неизвестный golden-case {case_id!r}; доступны: {available}") from error
-

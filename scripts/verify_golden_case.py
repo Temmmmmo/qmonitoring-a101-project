@@ -10,14 +10,14 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from rebar.golden import (  # noqa: E402
+from rebar.golden import (
     GOLDEN_CASES,
     GoldenPdfToolError,
     GoldenReferenceMismatchError,
     GoldenSourceNotFoundError,
     get_golden_case,
 )
-from rebar.reporting import generate_golden_report  # noqa: E402
+from rebar.reporting import generate_golden_report
 
 
 def main() -> None:

@@ -1,7 +1,7 @@
 """Общие фикстуры тестов. Пути к реальным данным (кириллица, пробелы) — только здесь."""
 
-from pathlib import Path
 import unicodedata
+from pathlib import Path
 
 import pytest
 

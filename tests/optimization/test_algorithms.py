@@ -13,8 +13,8 @@ from rebar.optimization import (
     PriorityGreedyOptimizer,
     SolutionStatus,
     StrongestBBoxOptimizer,
-    built_in_optimizer_registry,
     build_layout_problem,
+    built_in_optimizer_registry,
     evaluate_layout,
 )
 

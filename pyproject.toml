@@ -20,3 +20,7 @@ extraPaths = ["src"]
 
 [tool.ruff]
 line-length = 100
+
+[tool.ruff.lint.per-file-ignores]
+# CLI запускаются прямо из checkout и до импортов добавляют локальный src/ в sys.path.
+"scripts/*.py" = ["E402"]

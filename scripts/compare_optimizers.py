@@ -10,9 +10,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from rebar.dxf_ingest import read_mosaic  # noqa: E402
-from rebar.optimization import MissingRebarSpecificationError  # noqa: E402
-from rebar.reporting import generate_comparison_report  # noqa: E402
+from rebar.dxf_ingest import read_mosaic
+from rebar.optimization import MissingRebarSpecificationError
+from rebar.reporting import generate_comparison_report
 
 
 def main() -> None:
