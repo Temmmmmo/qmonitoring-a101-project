@@ -46,6 +46,8 @@ Python-ядро для автоматической раскладки допо�
 
 - единые контракты `LayoutProblem` и `LayoutSolution`, не меняющие `Mosaic`;
 - адаптер `Mosaic -> DemandMap -> LayoutProblem`;
+- отдельный mapping-слой для DXF без `.shk`: таблица `plate-zero-d12-v1` связывает
+  шесть уровней плиты нуля с фоном `⌀12/300` и дополнительной арматурой;
 - registry для выбора алгоритма по имени;
 - алгоритмы `bbox`, `bsp`, быстрый полосовой `greedy`, цвето-приоритетный
   `greedy-priority` и bottom-up `agglomerative` в отдельных модулях;
@@ -94,6 +96,7 @@ src/rebar/
   optimization/
     contracts/       единые LayoutProblem и LayoutSolution
     adapters/        Mosaic -> задача оптимизации
+    mappings/        явные таблицы As -> арматура и безопасное связывание с Mosaic
     services/        общие геометрия, детализация и проверка
     algorithms/      отдельные bbox, bsp, greedy, priority и agglomerative baseline
     registry.py      выбор реализации по стабильному имени
@@ -138,6 +141,10 @@ python3 -m pip install -r requirements.txt
 автовыбора должны совпасть число цветовых полос и, при необходимости, ось X/Y; при
 неоднозначности передавайте совместимый `shk_path` явно.
 
+Для golden-case плиты нуля `.shk` отсутствует. Его шесть назначений вручную перенесены
+из легенд PNG в таблицу `plate-zero-d12-v1`. Это явно помеченное MVP-допущение только
+для этого комплекта, а не fallback для произвольной плиты.
+
 Для полного локального прогона получите набор отдельно и положите его в корень проекта:
 
 ```text
@@ -168,6 +175,20 @@ print(mosaic.bbox)  # всегда миллиметры
 print(mosaic.meta["unit_detection"])
 ```
 
+Для одного из четырёх DXF плиты нуля после ingest применяется явная таблица:
+
+```python
+from rebar.optimization import PLATE_ZERO_D12, apply_rebar_mapping, build_layout_problem
+
+mapped_mosaic = apply_rebar_mapping(mosaic, PLATE_ZERO_D12)
+problem = build_layout_problem(mapped_mosaic)
+
+print(mapped_mosaic.meta["rebar_mapping"])
+```
+
+`apply_rebar_mapping` возвращает копию и откажется работать, если шкала отличается,
+содержит неизвестный ACI или в `Mosaic` уже есть легенда из `.shk`.
+
 При запуске файла напрямую из корня добавьте `src` в `PYTHONPATH` либо установите проект
 в editable-режиме:
 
@@ -183,7 +204,7 @@ python3 -m ruff check src tests scripts
 python3 -m compileall -q src tests scripts
 ```
 
-На полном локальном датасете ожидается `52 passed`. Без датасета тесты, зависящие от
+На полном локальном датасете ожидается `61 passed`. Без датасета тесты, зависящие от
 реальных файлов, будут отмечены как `skipped`.
 
 GitHub Actions запускает те же проверки на каждый push и pull request:

@@ -85,3 +85,24 @@ def verify_dxf_files() -> list[Path]:
     if not paths:
         pytest.skip(f"нет старых проверочных DXF в {VERIFY_DIR}")
     return paths
+
+
+@pytest.fixture
+def plate_zero_dxf_files() -> list[Path]:
+    """Четыре входных DXF golden-case плиты нуля."""
+
+    expected = _normalised("2025.02.19_плита нуля")
+    task_dirs = [
+        path
+        for path in VERIFY_2_DIR.rglob("*")
+        if path.is_dir() and _normalised(path.name) == expected
+    ]
+    if len(task_dirs) != 1:
+        pytest.skip(
+            f"ожидался один каталог задания плиты нуля в {VERIFY_2_DIR}, "
+            f"найдено: {len(task_dirs)}"
+        )
+    paths = sorted(task_dirs[0].rglob("*.dxf"))
+    if not paths:
+        pytest.skip(f"нет входных DXF плиты нуля в {task_dirs[0]}")
+    return paths

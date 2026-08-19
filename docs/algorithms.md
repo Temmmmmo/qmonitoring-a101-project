@@ -16,6 +16,7 @@ flowchart LR
     subgraph Input["Входные данные"]
         DXF["DXF: 3DFACE + KLEENKA"]
         SHK[".shk: пороги As и арматура"]
+        Manual["явная таблица<br/>для DXF без .shk"]
     end
 
     subgraph Ingest["Стадия A · ingest"]
@@ -24,6 +25,7 @@ flowchart LR
     end
 
     subgraph Preparation["Подготовка задачи"]
+        Mapping["mappings.apply_rebar_mapping"]
         Adapter["adapters.mosaic"]
         Demand["DemandMap<br/>поле локальных требований"]
         Problem["LayoutProblem<br/>спрос + ограничения"]
@@ -54,7 +56,10 @@ flowchart LR
     DXF --> Reader
     SHK --> Reader
     Reader --> Mosaic
-    Mosaic --> Adapter --> Demand --> Problem --> Registry
+    Manual --> Mapping
+    Mosaic --> Mapping
+    Mosaic --> Adapter
+    Mapping --> Adapter --> Demand --> Problem --> Registry
     Registry --> BBox
     Registry --> BSP
     Registry --> Greedy
@@ -88,6 +93,7 @@ flowchart LR
 sequenceDiagram
     actor User as Пользователь / CLI
     participant Ingest as read_mosaic
+    participant Mapping as apply_rebar_mapping
     participant Adapter as build_layout_problem
     participant Report as generate_comparison_report
     participant Registry as OptimizerRegistry
@@ -97,6 +103,10 @@ sequenceDiagram
 
     User->>Ingest: DXF и необязательный shk_path
     Ingest-->>User: Mosaic в миллиметрах
+    opt Если legend пуст и явно выбрана совместимая таблица
+        User->>Mapping: Mosaic + RebarMapping
+        Mapping-->>User: копия Mosaic с Band и provenance
+    end
     User->>Report: Mosaic, имена алгоритмов, ограничения
     Report->>Adapter: Mosaic + LayoutConstraints
     Adapter-->>Report: LayoutProblem
