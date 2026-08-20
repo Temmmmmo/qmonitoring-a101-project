@@ -1,0 +1,5 @@
+# Минимальные зависимости production-контейнера одного DXF web-MVP.
+ezdxf>=1.1
+fastapi>=0.115
+python-multipart>=0.0.20
+uvicorn>=0.34

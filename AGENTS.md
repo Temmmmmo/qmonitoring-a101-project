@@ -149,6 +149,10 @@ python3 -m uvicorn rebar.web.app:app --app-dir src --reload
 `artifacts/golden_plate_zero/index.html`. Web-интерфейс открывается по
 `http://127.0.0.1:8000`.
 
+Production-схема описана в [`docs/deployment.md`](docs/deployment.md): контейнер не
+публикует порт на хосте, подключается к внешней `caddy_net`, а deploy запускается на
+self-hosted runner только после успешного CI для `main`.
+
 ## Локальные данные
 
 Реальные файлы находятся в `Дополнительные материалы/`. Каталог целиком исключён из Git:

@@ -45,3 +45,9 @@ jobs:
 
       - name: Build package wheel
         run: python -m pip wheel --no-deps --wheel-dir /tmp/rebar-wheels .
+
+      - name: Validate production Compose
+        run: docker compose --file compose.prod.yml config --quiet
+
+      - name: Build production image
+        run: docker build --tag qmonitoring-a101-web:ci .

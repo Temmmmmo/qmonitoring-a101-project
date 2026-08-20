@@ -1,0 +1,57 @@
+name: Deploy
+
+on:
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qmonitoring-production
+  cancel-in-progress: true
+
+jobs:
+  production:
+    name: Production container
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main')
+    runs-on:
+      - self-hosted
+      - linux
+    timeout-minutes: 20
+    environment: production
+
+    steps:
+      - name: Check out tested revision
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Check deployment prerequisites
+        run: |
+          docker version
+          docker compose version
+          docker network inspect caddy_net >/dev/null
+
+      - name: Build and deploy
+        run: >-
+          docker compose
+          --project-name qmonitoring
+          --file compose.prod.yml
+          up --detach --build --remove-orphans --wait --wait-timeout 120
+
+      - name: Show deployed service
+        if: always()
+        run: >-
+          docker compose
+          --project-name qmonitoring
+          --file compose.prod.yml
+          ps
