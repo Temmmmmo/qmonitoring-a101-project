@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
+from itertools import pairwise
 
 from ..contracts import BBox, DemandCell
 
@@ -131,3 +132,74 @@ def polygon_bbox_intersection_area(
     clipped = _clip_polygon_axis(clipped, axis=1, boundary=ymin, keep_greater=True)
     clipped = _clip_polygon_axis(clipped, axis=1, boundary=ymax, keep_greater=False)
     return polygon_area(clipped)
+
+
+def polygon_bboxes_union_intersection_area(
+    points: Sequence[tuple[float, float]],
+    bboxes: Sequence[BBox],
+) -> float:
+    """Площадь пересечения полигона с объединением осевых прямоугольников.
+
+    Простое суммирование площадей пересечений некорректно при разрешённых overlap:
+    одна и та же половина КЭ могла бы быть посчитана дважды и ложно закрыть весь спрос.
+    Sweep по уникальным X-границам разбивает объединение на непересекающиеся полосы.
+    """
+
+    if len(points) < 3 or not bboxes:
+        return 0.0
+
+    polygon_xmin = min(point[0] for point in points)
+    polygon_ymin = min(point[1] for point in points)
+    polygon_xmax = max(point[0] for point in points)
+    polygon_ymax = max(point[1] for point in points)
+    clipped_boxes: list[BBox] = []
+    for xmin, ymin, xmax, ymax in bboxes:
+        clipped = (
+            max(xmin, polygon_xmin),
+            max(ymin, polygon_ymin),
+            min(xmax, polygon_xmax),
+            min(ymax, polygon_ymax),
+        )
+        if (
+            clipped[2] - clipped[0] > GEOMETRY_TOLERANCE_MM
+            and clipped[3] - clipped[1] > GEOMETRY_TOLERANCE_MM
+        ):
+            clipped_boxes.append(clipped)
+    if not clipped_boxes:
+        return 0.0
+
+    x_edges = sorted(
+        {
+            coordinate
+            for xmin, _ymin, xmax, _ymax in clipped_boxes
+            for coordinate in (xmin, xmax)
+        }
+    )
+    total = 0.0
+    for x_start, x_end in pairwise(x_edges):
+        if x_end - x_start <= GEOMETRY_TOLERANCE_MM:
+            continue
+        x_middle = (x_start + x_end) / 2.0
+        intervals = sorted(
+            (ymin, ymax)
+            for xmin, ymin, xmax, ymax in clipped_boxes
+            if xmin < x_middle < xmax
+        )
+        if not intervals:
+            continue
+
+        merged: list[tuple[float, float]] = []
+        for start, end in intervals:
+            if not merged or start > merged[-1][1] + GEOMETRY_TOLERANCE_MM:
+                merged.append((start, end))
+            else:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        total += sum(
+            polygon_bbox_intersection_area(
+                points,
+                (x_start, y_start, x_end, y_end),
+            )
+            for y_start, y_end in merged
+        )
+
+    return min(total, polygon_area(points))

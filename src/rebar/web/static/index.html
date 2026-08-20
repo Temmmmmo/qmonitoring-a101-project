@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#263643">
+    <title>Rebar Layout · инженерный расчёт</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <header class="app-header">
+      <a class="brand" href="/" aria-label="Rebar Layout — на главную">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span class="brand-copy">
+          <strong>Rebar Layout</strong>
+          <small>Раскладка дополнительной арматуры</small>
+        </span>
+      </a>
+      <div class="header-context" aria-label="Контекст приложения">
+        <span>Одно направление</span>
+        <span class="environment-badge"><i aria-hidden="true"></i> Локальный MVP</span>
+      </div>
+    </header>
+
+    <main class="app-shell">
+      <form id="analysis-form" class="control-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="panel-kicker">Параметры задачи</p>
+            <h1>Новый расчёт</h1>
+          </div>
+          <span class="panel-code">DXF · 01</span>
+        </div>
+
+        <section class="control-section" aria-labelledby="source-heading">
+          <div class="section-heading">
+            <span class="section-index">01</span>
+            <div>
+              <h2 id="source-heading">Исходные данные</h2>
+              <p>Один файл для нижнего/верхнего слоя и оси X/Y.</p>
+            </div>
+          </div>
+
+          <label id="dropzone" class="dropzone" for="dxf-input">
+            <input id="dxf-input" name="dxf" type="file" accept=".dxf" required>
+            <span class="drop-icon" aria-hidden="true">DXF</span>
+            <span class="drop-copy">
+              <strong id="dxf-title">Выберите файл мозаики</strong>
+              <small id="dxf-meta">DXF, не более 30 МБ</small>
+            </span>
+            <span class="file-action">Обзор</span>
+          </label>
+
+          <div class="field-stack">
+            <label class="field">
+              <span>Назначение арматуры</span>
+              <select id="mapping-select" name="mapping_id" aria-describedby="mapping-help"></select>
+              <small id="mapping-help">Источник соответствия уровней As диаметру и шагу.</small>
+            </label>
+            <label class="field file-field">
+              <span>Файл шкалы <i>необязательно</i></span>
+              <input id="shk-input" name="shk" type="file" accept=".shk">
+              <span id="shk-label" class="file-field-label">Выбрать .shk</span>
+            </label>
+          </div>
+        </section>
+
+        <section class="control-section" aria-labelledby="algorithm-heading">
+          <div class="section-heading">
+            <span class="section-index">02</span>
+            <div>
+              <h2 id="algorithm-heading">Методы расчёта</h2>
+              <p>Можно запустить несколько методов на одних параметрах.</p>
+            </div>
+          </div>
+          <div id="algorithm-list" class="algorithm-list" aria-live="polite"></div>
+        </section>
+
+        <details class="advanced">
+          <summary><span>Параметры эксперимента</span><i aria-hidden="true">+</i></summary>
+          <div class="field-grid">
+            <label class="field"><span>Максимум зон</span>
+              <input id="max-details" name="max_details" type="number" min="1" max="100" value="32">
+            </label>
+            <label class="field"><span>Минимум КЭ по ширине</span>
+              <input id="min-width" name="min_width_cells" type="number" min="1" max="10" value="2">
+            </label>
+            <label class="field"><span>Штраф за зону, кг</span>
+              <input id="detail-penalty" name="detail_penalty_kg" type="number" min="0" step="1" value="0">
+            </label>
+            <label class="field"><span>Профиль раскроя</span>
+              <select id="cutting-profile" name="cutting_profile"></select>
+            </label>
+          </div>
+        </details>
+
+        <div id="form-error" class="message error" role="alert" hidden></div>
+        <button id="submit-button" class="primary-button" type="submit">
+          <span>Выполнить расчёт</span>
+          <span class="button-key" aria-hidden="true">RUN</span>
+        </button>
+      </form>
+
+      <section class="workbench" aria-label="Рабочая область">
+        <div class="workbench-bar">
+          <div>
+            <span class="workbench-label">Рабочая область</span>
+            <strong id="workbench-title">Просмотр раскладки</strong>
+          </div>
+          <span id="workspace-state" class="workspace-state">Ожидание данных</span>
+        </div>
+
+        <section id="empty-state" class="empty-state">
+          <div class="empty-drawing" aria-hidden="true">
+            <div class="drawing-frame">
+              <span class="axis axis-x">X</span>
+              <span class="axis axis-y">Y</span>
+              <i class="zone zone-one"></i>
+              <i class="zone zone-two"></i>
+              <i class="zone zone-three"></i>
+            </div>
+          </div>
+          <div class="empty-copy">
+            <p class="panel-kicker">Расчёт не выполнен</p>
+            <h2>Здесь появится схема армирования</h2>
+            <p>Загрузите DXF, выберите методы и запустите расчёт. Исходная мозаика,
+              прямоугольные зоны и метрики будут показаны в этой области.</p>
+            <dl class="workflow-facts">
+              <div><dt>Вход</dt><dd>DXF одного направления</dd></div>
+              <div><dt>Результат</dt><dd>Зоны, стержни, масса</dd></div>
+              <div><dt>Хранение</dt><dd>Файлы не сохраняются</dd></div>
+            </dl>
+          </div>
+        </section>
+
+        <section id="loading" class="loading-panel" hidden aria-live="polite">
+          <div class="loader" aria-hidden="true"><span></span><span></span><span></span></div>
+          <div>
+            <strong>Выполняется расчёт вариантов</strong>
+            <p>Обрабатываем геометрию и последовательно запускаем выбранные методы.</p>
+          </div>
+        </section>
+
+        <section id="results" class="results" hidden>
+          <div class="results-head">
+            <div>
+              <p class="panel-kicker">Активный файл</p>
+              <h2 id="result-filename"></h2>
+            </div>
+            <button id="new-analysis" class="secondary-button" type="button">К параметрам</button>
+          </div>
+          <div id="source-facts" class="source-facts"></div>
+          <div id="solution-tabs" class="solution-tabs" role="tablist" aria-label="Алгоритмы"></div>
+
+          <article class="solution-view">
+            <div class="drawing-column">
+              <div class="drawing-toolbar">
+                <div>
+                  <span>Активный метод</span>
+                  <strong id="active-algorithm"></strong>
+                </div>
+                <button id="detailing-toggle" class="layer-toggle" type="button" aria-pressed="false">Детализация: выкл</button>
+              </div>
+              <div id="drawing" class="drawing"></div>
+            </div>
+            <aside class="metrics-column">
+              <div class="metrics-heading">
+                <span>Сводка решения</span>
+                <div id="active-status" class="status-pill"></div>
+              </div>
+              <div id="active-metrics" class="metric-grid"></div>
+              <div id="trajectory-panel" class="trajectory-panel" hidden>
+                <h3>Траектория вариантов</h3>
+                <div id="trajectory-chart" class="trajectory-chart"></div>
+                <p>Зелёным отмечены недоминируемые точки внутри текущей жадной траектории.</p>
+              </div>
+              <div class="diagnostics">
+                <h3>Диагностика</h3>
+                <ul id="diagnostics-list"></ul>
+              </div>
+            </aside>
+          </article>
+
+          <details class="zone-details">
+            <summary><span>Параметры прямоугольных зон</span><i aria-hidden="true">+</i></summary>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>ID</th><th>Уровень</th><th>⌀ / шаг</th><th>Ширина</th><th>40d минимум</th><th>Отрезок</th><th>Стержней</th><th>Масса</th></tr></thead>
+                <tbody id="zones-body"></tbody>
+              </table>
+            </div>
+          </details>
+        </section>
+      </section>
+    </main>
+
+    <footer class="statusbar">
+      <span><i aria-hidden="true"></i><b id="app-status">Система готова</b></span>
+      <span>Внутренние единицы: мм</span>
+      <span>Qmonitoring × A101</span>
+    </footer>
+    <script src="/static/app.js" defer></script>
+  </body>
+</html>

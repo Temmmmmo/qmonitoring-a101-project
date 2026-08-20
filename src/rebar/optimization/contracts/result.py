@@ -41,15 +41,22 @@ class AlgorithmRequest:
 
 @dataclass(frozen=True)
 class LayoutZone:
-    """Одна готовая прямоугольная деталь дополнительного армирования."""
+    """Одна параметрическая прямоугольная группа параллельных стержней."""
 
     id: str
+    # Envelope осей установленных стержней: поперёк — от первого до последнего,
+    # вдоль — полная фактически принятая длина.
     bbox: BBox
+    # Минимальная область спроса, из которой построена группа, без анкеровки и раскроя.
+    demand_bbox: BBox
     level_index: int
     rebar: Rebar
     width_mm: float
     required_length_mm: float
+    anchored_length_mm: float
     installed_length_mm: float
+    # Глобальная поперечная координата оси первого стержня (Y для Axis.X, X для Axis.Y).
+    first_bar_coordinate_mm: float
     bar_count: int
     mass_kg: float
     covered_cell_ids: tuple[int, ...] = ()
@@ -69,6 +76,8 @@ class LayoutMetrics:
     overcovered_cell_count: int
     overcovered_area_mm2: float
     objective_value: float
+    physical_bar_count: int = 0
+    total_bar_length_mm: float = 0.0
 
 
 @dataclass(frozen=True)

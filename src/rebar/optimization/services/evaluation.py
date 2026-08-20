@@ -1,11 +1,9 @@
-"""Независимая проверка решений и единый расчёт сравнимых метрик."""
+"""Независимая проверка параметрических групп и единый расчёт метрик."""
 
 from __future__ import annotations
 
 import math
 from collections.abc import Sequence
-
-from rebar.models import Axis
 
 from ..contracts import (
     AlgorithmRequest,
@@ -14,15 +12,38 @@ from ..contracts import (
     LayoutProblem,
     LayoutZone,
 )
+from .anchorage import FixedDiameterAnchoragePolicy
+from .bar_geometry import (
+    bar_coordinates,
+    bars_conflict,
+    intervals_overlap,
+    longitudinal_interval,
+    transverse_axis_gap,
+    transverse_interval,
+    zone_coverage_bbox,
+)
+from .cutting import select_installed_length_mm
 from .detailing import demanded_cells, prepare_detailing, rebar_mass_kg
 from .geometry import (
     GEOMETRY_TOLERANCE_MM,
-    bboxes_distance,
     bboxes_overlap,
+    point_in_bbox,
     polygon_area,
     polygon_bbox_intersection_area,
-    polygon_in_bbox,
+    polygon_bboxes_union_intersection_area,
 )
+
+
+def partition_zones_conflict(
+    problem: LayoutProblem,
+    first: LayoutZone,
+    second: LayoutZone,
+) -> bool:
+    """Проверить только жёсткое пересечение прямоугольников разбиения."""
+
+    if problem.constraints.allow_overlaps:
+        return False
+    return bboxes_overlap(first.demand_bbox, second.demand_bbox)
 
 
 def zones_conflict(
@@ -30,26 +51,9 @@ def zones_conflict(
     first: LayoutZone,
     second: LayoutZone,
 ) -> bool:
-    """Проверить заведомо недопустимую близость двух зон одного направления."""
+    """Совместимый псевдоним для жёсткого конфликта разбиения."""
 
-    if problem.constraints.allow_overlaps:
-        return False
-    if bboxes_overlap(first.bbox, second.bbox):
-        return True
-    if not problem.constraints.enforce_zone_gap:
-        return False
-    if first.rebar.step <= 0 or second.rebar.step <= 0:
-        return True
-
-    # Для одинакового шага ТЗ требует раздвижку ровно на шаг. Для разных шагов
-    # отбрасываем только расстояние, которое меньше обоих возможных правил; промежуток
-    # между min(step) и max(step) остаётся допустимым с WARNING от evaluate_layout.
-    definitely_required_gap = min(first.rebar.step, second.rebar.step)
-    return (
-        bboxes_distance(first.bbox, second.bbox)
-        + GEOMETRY_TOLERANCE_MM
-        < definitely_required_gap
-    )
+    return partition_zones_conflict(problem, first, second)
 
 
 def _append_zone_geometry_diagnostics(
@@ -58,7 +62,7 @@ def _append_zone_geometry_diagnostics(
     diagnostics: list[str],
     typical_transverse_cell_size_mm: float | None,
 ) -> float:
-    """Проверить поля зоны и вернуть независимо рассчитанную массу."""
+    """Проверить поля группы и вернуть независимо рассчитанную массу."""
 
     try:
         level = problem.demand.level(zone.level_index)
@@ -73,31 +77,66 @@ def _append_zone_geometry_diagnostics(
 
     numeric_values = (
         *zone.bbox,
+        *zone.demand_bbox,
         zone.width_mm,
         zone.required_length_mm,
+        zone.anchored_length_mm,
         zone.installed_length_mm,
+        zone.first_bar_coordinate_mm,
         zone.mass_kg,
     )
     if not all(math.isfinite(value) for value in numeric_values):
-        diagnostics.append(f"ERROR: зона {zone.id}: геометрия или масса содержит нечисловое значение")
+        diagnostics.append(
+            f"ERROR: зона {zone.id}: геометрия или масса содержит нечисловое значение"
+        )
         return 0.0
 
     xmin, ymin, xmax, ymax = zone.bbox
+    dxmin, dymin, dxmax, dymax = zone.demand_bbox
     if xmax <= xmin or ymax <= ymin:
         diagnostics.append(f"ERROR: зона {zone.id}: вырожденный bbox")
         return 0.0
-
+    if dxmax <= dxmin or dymax <= dymin:
+        diagnostics.append(f"ERROR: зона {zone.id}: вырожденный demand_bbox")
+        return 0.0
     axis = problem.demand.direction.axis
-    expected_width = ymax - ymin if axis is Axis.X else xmax - xmin
-    expected_installed_length = xmax - xmin if axis is Axis.X else ymax - ymin
+    service_bbox = zone_coverage_bbox(axis, zone)
+    if not all(
+        point_in_bbox(point, service_bbox)
+        for point in ((dxmin, dymin), (dxmax, dymax))
+    ):
+        diagnostics.append(
+            f"ERROR: зона {zone.id}: demand_bbox не входит в область обслуживания"
+        )
+    transverse_start, transverse_end = transverse_interval(axis, zone.bbox)
+    longitudinal_start, longitudinal_end = longitudinal_interval(axis, zone.bbox)
+    demand_longitudinal_start, demand_longitudinal_end = longitudinal_interval(
+        axis, zone.demand_bbox
+    )
+    expected_width = transverse_end - transverse_start
+    expected_installed_length = longitudinal_end - longitudinal_start
+    expected_required_length = demand_longitudinal_end - demand_longitudinal_start
+
     if not math.isclose(zone.width_mm, expected_width, abs_tol=GEOMETRY_TOLERANCE_MM):
         diagnostics.append(f"ERROR: зона {zone.id}: width_mm не совпадает с bbox")
+    if not math.isclose(
+        zone.first_bar_coordinate_mm,
+        transverse_start,
+        abs_tol=GEOMETRY_TOLERANCE_MM,
+    ):
+        diagnostics.append(f"ERROR: зона {zone.id}: первая ось не совпадает с bbox")
     if not math.isclose(
         zone.installed_length_mm,
         expected_installed_length,
         abs_tol=GEOMETRY_TOLERANCE_MM,
     ):
         diagnostics.append(f"ERROR: зона {zone.id}: installed_length_mm не совпадает с bbox")
+    if not math.isclose(
+        zone.required_length_mm,
+        expected_required_length,
+        abs_tol=GEOMETRY_TOLERANCE_MM,
+    ):
+        diagnostics.append(f"ERROR: зона {zone.id}: required_length_mm не совпадает с demand_bbox")
 
     step = level.additional.step
     diameter = level.additional.diameter
@@ -116,37 +155,72 @@ def _append_zone_geometry_diagnostics(
     ):
         diagnostics.append(f"ERROR: зона {zone.id}: ширина не кратна шагу {step} мм")
     if zone.bar_count != width_space_count + 1:
-        diagnostics.append(
-            f"ERROR: зона {zone.id}: bar_count должен быть width/step + 1"
-        )
+        diagnostics.append(f"ERROR: зона {zone.id}: bar_count должен быть width/step + 1")
+    coordinates = bar_coordinates(zone)
+    if len(coordinates) != zone.bar_count:
+        diagnostics.append(f"ERROR: зона {zone.id}: невозможно восстановить оси стержней")
+    elif not math.isclose(
+        coordinates[-1],
+        transverse_end,
+        abs_tol=GEOMETRY_TOLERANCE_MM,
+    ):
+        diagnostics.append(f"ERROR: зона {zone.id}: последняя ось не совпадает с bbox")
 
     if typical_transverse_cell_size_mm is not None:
-        minimum_width = (
-            problem.constraints.min_width_cells * typical_transverse_cell_size_mm
-        )
+        minimum_width = problem.constraints.min_width_cells * typical_transverse_cell_size_mm
         if expected_width + GEOMETRY_TOLERANCE_MM < minimum_width:
             diagnostics.append(
                 f"ERROR: зона {zone.id}: ширина меньше "
                 f"{problem.constraints.min_width_cells} КЭ"
             )
 
-    anchorage_each_end = problem.constraints.anchorage_diameters * diameter
-    expected_required_length = expected_installed_length - 2.0 * anchorage_each_end
-    if expected_required_length <= GEOMETRY_TOLERANCE_MM:
-        diagnostics.append(f"ERROR: зона {zone.id}: длина не оставляет рабочей части после 40d")
+    anchorage_policy = FixedDiameterAnchoragePolicy(
+        problem.constraints.anchorage_diameters
+    )
+    anchorage_each_end = anchorage_policy.extension_each_end_mm(level.additional)
+    expected_anchored_length = expected_required_length + 2.0 * anchorage_each_end
     if not math.isclose(
-        zone.required_length_mm,
-        expected_required_length,
+        zone.anchored_length_mm,
+        expected_anchored_length,
+        abs_tol=GEOMETRY_TOLERANCE_MM,
+    ):
+        diagnostics.append(f"ERROR: зона {zone.id}: anchored_length_mm не согласована с анкеровкой")
+
+    try:
+        selected_length = select_installed_length_mm(
+            expected_anchored_length,
+            problem.constraints.allowed_cut_lengths_mm,
+        )
+    except ValueError as error:
+        diagnostics.append(f"ERROR: зона {zone.id}: невозможно выбрать длину отрезка: {error}")
+        selected_length = expected_anchored_length
+    if not math.isclose(
+        zone.installed_length_mm,
+        selected_length,
         abs_tol=GEOMETRY_TOLERANCE_MM,
     ):
         diagnostics.append(
-            f"ERROR: зона {zone.id}: required_length_mm не согласована с анкеровкой"
+            f"ERROR: зона {zone.id}: installed_length_mm не соответствует политике раскроя"
         )
+
+    expected_extension = (selected_length - expected_required_length) / 2.0
+    expected_longitudinal_start = demand_longitudinal_start - expected_extension
+    expected_longitudinal_end = demand_longitudinal_end + expected_extension
+    if not math.isclose(
+        longitudinal_start,
+        expected_longitudinal_start,
+        abs_tol=GEOMETRY_TOLERANCE_MM,
+    ) or not math.isclose(
+        longitudinal_end,
+        expected_longitudinal_end,
+        abs_tol=GEOMETRY_TOLERANCE_MM,
+    ):
+        diagnostics.append(f"ERROR: зона {zone.id}: bbox не центрирован по установленной длине")
 
     try:
         expected_mass = rebar_mass_kg(
             diameter,
-            expected_installed_length,
+            selected_length,
             width_space_count + 1,
         )
     except ValueError as error:
@@ -166,8 +240,8 @@ def evaluate_layout(
 
     request = request or AlgorithmRequest()
     demanded = demanded_cells(problem)
-    covered: set[int] = set()
-    overcovered_area_by_cell: dict[int, float] = {}
+    coverage_bboxes_by_cell: dict[int, list[tuple[float, float, float, float]]] = {}
+    overcoverage_bboxes_by_cell: dict[int, list[tuple[float, float, float, float]]] = {}
     diagnostics: list[str] = []
     total_mass = 0.0
 
@@ -196,43 +270,49 @@ def evaluate_layout(
         if xmax <= xmin or ymax <= ymin:
             continue
 
+        service_bbox = zone_coverage_bbox(problem.demand.direction.axis, zone)
         zone_covered: set[int] = set()
         zone_overcovered: set[int] = set()
-        weaker_intersections: list[int] = []
         for cell in problem.demand.cells:
-            intersection_area = polygon_bbox_intersection_area(cell.poly, zone.bbox)
-            if intersection_area <= GEOMETRY_TOLERANCE_MM:
-                continue
+            demand_intersection_area = polygon_bbox_intersection_area(
+                cell.poly,
+                zone.demand_bbox,
+            )
             cell_level = problem.demand.level(cell.level_index)
-            if cell_level.requires_extra is True and zone.level_index < cell.level_index:
-                weaker_intersections.append(cell.id)
-                continue
             if (
-                cell_level.requires_extra is True
-                and polygon_in_bbox(cell.poly, zone.bbox)
+                demand_intersection_area > GEOMETRY_TOLERANCE_MM
+                and cell_level.requires_extra is True
+                and zone.level_index >= cell.level_index
             ):
-                covered.add(cell.id)
                 zone_covered.add(cell.id)
+                coverage_bboxes_by_cell.setdefault(cell.id, []).append(zone.demand_bbox)
+            service_intersection_area = polygon_bbox_intersection_area(
+                cell.poly,
+                service_bbox,
+            )
+            if service_intersection_area <= GEOMETRY_TOLERANCE_MM:
+                continue
             if cell_level.requires_extra is not True or zone.level_index > cell.level_index:
                 zone_overcovered.add(cell.id)
-                overcovered_area_by_cell[cell.id] = (
-                    overcovered_area_by_cell.get(cell.id, 0.0) + intersection_area
-                )
+                overcoverage_bboxes_by_cell.setdefault(cell.id, []).append(service_bbox)
 
-        if weaker_intersections:
-            diagnostics.append(
-                f"ERROR: зона {zone.id}: слабее требования пересекаемых КЭ "
-                f"{sorted(weaker_intersections)[:10]}"
-            )
         if set(zone.covered_cell_ids) != zone_covered:
-            diagnostics.append(
-                f"ERROR: зона {zone.id}: covered_cell_ids не совпадает с геометрией"
-            )
+            diagnostics.append(f"ERROR: зона {zone.id}: covered_cell_ids не совпадает с геометрией")
         if set(zone.overcovered_cell_ids) != zone_overcovered:
             diagnostics.append(
                 f"ERROR: зона {zone.id}: overcovered_cell_ids не совпадает с геометрией"
             )
 
+    covered = {
+        cell.id
+        for cell in demanded
+        if polygon_bboxes_union_intersection_area(
+            cell.poly,
+            coverage_bboxes_by_cell.get(cell.id, ()),
+        )
+        + max(GEOMETRY_TOLERANCE_MM, polygon_area(cell.poly) * 1e-8)
+        >= polygon_area(cell.poly)
+    }
     under_reinforced = {cell.id for cell in demanded} - covered
     if under_reinforced:
         diagnostics.append(
@@ -244,56 +324,80 @@ def evaluate_layout(
             f"ERROR: деталей {len(zones)}, ограничение max_details={request.max_details}"
         )
 
-    overcovered = set(overcovered_area_by_cell)
+    overcovered = set(overcoverage_bboxes_by_cell)
     if not problem.constraints.allow_overcoverage and overcovered:
         diagnostics.append(
             f"ERROR: избыточно накрыты КЭ: {len(overcovered)} при запрете перерасхода"
         )
 
-    if problem.constraints.allow_overlaps and len(zones) > 1:
-        diagnostics.append(
-            "WARNING: пересечения и зазоры отключены исследовательским allow_overlaps"
-        )
-    elif not problem.constraints.allow_overlaps:
-        unresolved_mixed_gap_pairs: list[str] = []
-        for index, first in enumerate(zones):
-            for second in zones[index + 1 :]:
-                if bboxes_overlap(first.bbox, second.bbox):
-                    diagnostics.append(f"ERROR: зоны {first.id} и {second.id} пересекаются")
-                    continue
-                if not problem.constraints.enforce_zone_gap:
-                    continue
+    conservative_mixed_gap_pairs: list[str] = []
+    axis = problem.demand.direction.axis
+    for index, first in enumerate(zones):
+        for second in zones[index + 1 :]:
+            if (
+                not problem.constraints.allow_overlaps
+                and partition_zones_conflict(problem, first, second)
+            ):
+                diagnostics.append(
+                    f"ERROR: прямоугольники разбиения {first.id} и {second.id} "
+                    "пересекаются"
+                )
 
-                distance = bboxes_distance(first.bbox, second.bbox)
-                smaller_step = min(first.rebar.step, second.rebar.step)
-                larger_step = max(first.rebar.step, second.rebar.step)
-                if distance + GEOMETRY_TOLERANCE_MM < smaller_step:
-                    diagnostics.append(
-                        f"ERROR: зазор между зонами {first.id} и {second.id} "
-                        f"{distance:.3f} мм меньше требуемого минимума {smaller_step} мм"
-                    )
-                elif (
-                    first.rebar.step != second.rebar.step
-                    and distance + GEOMETRY_TOLERANCE_MM < larger_step
-                ):
-                    unresolved_mixed_gap_pairs.append(f"{first.id}/{second.id}")
-        if not problem.constraints.enforce_zone_gap and len(zones) > 1:
-            diagnostics.append("WARNING: проверка раздвижки зон отключена")
-        if unresolved_mixed_gap_pairs:
-            diagnostics.append(
-                "WARNING: правило зазора для разных шагов не подтверждено; "
-                f"пары: {unresolved_mixed_gap_pairs[:10]}"
+            physical_conflict = bars_conflict(
+                axis,
+                first,
+                second,
+                minimum_clear_spacing_mm=problem.constraints.minimum_clear_spacing_mm,
             )
+            installed_overlap = bboxes_overlap(first.bbox, second.bbox)
+            if physical_conflict:
+                diagnostics.append(
+                    f"WARNING: стержни зон {first.id} и {second.id} конфликтуют "
+                    "после детализации"
+                )
+            elif installed_overlap:
+                diagnostics.append(
+                    f"WARNING: установленные envelope зон {first.id} и {second.id} "
+                    "пересекаются после 40d, но линии стержней не конфликтуют"
+                )
+
+            if not problem.constraints.enforce_zone_gap:
+                continue
+            if not intervals_overlap(
+                longitudinal_interval(axis, first.bbox),
+                longitudinal_interval(axis, second.bbox),
+            ):
+                continue
+
+            gap = transverse_axis_gap(axis, first, second)
+            required_gap = max(first.rebar.step, second.rebar.step)
+            if gap + GEOMETRY_TOLERANCE_MM < required_gap:
+                diagnostics.append(
+                    f"WARNING: расстояние между крайними стержнями зон "
+                    f"{first.id} и {second.id} {gap:.3f} мм меньше "
+                    f"требуемого минимума {required_gap} мм"
+                )
+            if first.rebar.step != second.rebar.step:
+                conservative_mixed_gap_pairs.append(f"{first.id}/{second.id}")
+    if not problem.constraints.enforce_zone_gap and len(zones) > 1:
+        diagnostics.append("WARNING: проверка раздвижки зон отключена")
+    if conservative_mixed_gap_pairs:
+        diagnostics.append(
+            "WARNING: для разных шагов применён консервативный больший шаг; "
+            f"пары: {conservative_mixed_gap_pairs[:10]}"
+        )
 
     cell_by_id = {cell.id: cell for cell in problem.demand.cells}
-    overcovered_area = sum(
-        min(area, polygon_area(cell_by_id[cell_id].poly))
-        for cell_id, area in overcovered_area_by_cell.items()
-    )
-    if problem.constraints.allow_overlaps and overcovered:
-        diagnostics.append(
-            "WARNING: площадь перерасхода в режиме пересечений ограничена площадью КЭ"
+    overcovered_area_by_cell = {
+        cell_id: polygon_bboxes_union_intersection_area(
+            cell_by_id[cell_id].poly,
+            bboxes,
         )
+        for cell_id, bboxes in overcoverage_bboxes_by_cell.items()
+    }
+    overcovered_area = sum(
+        area for area in overcovered_area_by_cell.values()
+    )
 
     objective = (
         request.objective.mass * total_mass
@@ -308,6 +412,10 @@ def evaluate_layout(
         overcovered_cell_count=len(overcovered),
         overcovered_area_mm2=overcovered_area,
         objective_value=objective,
+        physical_bar_count=sum(zone.bar_count for zone in zones),
+        total_bar_length_mm=sum(
+            zone.installed_length_mm * zone.bar_count for zone in zones
+        ),
     )
     return LayoutEvaluation(
         valid=not any(message.startswith("ERROR:") for message in diagnostics),

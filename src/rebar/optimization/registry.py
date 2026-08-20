@@ -47,6 +47,9 @@ def built_in_optimizer_registry() -> OptimizerRegistry:
         BspOptimizer,
         GreedyStripOptimizer,
         PriorityGreedyOptimizer,
+        RowRunGreedyOptimizer,
+        SpatialPartitionGreedyOptimizer,
+        StripProfileDpOptimizer,
         StrongestBBoxOptimizer,
     )
 
@@ -56,4 +59,7 @@ def built_in_optimizer_registry() -> OptimizerRegistry:
     registry.register(BspOptimizer.name, BspOptimizer)
     registry.register(GreedyStripOptimizer.name, GreedyStripOptimizer)
     registry.register(PriorityGreedyOptimizer.name, PriorityGreedyOptimizer)
+    registry.register(RowRunGreedyOptimizer.name, RowRunGreedyOptimizer)
+    registry.register(SpatialPartitionGreedyOptimizer.name, SpatialPartitionGreedyOptimizer)
+    registry.register(StripProfileDpOptimizer.name, StripProfileDpOptimizer)
     return registry

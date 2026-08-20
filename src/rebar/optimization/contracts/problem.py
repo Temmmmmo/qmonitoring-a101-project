@@ -64,14 +64,29 @@ class LayoutConstraints:
     min_width_cells: int = 2
     anchorage_diameters: float = 40.0
     allow_overcoverage: bool = True
-    allow_overlaps: bool = False
+    # Инженерские зоны одного направления могут пересекаться. Строгий запрет остаётся
+    # доступен как исследовательский профиль, но не является рабочим правилом MVP.
+    allow_overlaps: bool = True
     enforce_zone_gap: bool = True
+    minimum_clear_spacing_mm: float = 0.0
+    allowed_cut_lengths_mm: tuple[float, ...] = ()
+    cutting_profile: str = "continuous"
 
     def __post_init__(self) -> None:
         if self.min_width_cells < 1:
             raise ValueError("min_width_cells должен быть не меньше 1")
         if self.anchorage_diameters < 0:
             raise ValueError("anchorage_diameters не может быть отрицательным")
+        if self.minimum_clear_spacing_mm < 0:
+            raise ValueError("minimum_clear_spacing_mm не может быть отрицательным")
+        if not self.cutting_profile.strip():
+            raise ValueError("cutting_profile не может быть пустым")
+        if any(length <= 0 for length in self.allowed_cut_lengths_mm):
+            raise ValueError("допустимые длины отрезков должны быть положительными")
+        if tuple(sorted(set(self.allowed_cut_lengths_mm))) != self.allowed_cut_lengths_mm:
+            raise ValueError(
+                "allowed_cut_lengths_mm должны быть уникальными и возрастать"
+            )
 
 
 @dataclass(frozen=True)

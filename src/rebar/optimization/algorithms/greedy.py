@@ -20,8 +20,9 @@ from ..services import (
     build_zone,
     demanded_cells,
     evaluate_layout,
+    partition_zones_conflict,
     prepare_detailing,
-    zones_conflict,
+    resolve_zone_phases,
 )
 from ..services.geometry import GEOMETRY_TOLERANCE_MM, cell_bbox
 
@@ -136,7 +137,7 @@ class GreedyStripOptimizer:
         *,
         collect_coverage: bool,
     ) -> list[LayoutZone]:
-        return [
+        zones = [
             self._zone(
                 problem,
                 ids,
@@ -146,6 +147,12 @@ class GreedyStripOptimizer:
             )
             for index, ids in enumerate(groups, 1)
         ]
+        return resolve_zone_phases(
+            problem,
+            zones,
+            context=context,
+            collect_coverage=collect_coverage,
+        )
 
     def _best_merge(
         self,
@@ -172,10 +179,14 @@ class GreedyStripOptimizer:
         return min(candidates, key=lambda candidate: (candidate[0], candidate[1]))
 
     @staticmethod
-    def _merge_groups(groups: list[tuple[int, ...]], index: int) -> None:
-        groups[index : index + 2] = [
-            tuple(sorted((*groups[index], *groups[index + 1])))
-        ]
+    def _merge_groups(
+        groups: list[tuple[int, ...]],
+        first: int,
+        second: int | None = None,
+    ) -> None:
+        second = first + 1 if second is None else second
+        groups[first] = tuple(sorted((*groups[first], *groups[second])))
+        del groups[second]
 
     def solve(
         self,
@@ -214,24 +225,31 @@ class GreedyStripOptimizer:
         initial_strip_count = len(groups)
         merge_log: list[dict[str, float | int | str]] = []
 
-        # Нерегулярная сетка может дать перекрывающиеся поперечные интервалы. Сливаем
-        # такие соседние полосы до оптимизационных шагов, чтобы сохранить допустимость.
+        # Строгий исследовательский профиль может запретить overlap. В рабочем режиме
+        # пересечения разрешены и этот цикл не изменяет геометрию решения.
         while len(groups) > 1:
             zones = self._zones(
                 problem, groups, context, collect_coverage=False
             )
-            conflict_index = next(
+            conflict_pair = next(
                 (
-                    index
-                    for index in range(len(zones) - 1)
-                    if zones_conflict(problem, zones[index], zones[index + 1])
+                    (first, second)
+                    for first, zone in enumerate(zones)
+                    for second in range(first + 1, len(zones))
+                    if partition_zones_conflict(problem, zone, zones[second])
                 ),
                 None,
             )
-            if conflict_index is None:
+            if conflict_pair is None:
                 break
-            self._merge_groups(groups, conflict_index)
-            merge_log.append({"index": conflict_index, "reason": "overlap"})
+            self._merge_groups(groups, *conflict_pair)
+            merge_log.append(
+                {
+                    "first": conflict_pair[0],
+                    "second": conflict_pair[1],
+                    "reason": "partition_overlap",
+                }
+            )
 
         while len(groups) > 1:
             zones = self._zones(

@@ -10,11 +10,13 @@ from dataclasses import dataclass
 from rebar.models import Axis
 
 from ..contracts import DemandCell, LayoutProblem, LayoutZone
+from .anchorage import FixedDiameterAnchoragePolicy
+from .bar_geometry import coverage_bbox
+from .cutting import select_installed_length_mm
 from .geometry import (
     GEOMETRY_TOLERANCE_MM,
     cell_bbox,
     polygon_bbox_intersection_area,
-    polygon_in_bbox,
 )
 
 STEEL_KG_PER_M_PER_MM2 = 0.006165
@@ -89,8 +91,9 @@ def build_zone(
     *,
     collect_coverage: bool = True,
     context: DetailingContext | None = None,
+    first_bar_coordinate_mm: float | None = None,
 ) -> LayoutZone:
-    """Детализировать охватывающий прямоугольник по единым формулам."""
+    """Детализировать группу стержней по единым формулам и проектным политикам."""
 
     ids = tuple(sorted(set(cell_ids)))
     if not ids:
@@ -101,6 +104,58 @@ def build_zone(
     except KeyError as error:
         raise KeyError(f"КЭ {error.args[0]} отсутствует в карте спроса") from error
 
+    if any(cell.level_index > level_index for cell in selected):
+        raise ValueError("уровень зоны слабее требования выбранных КЭ")
+
+    boxes = [cell_bbox(cell) for cell in selected]
+    demand_bbox = (
+        min(box[0] for box in boxes),
+        min(box[1] for box in boxes),
+        max(box[2] for box in boxes),
+        max(box[3] for box in boxes),
+    )
+    return build_zone_from_bbox(
+        problem,
+        demand_bbox,
+        level_index,
+        zone_id,
+        seed_cell_ids=ids,
+        collect_coverage=collect_coverage,
+        context=context,
+        first_bar_coordinate_mm=first_bar_coordinate_mm,
+    )
+
+
+def build_zone_from_bbox(
+    problem: LayoutProblem,
+    demand_bbox: tuple[float, float, float, float],
+    level_index: int,
+    zone_id: str,
+    *,
+    seed_cell_ids: Iterable[int] = (),
+    collect_coverage: bool = True,
+    context: DetailingContext | None = None,
+    first_bar_coordinate_mm: float | None = None,
+) -> LayoutZone:
+    """Детализировать уже построенный пространственный прямоугольник.
+
+    В отличие от :func:`build_zone`, прямоугольник здесь является первичным объектом,
+    а не bbox произвольного множества КЭ. Это позволяет пространственным алгоритмам
+    делить один КЭ между соседними непересекающимися зонами.
+    """
+
+    context = context or prepare_detailing(problem)
+    ids = tuple(sorted(set(seed_cell_ids)))
+    unknown_ids = [cell_id for cell_id in ids if cell_id not in context.cells_by_id]
+    if unknown_ids:
+        raise KeyError(f"КЭ {unknown_ids[0]} отсутствует в карте спроса")
+
+    xmin, ymin, xmax, ymax = demand_bbox
+    if not all(math.isfinite(value) for value in demand_bbox):
+        raise ValueError("demand_bbox должен содержать конечные координаты")
+    if xmax - xmin <= GEOMETRY_TOLERANCE_MM or ymax - ymin <= GEOMETRY_TOLERANCE_MM:
+        raise ValueError("demand_bbox должен иметь положительную площадь")
+
     level = problem.demand.level(level_index)
     if level.additional is None:
         raise ValueError(f"уровень {level_index} не задаёт дополнительную арматуру")
@@ -108,18 +163,14 @@ def build_zone(
         raise ValueError("шаг арматуры должен быть положительным")
     if level.additional.diameter <= 0:
         raise ValueError("диаметр арматуры должен быть положительным")
-    if any(cell.level_index > level_index for cell in selected):
+    if any(context.cells_by_id[cell_id].level_index > level_index for cell_id in ids):
         raise ValueError("уровень зоны слабее требования выбранных КЭ")
-
-    boxes = [cell_bbox(cell) for cell in selected]
-    xmin = min(box[0] for box in boxes)
-    ymin = min(box[1] for box in boxes)
-    xmax = max(box[2] for box in boxes)
-    ymax = max(box[3] for box in boxes)
     axis = problem.demand.direction.axis
 
     required_length = xmax - xmin if axis is Axis.X else ymax - ymin
     raw_width = ymax - ymin if axis is Axis.X else xmax - xmin
+    transverse_lower = ymin if axis is Axis.X else xmin
+    transverse_upper = ymax if axis is Axis.X else xmax
     typical_cell_width = context.typical_transverse_cell_size_mm
     minimum_width = problem.constraints.min_width_cells * typical_cell_width
     target_width = max(raw_width, minimum_width)
@@ -130,54 +181,97 @@ def build_zone(
         ),
     )
     width = float(width_spaces * level.additional.step)
-    width_padding = (width - raw_width) / 2.0
-    anchorage = problem.constraints.anchorage_diameters * level.additional.diameter
+    if first_bar_coordinate_mm is None:
+        first_bar_coordinate_mm = transverse_lower - (width - raw_width) / 2.0
+    last_bar_coordinate_mm = first_bar_coordinate_mm + width
+    half_step = level.additional.step / 2.0
+    if (
+        first_bar_coordinate_mm - half_step > transverse_lower + GEOMETRY_TOLERANCE_MM
+        or last_bar_coordinate_mm + half_step + GEOMETRY_TOLERANCE_MM < transverse_upper
+    ):
+        raise ValueError("фаза стержней не покрывает поперечный интервал выбранных КЭ")
+
+    anchorage_policy = FixedDiameterAnchoragePolicy(
+        problem.constraints.anchorage_diameters
+    )
+    anchorage = anchorage_policy.extension_each_end_mm(level.additional)
+    anchored_length = required_length + 2.0 * anchorage
+    installed_length = select_installed_length_mm(
+        anchored_length,
+        problem.constraints.allowed_cut_lengths_mm,
+    )
+    installed_extension_each_end = (installed_length - required_length) / 2.0
 
     if axis is Axis.X:
-        bbox = (xmin - anchorage, ymin - width_padding, xmax + anchorage, ymax + width_padding)
+        bbox = (
+            xmin - installed_extension_each_end,
+            first_bar_coordinate_mm,
+            xmax + installed_extension_each_end,
+            last_bar_coordinate_mm,
+        )
     else:
-        bbox = (xmin - width_padding, ymin - anchorage, xmax + width_padding, ymax + anchorage)
+        bbox = (
+            first_bar_coordinate_mm,
+            ymin - installed_extension_each_end,
+            last_bar_coordinate_mm,
+            ymax + installed_extension_each_end,
+        )
 
-    installed_length = required_length + 2.0 * anchorage
     bar_count = width_spaces + 1
     mass = rebar_mass_kg(level.additional.diameter, installed_length, bar_count)
 
     covered: list[int] = []
     overcovered: list[int] = []
     if collect_coverage:
+        service_bbox = coverage_bbox(axis, bbox, level.additional.step)
         for cell in problem.demand.cells:
-            intersection_area = polygon_bbox_intersection_area(cell.poly, bbox)
-            if intersection_area <= GEOMETRY_TOLERANCE_MM:
-                continue
+            demand_intersection_area = polygon_bbox_intersection_area(
+                cell.poly,
+                demand_bbox,
+            )
             cell_level = problem.demand.level(cell.level_index)
             if (
-                cell_level.requires_extra is True
+                demand_intersection_area > GEOMETRY_TOLERANCE_MM
+                and cell_level.requires_extra is True
                 and level_index >= cell.level_index
-                and polygon_in_bbox(cell.poly, bbox)
             ):
                 covered.append(cell.id)
+            service_intersection_area = polygon_bbox_intersection_area(
+                cell.poly,
+                service_bbox,
+            )
+            if service_intersection_area <= GEOMETRY_TOLERANCE_MM:
+                continue
             if cell_level.requires_extra is not True or level_index > cell.level_index:
                 overcovered.append(cell.id)
 
     return LayoutZone(
         id=zone_id,
         bbox=bbox,
+        demand_bbox=demand_bbox,
         level_index=level_index,
         rebar=level.additional,
         width_mm=width,
         required_length_mm=required_length,
+        anchored_length_mm=anchored_length,
         installed_length_mm=installed_length,
+        first_bar_coordinate_mm=first_bar_coordinate_mm,
         bar_count=bar_count,
         mass_kg=mass,
         covered_cell_ids=tuple(covered),
         overcovered_cell_ids=tuple(overcovered),
         meta={
             "seed_cell_ids": ids,
-            "coverage_rule": "full_cell_polygon_inside_zone",
+            "construction": "spatial_bbox" if not ids else "cell_group_bbox",
+            "coverage_rule": "union_area_of_sufficient_demand_bboxes",
             "minimum_width_rule": "median_transverse_cell_size",
             "typical_transverse_cell_size_mm": typical_cell_width,
             "minimum_width_mm": minimum_width,
             "width_space_count": width_spaces,
             "anchorage_each_end_mm": anchorage,
+            "anchorage_policy": anchorage_policy.name,
+            "cutting_profile": problem.constraints.cutting_profile,
+            "allowed_cut_lengths_mm": problem.constraints.allowed_cut_lengths_mm,
+            "installed_extra_each_end_mm": installed_extension_each_end,
         },
     )

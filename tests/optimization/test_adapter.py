@@ -28,6 +28,7 @@ def test_build_layout_problem_uses_common_constraints(mosaic_with_legend):
     assert problem.case_id == "Нижнее армирование вдоль ОСИ Х"
     assert problem.constraints.min_width_cells == 2
     assert problem.constraints.anchorage_diameters == 40
+    assert problem.constraints.allow_overlaps is True
     assert problem.constraints.enforce_zone_gap is True
 
 

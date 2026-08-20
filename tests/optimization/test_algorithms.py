@@ -11,12 +11,16 @@ from rebar.optimization import (
     GreedyStripOptimizer,
     LayoutConstraints,
     PriorityGreedyOptimizer,
+    RowRunGreedyOptimizer,
     SolutionStatus,
+    SpatialPartitionGreedyOptimizer,
+    StripProfileDpOptimizer,
     StrongestBBoxOptimizer,
     build_layout_problem,
     built_in_optimizer_registry,
     evaluate_layout,
 )
+from rebar.optimization.services import bboxes_overlap
 
 
 def test_algorithms_share_contract_and_independent_metrics(splittable_mosaic):
@@ -31,6 +35,9 @@ def test_algorithms_share_contract_and_independent_metrics(splittable_mosaic):
     greedy = GreedyStripOptimizer().solve(problem, request)
     priority = PriorityGreedyOptimizer().solve(problem, request)
     agglomerative = AgglomerativeOptimizer().solve(problem, request)
+    row_run = RowRunGreedyOptimizer().solve(problem, request)
+    strip_dp = StripProfileDpOptimizer().solve(problem, request)
+    spatial = SpatialPartitionGreedyOptimizer().solve(problem, request)
 
     assert bbox.status is SolutionStatus.FEASIBLE
     assert bbox.metrics.detail_count == 1
@@ -57,6 +64,29 @@ def test_algorithms_share_contract_and_independent_metrics(splittable_mosaic):
     assert evaluate_layout(problem, agglomerative.zones, request).metrics == (
         agglomerative.metrics
     )
+    assert row_run.status is SolutionStatus.FEASIBLE
+    assert row_run.metrics.detail_count <= 2
+    assert row_run.metrics.under_reinforced_cell_count == 0
+    assert row_run.meta["initial_run_count"] >= row_run.metrics.detail_count
+    assert strip_dp.status is SolutionStatus.FEASIBLE
+    assert strip_dp.metrics.detail_count <= 2
+    assert strip_dp.metrics.under_reinforced_cell_count == 0
+    assert strip_dp.meta["optimal_within_strip_partition_class"] is True
+    assert spatial.status is SolutionStatus.FEASIBLE
+    assert spatial.metrics.detail_count == 2
+    assert spatial.metrics.under_reinforced_cell_count == 0
+    assert spatial.meta["initial_rectangle_count"] == 2
+    for solution in (
+        bbox,
+        bsp,
+        greedy,
+        priority,
+        agglomerative,
+        row_run,
+        strip_dp,
+        spatial,
+    ):
+        assert evaluate_layout(problem, solution.zones, request).valid
 
 
 def test_greedy_respects_limit_and_supports_both_axes(splittable_mosaic):
@@ -99,6 +129,9 @@ def test_built_in_registry_switches_real_algorithms(splittable_mosaic):
         "bsp",
         "greedy",
         "greedy-priority",
+        "row-run-greedy",
+        "spatial-partition-greedy",
+        "strip-profile-dp",
     )
     assert set(results) == {
         "agglomerative",
@@ -106,6 +139,9 @@ def test_built_in_registry_switches_real_algorithms(splittable_mosaic):
         "bsp",
         "greedy",
         "greedy-priority",
+        "row-run-greedy",
+        "spatial-partition-greedy",
+        "strip-profile-dp",
     }
     assert all(solution.metrics.under_reinforced_cell_count == 0 for solution in results.values())
 
@@ -160,7 +196,132 @@ def test_real_mosaic_is_accepted_by_every_algorithm(dxf_bottom_x):
     registry = built_in_optimizer_registry()
 
     for name in registry.names():
-        solution = registry.create(name).solve(problem, AlgorithmRequest(max_details=1))
+        max_details = 32 if name == "spatial-partition-greedy" else 1
+        solution = registry.create(name).solve(
+            problem,
+            AlgorithmRequest(max_details=max_details),
+        )
         assert solution.status is SolutionStatus.FEASIBLE
         assert solution.metrics.demanded_cell_count > 0
         assert solution.metrics.under_reinforced_cell_count == 0
+
+
+def test_spatial_partition_exposes_nontrivial_real_merge_trajectory(dxf_bottom_x):
+    problem = build_layout_problem(read_mosaic(str(dxf_bottom_x)))
+
+    solution = SpatialPartitionGreedyOptimizer().solve(
+        problem,
+        AlgorithmRequest(max_details=32),
+    )
+
+    assert solution.status is SolutionStatus.FEASIBLE
+    assert solution.metrics.detail_count > 4
+    assert solution.meta["initial_rectangle_count"] > solution.metrics.detail_count
+    assert len(solution.meta["merge_trajectory"]) > 2
+    assert len(solution.meta["trajectory_pareto_front"]) > 1
+    assert solution.metrics.under_reinforced_cell_count == 0
+    assert all(
+        not bboxes_overlap(first.demand_bbox, second.demand_bbox)
+        for index, first in enumerate(solution.zones)
+        for second in solution.zones[index + 1 :]
+    )
+
+
+def test_c1_spatial_partition_keeps_a_real_pareto_scale(c1_top_y_dxf, shk_full):
+    problem = build_layout_problem(
+        read_mosaic(str(c1_top_y_dxf), shk_path=str(shk_full))
+    )
+
+    solution = SpatialPartitionGreedyOptimizer().solve(
+        problem,
+        AlgorithmRequest(max_details=32),
+    )
+
+    assert solution.status is SolutionStatus.FEASIBLE
+    assert solution.metrics.detail_count == 32
+    assert solution.metrics.under_reinforced_cell_count == 0
+    assert solution.meta["initial_rectangle_count"] >= 100
+    assert len(solution.meta["trajectory_pareto_front"]) >= 5
+    assert solution.metrics.total_mass_kg < 7_000
+    assert all(
+        not bboxes_overlap(first.demand_bbox, second.demand_bbox)
+        for index, first in enumerate(solution.zones)
+        for second in solution.zones[index + 1 :]
+    )
+
+
+def test_spatial_partition_does_not_merge_through_missing_fe_tile():
+    background = Rebar(step=300, diameter=18)
+    demand = Band(
+        1,
+        2,
+        "s300d18+s100d20",
+        40.0,
+        background,
+        Rebar(100, 20),
+    )
+    cells = []
+    for row in range(3):
+        for column in range(3):
+            if (row, column) == (1, 1):
+                continue
+            xmin = column * 100
+            ymin = row * 100
+            cells.append(
+                Cell(
+                    [
+                        (xmin, ymin),
+                        (xmin + 100, ymin),
+                        (xmin + 100, ymin + 100),
+                        (xmin, ymin + 100),
+                    ],
+                    (xmin + 50, ymin + 50),
+                    2,
+                    demand,
+                )
+            )
+    mosaic = Mosaic(
+        direction=Direction(Layer.BOTTOM, Axis.X),
+        cells=cells,
+        legend=[
+            Band(0, 181, "s300d18", 8.5, background, None),
+            demand,
+        ],
+        bbox=(0, 0, 300, 300),
+    )
+    problem = build_layout_problem(
+        mosaic,
+        LayoutConstraints(min_width_cells=1, enforce_zone_gap=False),
+    )
+
+    solution = SpatialPartitionGreedyOptimizer().solve(
+        problem,
+        AlgorithmRequest(max_details=1),
+    )
+
+    assert solution.status is SolutionStatus.ERROR
+    assert solution.meta["forbidden_tile_count"] == 1
+    assert solution.metrics.detail_count > 1
+    assert all(
+        not (
+            zone.demand_bbox[0] < 150 < zone.demand_bbox[2]
+            and zone.demand_bbox[1] < 150 < zone.demand_bbox[3]
+        )
+        for zone in solution.zones
+    )
+
+
+def test_spatial_partition_returns_empty_optimum_without_demand(mosaic_with_legend):
+    mosaic = Mosaic(
+        direction=mosaic_with_legend.direction,
+        cells=[mosaic_with_legend.cells[0]],
+        legend=mosaic_with_legend.legend,
+        bbox=(0, 0, 500, 500),
+    )
+    problem = build_layout_problem(mosaic)
+
+    solution = SpatialPartitionGreedyOptimizer().solve(problem)
+
+    assert solution.status is SolutionStatus.OPTIMAL
+    assert solution.zones == ()
+    assert solution.metrics.demanded_cell_count == 0

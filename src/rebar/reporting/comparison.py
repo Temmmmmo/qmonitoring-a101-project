@@ -13,6 +13,7 @@ from rebar.optimization import (
     LayoutProblem,
     LayoutSolution,
     ObjectiveWeights,
+    PLATE_11700_CATALOG,
     build_layout_problem,
     built_in_optimizer_registry,
 )
@@ -58,7 +59,8 @@ def _solution_card(problem: LayoutProblem, solution: LayoutSolution) -> str:
         "<tr>"
         f"<td>{html.escape(zone.id)}</td><td>{zone.level_index}</td>"
         f"<td>⌀{zone.rebar.diameter} / {zone.rebar.step}</td>"
-        f"<td>{zone.width_mm:.0f}</td><td>{zone.installed_length_mm:.0f}</td>"
+        f"<td>{zone.width_mm:.0f}</td><td>{zone.anchored_length_mm:.0f}</td>"
+        f"<td>{zone.installed_length_mm:.0f}</td>"
         f"<td>{zone.bar_count}</td><td>{zone.mass_kg:.1f}</td>"
         "</tr>"
         for zone in solution.zones
@@ -70,6 +72,7 @@ def _solution_card(problem: LayoutProblem, solution: LayoutSolution) -> str:
           <p>{html.escape(solution.status.value)} · {solution.runtime_ms:.1f} мс</p></div>
         <div class="metric"><strong>{metrics.total_mass_kg:.1f}</strong><span>кг</span></div>
         <div class="metric"><strong>{metrics.detail_count}</strong><span>прямоугольных зон</span></div>
+        <div class="metric"><strong>{metrics.physical_bar_count}</strong><span>стержней</span></div>
         <div class="metric"><strong>{metrics.overcovered_cell_count}</strong><span>лишних КЭ</span></div>
         <div class="metric {"bad" if metrics.under_reinforced_cell_count else ""}">
           <strong>{metrics.under_reinforced_cell_count}</strong><span>недоарм. КЭ</span></div>
@@ -77,7 +80,8 @@ def _solution_card(problem: LayoutProblem, solution: LayoutSolution) -> str:
       <div class="drawing">{render_solution_svg(problem, solution)}</div>
       <details><summary>Детали раскладки</summary>
         <div class="table-wrap"><table><thead><tr><th>ID</th><th>Уровень</th>
-        <th>⌀ / шаг</th><th>Ширина, мм</th><th>Длина, мм</th><th>Стержней</th>
+        <th>⌀ / шаг</th><th>Ширина, мм</th><th>40d минимум, мм</th>
+        <th>Отрезок, мм</th><th>Стержней</th>
         <th>Масса, кг</th></tr></thead><tbody>{zones}</tbody></table></div>
       </details>
       <details><summary>Диагностика общей проверки</summary><ul>{diagnostics}</ul></details>
@@ -89,23 +93,36 @@ def generate_comparison_report(
     mosaic: Mosaic,
     out_dir: Path,
     algorithm_names: tuple[str, ...] = (
+        "spatial-partition-greedy",
         "bbox",
         "bsp",
         "greedy",
         "greedy-priority",
         "agglomerative",
+        "row-run-greedy",
+        "strip-profile-dp",
     ),
     *,
-    max_details: int = 8,
+    max_details: int = 32,
     detail_penalty_kg: float = 0.0,
     min_width_cells: int = 2,
-    allow_overlaps: bool = False,
+    allow_overlaps: bool = True,
+    cutting_profile: str = "continuous",
 ) -> Path:
     """Выполнить алгоритмы и сохранить переносимый ``index.html`` + JSON."""
 
+    normalized_cutting_profile = cutting_profile.strip().casefold()
+    if normalized_cutting_profile == "continuous":
+        allowed_cut_lengths: tuple[float, ...] = ()
+    elif normalized_cutting_profile == PLATE_11700_CATALOG.id:
+        allowed_cut_lengths = PLATE_11700_CATALOG.lengths_mm
+    else:
+        raise ValueError(f"неизвестный профиль раскроя: {cutting_profile!r}")
     constraints = LayoutConstraints(
         min_width_cells=min_width_cells,
         allow_overlaps=allow_overlaps,
+        allowed_cut_lengths_mm=allowed_cut_lengths,
+        cutting_profile=normalized_cutting_profile,
     )
     problem = build_layout_problem(mosaic, constraints)
     request = AlgorithmRequest(
@@ -117,7 +134,7 @@ def generate_comparison_report(
 
     out_dir.mkdir(parents=True, exist_ok=True)
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "source_path": mosaic.source_path,
         "case_id": problem.case_id,
         "units": "mm",
@@ -130,17 +147,19 @@ def generate_comparison_report(
 
     cards = "".join(_solution_card(problem, solution) for solution in solutions)
     source = html.escape(mosaic.source_path or "синтетический пример")
-    overlap_mode = "разрешены для эксперимента" if allow_overlaps else "запрещены"
+    overlap_mode = "разрешены" if allow_overlaps else "запрещены строгим профилем"
     page = f"""<!doctype html>
 <html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
 <title>Сравнение алгоритмов раскладки</title><style>{PAGE_STYLE}</style></head><body>
 <header><h1>Локальное сравнение алгоритмов</h1><p>{source}</p>
-<p>Миллиметры · максимум зон: {max_details} · пересечения: {overlap_mode} ·
+<p>Миллиметры · максимум зон: {max_details} · overlap demand_bbox: {overlap_mode} ·
 JSON: solutions.json</p></header>
-<main><div class="notice"><strong>MVP-ограничение.</strong> Валидатор проверяет полную
-геометрию КЭ, кратность ширины шагу, 40d, массу, пересечения и подтверждённый зазор для
-одинаковых шагов. Медианный размер КЭ для минимальной ширины, зазор разных шагов и
-контуры проёмов всё ещё требуют инженерного уточнения.</div>{cards}</main>
+<main><div class="notice"><strong>Рабочая инженерная модель.</strong> Пересечения зон
+разрешены, но вклад слабых зон не суммируется: каждый КЭ должен быть полностью покрыт
+хотя бы одной или объединением частей зон достаточного уровня. 40d, принятая длина,
+масса, реальные оси и их раздвижка считаются общей постобработкой; её конфликты показаны
+предупреждениями и не склеивают решение. Медианный размер КЭ, правило разных шагов и
+контуры проёмов всё ещё требуют уточнения.</div>{cards}</main>
 </body></html>"""
     report_path = out_dir / "index.html"
     report_path.write_text(page, encoding="utf-8")

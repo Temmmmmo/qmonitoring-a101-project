@@ -15,7 +15,7 @@ from ..services import (
     evaluate_layout,
     prepare_detailing,
 )
-from ._guillotine import generate_splits, zone_for_ids
+from ._guillotine import finalize_compatible_leaves, generate_splits, zone_for_ids
 
 
 class BspOptimizer:
@@ -84,10 +84,12 @@ class BspOptimizer:
                 }
             )
 
-        zones = [
-            zone_for_ids(problem, ids, f"bsp-{index}", context)
-            for index, ids in enumerate(leaves, 1)
-        ]
+        leaves, zones, conflict_merge_log = finalize_compatible_leaves(
+            problem,
+            leaves,
+            "bsp",
+            context,
+        )
         evaluation = evaluate_layout(problem, zones, request)
         return LayoutSolution(
             algorithm=self.name,
@@ -101,6 +103,7 @@ class BspOptimizer:
                 "kind": "recursive_binary_space_partition",
                 "baseline": True,
                 "split_log": split_log,
+                "conflict_merge_log": conflict_merge_log,
                 "min_improvement_kg": min_improvement,
             },
         )

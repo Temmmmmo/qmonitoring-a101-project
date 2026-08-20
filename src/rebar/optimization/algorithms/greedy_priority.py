@@ -12,8 +12,18 @@ from ..contracts import (
     LayoutSolution,
     SolutionStatus,
 )
-from ..services import demanded_cells, evaluate_layout, polygon_area, prepare_detailing
-from ._guillotine import GuillotineSplit, generate_splits, zone_for_ids
+from ..services import (
+    demanded_cells,
+    evaluate_layout,
+    polygon_area,
+    prepare_detailing,
+)
+from ._guillotine import (
+    GuillotineSplit,
+    finalize_compatible_leaves,
+    generate_splits,
+    zone_for_ids,
+)
 
 
 class PriorityGreedyOptimizer:
@@ -137,10 +147,12 @@ class PriorityGreedyOptimizer:
                 }
             )
 
-        zones = [
-            zone_for_ids(problem, ids, f"greedy-priority-{index}", context)
-            for index, ids in enumerate(leaves, 1)
-        ]
+        leaves, zones, conflict_merge_log = finalize_compatible_leaves(
+            problem,
+            leaves,
+            "greedy-priority",
+            context,
+        )
         evaluation = evaluate_layout(problem, zones, request)
         return LayoutSolution(
             algorithm=self.name,
@@ -156,6 +168,7 @@ class PriorityGreedyOptimizer:
                 "priority_weight": priority_weight,
                 "priority_rule": "avoided_overstrength_mass_kg",
                 "split_log": split_log,
+                "conflict_merge_log": conflict_merge_log,
                 "min_improvement_kg": min_improvement,
             },
         )

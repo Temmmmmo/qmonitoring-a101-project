@@ -22,12 +22,39 @@ def main() -> None:
     parser.add_argument(
         "--algorithms",
         nargs="+",
-        default=["bbox", "bsp", "greedy", "greedy-priority", "agglomerative"],
+        default=[
+            "spatial-partition-greedy",
+            "bbox",
+            "bsp",
+            "greedy",
+            "greedy-priority",
+            "agglomerative",
+            "row-run-greedy",
+            "strip-profile-dp",
+        ],
     )
-    parser.add_argument("--max-details", type=int, default=8)
+    parser.add_argument("--max-details", type=int, default=32)
     parser.add_argument("--detail-penalty-kg", type=float, default=0.0)
     parser.add_argument("--min-width-cells", type=int, default=2)
-    parser.add_argument("--allow-overlaps", action="store_true")
+    overlap_group = parser.add_mutually_exclusive_group()
+    overlap_group.add_argument(
+        "--allow-overlaps",
+        action="store_true",
+        dest="allow_overlaps",
+        help="разрешить пересечения зон (рабочий режим по умолчанию)",
+    )
+    overlap_group.add_argument(
+        "--forbid-overlaps",
+        action="store_false",
+        dest="allow_overlaps",
+        help="включить прежний строгий исследовательский профиль",
+    )
+    parser.set_defaults(allow_overlaps=True)
+    parser.add_argument(
+        "--cutting-profile",
+        choices=("continuous", "plate-11700"),
+        default="continuous",
+    )
     args = parser.parse_args()
 
     mosaic = read_mosaic(str(args.dxf))
@@ -40,6 +67,7 @@ def main() -> None:
             detail_penalty_kg=args.detail_penalty_kg,
             min_width_cells=args.min_width_cells,
             allow_overlaps=args.allow_overlaps,
+            cutting_profile=args.cutting_profile,
         )
     except MissingRebarSpecificationError as error:
         raise SystemExit(f"Нельзя запустить детализацию: {error}") from error

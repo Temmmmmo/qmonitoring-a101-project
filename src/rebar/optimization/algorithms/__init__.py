@@ -6,6 +6,9 @@ from .bbox import StrongestBBoxOptimizer
 from .bsp import BspOptimizer
 from .greedy import GreedyStripOptimizer
 from .greedy_priority import PriorityGreedyOptimizer
+from .row_run_greedy import RowRunGreedyOptimizer
+from .spatial_partition_greedy import SpatialPartitionGreedyOptimizer
+from .strip_profile_dp import StripProfileDpOptimizer
 
 __all__ = [
     "AgglomerativeOptimizer",
@@ -13,5 +16,8 @@ __all__ = [
     "GreedyStripOptimizer",
     "LayoutOptimizer",
     "PriorityGreedyOptimizer",
+    "RowRunGreedyOptimizer",
+    "SpatialPartitionGreedyOptimizer",
+    "StripProfileDpOptimizer",
     "StrongestBBoxOptimizer",
 ]

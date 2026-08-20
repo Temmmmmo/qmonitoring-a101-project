@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+from rebar import Axis, Band, Cell, Direction, Layer, Mosaic, Rebar
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = REPO_ROOT / "Дополнительные материалы"
 MOSAIC_DIR = DATA_DIR / "Изополя(мозаики) армирования"
@@ -34,6 +36,38 @@ def data_dir() -> Path:
 
 
 @pytest.fixture
+def direction_mosaic() -> Mosaic:
+    """Минимальная мозаика с легендой для тестов прикладного и HTTP-слоя."""
+
+    background = Rebar(step=300, diameter=18)
+    levels = [
+        Band(0, 181, "s300d18", 8.5, background, None),
+        Band(1, 2, "s300d18+s100d25", 58.0, background, Rebar(100, 25)),
+    ]
+    return Mosaic(
+        direction=Direction(Layer.BOTTOM, Axis.X),
+        cells=[
+            Cell([(0, 0), (500, 0), (500, 500), (0, 500)], (250, 250), 181, levels[0]),
+            Cell(
+                [(500, 0), (1000, 0), (1000, 500), (500, 500)],
+                (750, 250),
+                2,
+                levels[1],
+            ),
+        ],
+        legend=levels,
+        bbox=(0, 0, 1000, 500),
+        source_path="Нижнее армирование вдоль ОСИ Х.dxf",
+        meta={
+            "scale_intervals": [
+                {"index": 0, "aci": 181, "lower_as": 7.2, "upper_as": 8.5},
+                {"index": 1, "aci": 2, "lower_as": 40.0, "upper_as": 58.0},
+            ]
+        },
+    )
+
+
+@pytest.fixture
 def dxf_bottom_x() -> Path:
     """DXF: Нижнее армирование вдоль ОСИ Х."""
     p = DATA_DIR / "Нижнее армирование вдоль ОСИ Х.dxf"
@@ -56,6 +90,16 @@ def shk_full() -> Path:
     p = MOSAIC_DIR / "2025-08-15_ППТ8-1-Д2-К09_М1.shk"
     if not p.exists():
         pytest.skip(f"нет файла данных: {p}")
+    return p
+
+
+@pytest.fixture
+def c1_top_y_dxf() -> Path:
+    """Проблемный C1: верхняя арматура по оси Y из инженерного комплекта."""
+
+    p = VERIFY_DIR / "1-КЖ00.С1-2" / "С1_t_800_Верхняя по оси У.dxf"
+    if not p.exists():
+        pytest.skip(f"нет C1 DXF: {p}")
     return p
 
 

@@ -11,6 +11,7 @@ from rebar.optimization import (
     StrongestBBoxOptimizer,
     build_layout_problem,
     build_zone,
+    build_zone_from_bbox,
     evaluate_layout,
 )
 
@@ -144,7 +145,11 @@ def test_builder_quantizes_width_and_bar_count_for_both_axes(splittable_mosaic, 
     assert zone.width_mm == 600
     assert zone.bar_count == 3
     assert zone.required_length_mm == 4000
+    assert zone.anchored_length_mm == 5440
     assert zone.installed_length_mm == 5440
+    assert zone.demand_bbox == (
+        (0, 0, 4000, 500) if axis is Axis.X else (0, 0, 500, 4000)
+    )
     assert zone.meta["width_space_count"] == 2
     if axis is Axis.X:
         assert zone.bbox == (-720, -50, 4720, 550)
@@ -166,6 +171,62 @@ def test_validator_recalculates_mass_instead_of_trusting_zone(mosaic_with_legend
     assert any("mass_kg не совпадает" in message for message in evaluation.diagnostics)
 
 
+def test_validator_accepts_one_cell_covered_by_union_of_partition_rectangles(
+    mosaic_with_legend,
+):
+    problem = build_layout_problem(
+        mosaic_with_legend,
+        LayoutConstraints(min_width_cells=1, enforce_zone_gap=False),
+    )
+    left = build_zone_from_bbox(
+        problem,
+        (500, 0, 750, 500),
+        1,
+        "left-half",
+        seed_cell_ids=(1,),
+    )
+    right = build_zone_from_bbox(
+        problem,
+        (750, 0, 1000, 500),
+        1,
+        "right-half",
+        seed_cell_ids=(1,),
+    )
+
+    evaluation = evaluate_layout(problem, (left, right))
+
+    assert evaluation.valid is True
+    assert evaluation.metrics.covered_demanded_cell_count == 1
+    assert evaluation.metrics.under_reinforced_cell_count == 0
+
+
+def test_validator_does_not_double_count_overlapping_coverage(mosaic_with_legend):
+    problem = build_layout_problem(
+        mosaic_with_legend,
+        LayoutConstraints(min_width_cells=1, enforce_zone_gap=False),
+    )
+    first = build_zone_from_bbox(
+        problem,
+        (500, 0, 750, 500),
+        1,
+        "first-copy",
+        seed_cell_ids=(1,),
+    )
+    second = build_zone_from_bbox(
+        problem,
+        (500, 0, 750, 500),
+        1,
+        "second-copy",
+        seed_cell_ids=(1,),
+    )
+
+    evaluation = evaluate_layout(problem, (first, second))
+
+    assert evaluation.valid is False
+    assert evaluation.metrics.covered_demanded_cell_count == 0
+    assert evaluation.metrics.under_reinforced_cell_count == 1
+
+
 def test_validator_checks_bar_count_and_anchorage(mosaic_with_legend):
     problem = build_layout_problem(
         mosaic_with_legend,
@@ -175,7 +236,7 @@ def test_validator_checks_bar_count_and_anchorage(mosaic_with_legend):
     broken = replace(
         zone,
         bar_count=zone.bar_count + 1,
-        required_length_mm=zone.required_length_mm + 10,
+        anchored_length_mm=zone.anchored_length_mm + 10,
     )
 
     evaluation = evaluate_layout(problem, (broken,))
@@ -189,18 +250,21 @@ def test_validator_checks_bar_count_and_anchorage(mosaic_with_legend):
 def test_validator_requires_full_cell_geometry_not_only_centroid(axis):
     problem, zones = _separate_zones(_gap_mosaic(axis, 100))
     zone = zones[0]
-    xmin, ymin, xmax, ymax = zone.bbox
-    shifted_bbox = (
+    xmin, ymin, xmax, ymax = zone.demand_bbox
+    shifted_demand_bbox = (
         (xmin, ymin + 100, xmax, ymax + 100)
         if axis is Axis.X
         else (xmin + 100, ymin, xmax + 100, ymax)
     )
 
-    evaluation = evaluate_layout(problem, (replace(zone, bbox=shifted_bbox),))
+    evaluation = evaluate_layout(
+        problem,
+        (replace(zone, demand_bbox=shifted_demand_bbox),),
+    )
 
     assert evaluation.valid is False
     assert evaluation.metrics.under_reinforced_cell_count == 2
-    assert any("covered_cell_ids не совпадает" in message for message in evaluation.diagnostics)
+    assert any("недоармированы КЭ" in message for message in evaluation.diagnostics)
 
 
 @pytest.mark.parametrize("axis", [Axis.X, Axis.Y])
@@ -211,19 +275,26 @@ def test_validator_enforces_same_step_zone_gap_for_both_axes(axis):
     invalid_evaluation = evaluate_layout(problem, too_close)
     valid_evaluation = evaluate_layout(_valid_problem, separated)
 
-    assert invalid_evaluation.valid is False
-    assert any("зазор между зонами" in message for message in invalid_evaluation.diagnostics)
+    assert invalid_evaluation.valid is True
+    assert any(
+        "расстояние между крайними стержнями" in message
+        for message in invalid_evaluation.diagnostics
+    )
     assert valid_evaluation.valid is True
     assert valid_evaluation.metrics.under_reinforced_cell_count == 0
 
 
-def test_validator_marks_unconfirmed_mixed_step_gap_as_warning():
+def test_validator_uses_larger_step_for_mixed_step_gap():
     problem, zones = _separate_zones(_gap_mosaic(Axis.X, 150, mixed_steps=True))
 
     evaluation = evaluate_layout(problem, zones)
 
     assert evaluation.valid is True
     assert any(
-        message.startswith("WARNING: правило зазора для разных шагов")
+        "меньше требуемого минимума 300 мм" in message
+        for message in evaluation.diagnostics
+    )
+    assert any(
+        message.startswith("WARNING: для разных шагов применён консервативный")
         for message in evaluation.diagnostics
     )

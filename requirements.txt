@@ -1,7 +1,11 @@
 # Core
 ezdxf>=1.1          # DXF parsing (3DFACE, blocks, ACI colors -> RGB)
+fastapi>=0.115       # local MVP web API and static frontend
+httpx>=0.28          # FastAPI TestClient
 numpy>=1.26
+python-multipart>=0.0.20  # multipart DXF/.shk uploads
 shapely>=2.0        # geometry (zones, rectangles) — used from stage B onward
+uvicorn>=0.34        # local ASGI server
 
 # PNG ingest path (stage A, fallback source)
 opencv-python>=4.9

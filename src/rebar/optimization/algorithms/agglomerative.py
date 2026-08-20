@@ -21,8 +21,9 @@ from ..services import (
     cell_bbox,
     demanded_cells,
     evaluate_layout,
+    partition_zones_conflict,
     prepare_detailing,
-    zones_conflict,
+    resolve_zone_phases,
 )
 from ..services.geometry import GEOMETRY_TOLERANCE_MM
 
@@ -88,10 +89,10 @@ def _same_level_components(cells: tuple[DemandCell, ...]) -> list[tuple[int, ...
 class AgglomerativeOptimizer:
     """Собирать раскладку снизу вверх слиянием ближайших кластеров.
 
-    Начальные кластеры — связные пятна одного точного уровня спроса. Конфликтующие
-    прямоугольники сливаются обязательно, затем ближайшие пары сливаются до ограничения
-    ``max_details``. Это детерминированный пространственный baseline без гарантии
-    глобального оптимума.
+    Начальные кластеры — связные пятна одного точного уровня спроса. В рабочем режиме
+    overlap разрешён, поэтому ближайшие пары сливаются только до ограничения
+    ``max_details``; обязательные слияния остаются лишь в строгом исследовательском
+    профиле. Это детерминированный baseline без гарантии глобального оптимума.
     """
 
     name = "agglomerative"
@@ -120,11 +121,20 @@ class AgglomerativeOptimizer:
         problem: LayoutProblem,
         first: _Cluster,
         second: _Cluster,
+        context: DetailingContext,
     ) -> tuple[int, float, int, int]:
-        conflict_rank = 0 if zones_conflict(problem, first.zone, second.zone) else 1
+        phased = resolve_zone_phases(
+            problem,
+            [first.zone, second.zone],
+            context=context,
+            collect_coverage=False,
+        )
+        conflict_rank = (
+            0 if partition_zones_conflict(problem, phased[0], phased[1]) else 1
+        )
         return (
             conflict_rank,
-            bboxes_distance(first.zone.bbox, second.zone.bbox),
+            bboxes_distance(first.zone.demand_bbox, second.zone.demand_bbox),
             min(first.key, second.key),
             max(first.key, second.key),
         )
@@ -173,7 +183,10 @@ class AgglomerativeOptimizer:
         cluster_values = list(clusters.values())
         for index, first in enumerate(cluster_values):
             for second in cluster_values[index + 1 :]:
-                heapq.heappush(pair_heap, self._pair_entry(problem, first, second))
+                heapq.heappush(
+                    pair_heap,
+                    self._pair_entry(problem, first, second, context),
+                )
 
         merge_log: list[dict[str, float | int | str]] = []
         next_key = len(clusters)
@@ -206,11 +219,16 @@ class AgglomerativeOptimizer:
                     "second_size": len(second.cell_ids),
                     "result_size": len(merged_ids),
                     "distance_mm": distance,
-                    "reason": "conflict" if conflict_rank == 0 else "detail_limit",
+                    "reason": (
+                        "partition_overlap" if conflict_rank == 0 else "detail_limit"
+                    ),
                 }
             )
             for other in clusters.values():
-                heapq.heappush(pair_heap, self._pair_entry(problem, merged, other))
+                heapq.heappush(
+                    pair_heap,
+                    self._pair_entry(problem, merged, other, context),
+                )
             clusters[merged.key] = merged
 
         final_clusters = sorted(
@@ -221,21 +239,25 @@ class AgglomerativeOptimizer:
                 cluster.cell_ids[0],
             ),
         )
-        zones = tuple(
-            self._zone(
-                problem,
-                cluster.cell_ids,
-                f"agglomerative-{index}",
-                context,
-                collect_coverage=True,
-            )
-            for index, cluster in enumerate(final_clusters, 1)
+        zones = resolve_zone_phases(
+            problem,
+            [
+                self._zone(
+                    problem,
+                    cluster.cell_ids,
+                    f"agglomerative-{index}",
+                    context,
+                    collect_coverage=True,
+                )
+                for index, cluster in enumerate(final_clusters, 1)
+            ],
+            context=context,
         )
         evaluation = evaluate_layout(problem, zones, request)
         return LayoutSolution(
             algorithm=self.name,
             status=SolutionStatus.FEASIBLE if evaluation.valid else SolutionStatus.ERROR,
-            zones=zones,
+            zones=tuple(zones),
             metrics=evaluation.metrics,
             request=request,
             runtime_ms=(perf_counter() - started) * 1000.0,
