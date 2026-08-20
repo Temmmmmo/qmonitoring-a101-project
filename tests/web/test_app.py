@@ -54,6 +54,46 @@ def test_landing_health_and_options_are_available():
         "continuous",
         "plate-11700",
     }
+    assert options.json()["defaults"]["source_mode"] == "demo"
+    assert options.json()["defaults"]["demo_id"] == "irregular-plate-x"
+    assert options.json()["demo_cases"] == [
+        {
+            "id": "irregular-plate-x",
+            "title": "Плита с несколькими уровнями",
+            "description": "96 КЭ · нижнее армирование · ось X · шесть уровней As",
+            "default": True,
+        }
+    ]
+
+
+def test_demo_runs_real_dxf_pipeline_without_upload():
+    response = client.post(
+        "/api/demo",
+        data={
+            "demo_id": "irregular-plate-x",
+            "algorithms": "bbox",
+            "max_details": "4",
+            "min_width_cells": "1",
+            "cutting_profile": "continuous",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source"]["filename"] == "Плита с несколькими уровнями"
+    assert payload["source"]["source_kind"] == "demo"
+    assert payload["source"]["source_id"] == "irregular-plate-x"
+    assert payload["source"]["cell_count"] == 96
+    assert payload["source"]["mapping_id"] == "plate-zero-d12-v1"
+    assert payload["solutions"][0]["algorithm"] == "bbox"
+    assert payload["solutions"][0]["metrics"]["under_reinforced_cell_count"] == 0
+
+
+def test_demo_rejects_unknown_case():
+    response = client.post("/api/demo", data={"demo_id": "not-a-demo"})
+
+    assert response.status_code == 400
+    assert "неизвестный демонстрационный пример" in response.json()["detail"]
 
 
 def test_analyze_returns_metrics_zones_and_inline_svg(monkeypatch, direction_mosaic):
@@ -80,6 +120,7 @@ def test_analyze_returns_metrics_zones_and_inline_svg(monkeypatch, direction_mos
     assert response.status_code == 200
     payload = response.json()
     assert payload["source"]["filename"] == "Нижняя по Х.dxf"
+    assert payload["source"]["source_kind"] == "upload"
     assert payload["source"]["direction"] == {"layer": "bottom", "axis": "X"}
     assert payload["solutions"][0]["algorithm"] == "bbox"
     assert payload["solutions"][0]["physical_bar_count"] > 0

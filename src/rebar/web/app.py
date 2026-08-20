@@ -14,10 +14,14 @@ from starlette.concurrency import run_in_threadpool
 
 from rebar.application import (
     DEFAULT_ALGORITHMS,
+    IRREGULAR_PLATE_DEMO,
     DirectionAnalysis,
     analyze_direction,
     available_cutting_profile_ids,
+    available_demo_cases,
     available_mapping_ids,
+    get_demo_case,
+    write_demo_dxf,
 )
 from rebar.optimization import (
     MissingRebarSpecificationError,
@@ -90,11 +94,19 @@ async def _save_upload(upload: UploadFile, destination: Path) -> None:
         raise HTTPException(status_code=400, detail=f"Файл {destination.name!r} пуст.")
 
 
-def _source_payload(analysis: DirectionAnalysis, filename: str) -> dict:
+def _source_payload(
+    analysis: DirectionAnalysis,
+    filename: str,
+    *,
+    source_kind: str,
+    source_id: str | None,
+) -> dict:
     mosaic = analysis.mosaic
     mapping = mosaic.meta.get("rebar_mapping") or {}
     return {
         "filename": filename,
+        "source_kind": source_kind,
+        "source_id": source_id,
         "direction": {
             "layer": mosaic.direction.layer.value,
             "axis": mosaic.direction.axis.value,
@@ -110,7 +122,13 @@ def _source_payload(analysis: DirectionAnalysis, filename: str) -> dict:
     }
 
 
-def _analysis_payload(analysis: DirectionAnalysis, filename: str) -> dict:
+def _analysis_payload(
+    analysis: DirectionAnalysis,
+    filename: str,
+    *,
+    source_kind: str,
+    source_id: str | None = None,
+) -> dict:
     solutions = []
     for solution in analysis.solutions:
         payload = to_jsonable(solution)
@@ -120,7 +138,12 @@ def _analysis_payload(analysis: DirectionAnalysis, filename: str) -> dict:
 
     return {
         "schema_version": 2,
-        "source": _source_payload(analysis, filename),
+        "source": _source_payload(
+            analysis,
+            filename,
+            source_kind=source_kind,
+            source_id=source_id,
+        ),
         "constraints": to_jsonable(analysis.problem.constraints),
         "solutions": solutions,
     }
@@ -163,6 +186,15 @@ def options() -> dict:
                 for mapping_id in available_mapping_ids()
             ],
         ],
+        "demo_cases": [
+            {
+                "id": case.id,
+                "title": case.title,
+                "description": case.description,
+                "default": case.id == IRREGULAR_PLATE_DEMO.id,
+            }
+            for case in available_demo_cases()
+        ],
         "cutting_profiles": [
             {
                 "id": "continuous",
@@ -180,6 +212,8 @@ def options() -> dict:
             ],
         ],
         "defaults": {
+            "source_mode": "demo",
+            "demo_id": IRREGULAR_PLATE_DEMO.id,
             "algorithms": list(DEFAULT_ALGORITHMS),
             "max_details": 32,
             "min_width_cells": 2,
@@ -187,6 +221,48 @@ def options() -> dict:
         },
         "limits": {"max_upload_mb": MAX_UPLOAD_BYTES // 1024 // 1024},
     }
+
+
+async def _execute_analysis(
+    dxf_path: Path,
+    *,
+    filename: str,
+    source_kind: str,
+    source_id: str | None,
+    shk_path: Path | None,
+    mapping_id: str,
+    algorithms: str,
+    max_details: int,
+    min_width_cells: int,
+    detail_penalty_kg: float,
+    cutting_profile: str,
+) -> dict:
+    """Выполнить общий application-сценарий для upload и встроенного DXF."""
+
+    algorithm_names = tuple(name.strip() for name in algorithms.split(",") if name.strip())
+    try:
+        analysis = await run_in_threadpool(
+            analyze_direction,
+            dxf_path,
+            shk_path=shk_path,
+            mapping_id=mapping_id,
+            algorithm_names=algorithm_names,
+            max_details=max_details,
+            min_width_cells=min_width_cells,
+            detail_penalty_kg=detail_penalty_kg,
+            cutting_profile=cutting_profile,
+        )
+    except (DXFError, KeyError, MissingRebarSpecificationError, RebarMappingError, ValueError) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except OSError as error:
+        raise HTTPException(status_code=400, detail=f"Не удалось прочитать файл: {error}") from error
+
+    return _analysis_payload(
+        analysis,
+        filename,
+        source_kind=source_kind,
+        source_id=source_id,
+    )
 
 
 @app.post("/api/analyze")
@@ -215,7 +291,6 @@ async def analyze(
             detail="Выберите либо .shk, либо ручную таблицу армирования — не оба варианта.",
         )
 
-    algorithm_names = tuple(name for name in algorithms.split(",") if name.strip())
     with TemporaryDirectory(prefix="rebar-web-") as temp_dir:
         temp_path = Path(temp_dir)
         dxf_path = temp_path / dxf_name
@@ -225,21 +300,50 @@ async def analyze(
             shk_path = temp_path / shk_name
             await _save_upload(shk, shk_path)
 
-        try:
-            analysis = await run_in_threadpool(
-                analyze_direction,
-                dxf_path,
-                shk_path=shk_path,
-                mapping_id=mapping_id,
-                algorithm_names=algorithm_names,
-                max_details=max_details,
-                min_width_cells=min_width_cells,
-                detail_penalty_kg=detail_penalty_kg,
-                cutting_profile=cutting_profile,
-            )
-        except (DXFError, KeyError, MissingRebarSpecificationError, RebarMappingError, ValueError) as error:
-            raise HTTPException(status_code=422, detail=str(error)) from error
-        except OSError as error:
-            raise HTTPException(status_code=400, detail=f"Не удалось прочитать файл: {error}") from error
+        return await _execute_analysis(
+            dxf_path,
+            filename=dxf_name,
+            source_kind="upload",
+            source_id=None,
+            shk_path=shk_path,
+            mapping_id=mapping_id,
+            algorithms=algorithms,
+            max_details=max_details,
+            min_width_cells=min_width_cells,
+            detail_penalty_kg=detail_penalty_kg,
+            cutting_profile=cutting_profile,
+        )
 
-    return _analysis_payload(analysis, dxf_name)
+
+@app.post("/api/demo")
+async def analyze_demo(
+    demo_id: Annotated[str, Form()] = IRREGULAR_PLATE_DEMO.id,
+    algorithms: Annotated[str, Form()] = ",".join(DEFAULT_ALGORITHMS),
+    max_details: Annotated[int, Form(ge=1, le=100)] = 32,
+    min_width_cells: Annotated[int, Form(ge=1, le=10)] = 2,
+    detail_penalty_kg: Annotated[float, Form(ge=0, le=1_000_000)] = 0.0,
+    cutting_profile: Annotated[str, Form()] = "continuous",
+) -> dict:
+    """Рассчитать встроенный синтетический DXF тем же production-пайплайном."""
+
+    try:
+        case = get_demo_case(demo_id)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    with TemporaryDirectory(prefix="rebar-demo-") as temp_dir:
+        dxf_path = Path(temp_dir) / case.filename
+        write_demo_dxf(case.id, dxf_path)
+        return await _execute_analysis(
+            dxf_path,
+            filename=case.title,
+            source_kind="demo",
+            source_id=case.id,
+            shk_path=None,
+            mapping_id=case.mapping_id,
+            algorithms=algorithms,
+            max_details=max_details,
+            min_width_cells=min_width_cells,
+            detail_penalty_kg=detail_penalty_kg,
+            cutting_profile=cutting_profile,
+        )

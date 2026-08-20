@@ -2,6 +2,10 @@ const form = document.querySelector("#analysis-form");
 const dxfInput = document.querySelector("#dxf-input");
 const shkInput = document.querySelector("#shk-input");
 const dropzone = document.querySelector("#dropzone");
+const demoSource = document.querySelector("#demo-source");
+const uploadSource = document.querySelector("#upload-source");
+const demoSelect = document.querySelector("#demo-select");
+const sourceModeInputs = [...document.querySelectorAll('input[name="source_mode"]')];
 const mappingSelect = document.querySelector("#mapping-select");
 const cuttingProfileSelect = document.querySelector("#cutting-profile");
 const algorithmList = document.querySelector("#algorithm-list");
@@ -50,9 +54,35 @@ function algorithmTitle(id) {
   return options?.algorithms.find((item) => item.id === id)?.title ?? id;
 }
 
+function sourceMode() {
+  return sourceModeInputs.find((input) => input.checked)?.value ?? "demo";
+}
+
+function updateDemoDescription() {
+  const selected = options?.demo_cases.find((item) => item.id === demoSelect.value);
+  document.querySelector("#demo-description").textContent = selected?.description
+    ?? "Синтетический DXF проходит через настоящий парсер.";
+}
+
+function updateSourceMode() {
+  const demoMode = sourceMode() === "demo";
+  demoSource.hidden = !demoMode;
+  uploadSource.hidden = demoMode;
+  demoSelect.disabled = !demoMode;
+  mappingSelect.disabled = demoMode;
+  shkInput.disabled = demoMode;
+  dxfInput.disabled = demoMode;
+  if (results.hidden && loading.hidden) {
+    setWorkspaceState(demoMode ? "Демо готово" : "Ожидание DXF", demoMode ? "ready" : "");
+  }
+}
+
 function renderOptions(payload) {
   options = payload;
   mappingSelect.innerHTML = payload.mappings.map((item) => (
+    `<option value="${escapeHtml(item.id)}">${escapeHtml(item.title)}</option>`
+  )).join("");
+  demoSelect.innerHTML = payload.demo_cases.map((item) => (
     `<option value="${escapeHtml(item.id)}">${escapeHtml(item.title)}</option>`
   )).join("");
   cuttingProfileSelect.innerHTML = payload.cutting_profiles.map((item) => (
@@ -67,6 +97,11 @@ function renderOptions(payload) {
   document.querySelector("#max-details").value = payload.defaults.max_details;
   document.querySelector("#min-width").value = payload.defaults.min_width_cells;
   cuttingProfileSelect.value = payload.defaults.cutting_profile;
+  demoSelect.value = payload.defaults.demo_id;
+  const defaultMode = payload.defaults.source_mode ?? "demo";
+  sourceModeInputs.forEach((input) => { input.checked = input.value === defaultMode; });
+  updateDemoDescription();
+  updateSourceMode();
 }
 
 async function loadOptions() {
@@ -74,7 +109,7 @@ async function loadOptions() {
     const response = await fetch("/api/options");
     if (!response.ok) throw new Error("Не удалось получить настройки приложения.");
     renderOptions(await response.json());
-    setWorkspaceState("Система готова", "ready");
+    setWorkspaceState(sourceMode() === "demo" ? "Демо готово" : "Система готова", "ready");
   } catch (error) {
     showError(error.message);
     setWorkspaceState("Ошибка конфигурации", "bad");
@@ -88,10 +123,20 @@ function updateDxfLabel() {
     ? `${number(file.size / 1024 / 1024, 2)} МБ · готов к обработке`
     : "DXF, не более 30 МБ";
   dropzone.classList.toggle("has-file", Boolean(file));
-  if (file && results.hidden && loading.hidden) setWorkspaceState("Файл выбран", "ready");
+  if (file && sourceMode() === "upload" && results.hidden && loading.hidden) {
+    setWorkspaceState("Файл выбран", "ready");
+  }
 }
 
 dxfInput.addEventListener("change", updateDxfLabel);
+sourceModeInputs.forEach((input) => input.addEventListener("change", () => {
+  clearError();
+  updateSourceMode();
+}));
+demoSelect.addEventListener("change", () => {
+  updateDemoDescription();
+  if (results.hidden && loading.hidden) setWorkspaceState("Демо готово", "ready");
+});
 shkInput.addEventListener("change", () => {
   document.querySelector("#shk-label").textContent = shkInput.files[0]?.name ?? "Добавить .shk";
   if (shkInput.files[0]) mappingSelect.value = "auto";
@@ -264,7 +309,8 @@ function renderResults(payload) {
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   clearError();
-  if (!dxfInput.files[0]) {
+  const demoMode = sourceMode() === "demo";
+  if (!demoMode && !dxfInput.files[0]) {
     showError("Сначала выберите DXF.");
     return;
   }
@@ -276,9 +322,13 @@ form.addEventListener("submit", async (event) => {
   }
 
   const body = new FormData();
-  body.append("dxf", dxfInput.files[0]);
-  if (shkInput.files[0]) body.append("shk", shkInput.files[0]);
-  body.append("mapping_id", mappingSelect.value);
+  if (demoMode) {
+    body.append("demo_id", demoSelect.value);
+  } else {
+    body.append("dxf", dxfInput.files[0]);
+    if (shkInput.files[0]) body.append("shk", shkInput.files[0]);
+    body.append("mapping_id", mappingSelect.value);
+  }
   body.append("algorithms", selectedAlgorithms.join(","));
   body.append("max_details", document.querySelector("#max-details").value);
   body.append("min_width_cells", document.querySelector("#min-width").value);
@@ -292,9 +342,10 @@ form.addEventListener("submit", async (event) => {
   workbenchTitle.textContent = "Выполнение расчёта";
   setWorkspaceState("Расчёт выполняется", "busy");
   try {
-    const response = await fetch("/api/analyze", { method: "POST", body });
+    const endpoint = demoMode ? "/api/demo" : "/api/analyze";
+    const response = await fetch(endpoint, { method: "POST", body });
     const payload = await response.json();
-    if (!response.ok) throw new Error(payload.detail || "Не удалось обработать DXF.");
+    if (!response.ok) throw new Error(payload.detail || "Не удалось выполнить расчёт.");
     renderResults(payload);
   } catch (error) {
     showError(error.message);

@@ -18,7 +18,7 @@
       </a>
       <div class="header-context" aria-label="Контекст приложения">
         <span>Одно направление</span>
-        <span class="environment-badge"><i aria-hidden="true"></i> Локальный MVP</span>
+        <span class="environment-badge"><i aria-hidden="true"></i> Web MVP</span>
       </div>
     </header>
 
@@ -37,31 +37,54 @@
             <span class="section-index">01</span>
             <div>
               <h2 id="source-heading">Исходные данные</h2>
-              <p>Один файл для нижнего/верхнего слоя и оси X/Y.</p>
+              <p>Запустите встроенный пример или загрузите один DXF.</p>
             </div>
           </div>
 
-          <label id="dropzone" class="dropzone" for="dxf-input">
-            <input id="dxf-input" name="dxf" type="file" accept=".dxf" required>
-            <span class="drop-icon" aria-hidden="true">DXF</span>
-            <span class="drop-copy">
-              <strong id="dxf-title">Выберите файл мозаики</strong>
-              <small id="dxf-meta">DXF, не более 30 МБ</small>
-            </span>
-            <span class="file-action">Обзор</span>
-          </label>
+          <div class="source-mode" role="radiogroup" aria-label="Источник данных">
+            <label class="source-mode-option">
+              <input type="radio" name="source_mode" value="demo" checked>
+              <span><strong>Демо-пример</strong><small>Ничего загружать не нужно</small></span>
+            </label>
+            <label class="source-mode-option">
+              <input type="radio" name="source_mode" value="upload">
+              <span><strong>Свой DXF</strong><small>Загрузка файла и шкалы</small></span>
+            </label>
+          </div>
 
-          <div class="field-stack">
+          <div id="demo-source" class="demo-source">
             <label class="field">
-              <span>Назначение арматуры</span>
-              <select id="mapping-select" name="mapping_id" aria-describedby="mapping-help"></select>
-              <small id="mapping-help">Источник соответствия уровней As диаметру и шагу.</small>
+              <span>Встроенная задача</span>
+              <select id="demo-select" name="demo_id" aria-describedby="demo-description"></select>
+              <small id="demo-description">Синтетический DXF проходит через настоящий парсер.</small>
             </label>
-            <label class="field file-field">
-              <span>Файл шкалы <i>необязательно</i></span>
-              <input id="shk-input" name="shk" type="file" accept=".shk">
-              <span id="shk-label" class="file-field-label">Выбрать .shk</span>
+            <p class="demo-note"><b>Безопасный пример:</b> геометрия сгенерирована нами и
+              не содержит материалов организаторов.</p>
+          </div>
+
+          <div id="upload-source" hidden>
+            <label id="dropzone" class="dropzone" for="dxf-input">
+              <input id="dxf-input" name="dxf" type="file" accept=".dxf">
+              <span class="drop-icon" aria-hidden="true">DXF</span>
+              <span class="drop-copy">
+                <strong id="dxf-title">Выберите файл мозаики</strong>
+                <small id="dxf-meta">DXF, не более 30 МБ</small>
+              </span>
+              <span class="file-action">Обзор</span>
             </label>
+
+            <div class="field-stack">
+              <label class="field">
+                <span>Назначение арматуры</span>
+                <select id="mapping-select" name="mapping_id" aria-describedby="mapping-help"></select>
+                <small id="mapping-help">Источник соответствия уровней As диаметру и шагу.</small>
+              </label>
+              <label class="field file-field">
+                <span>Файл шкалы <i>необязательно</i></span>
+                <input id="shk-input" name="shk" type="file" accept=".shk">
+                <span id="shk-label" class="file-field-label">Выбрать .shk</span>
+              </label>
+            </div>
           </div>
         </section>
 
@@ -123,10 +146,10 @@
           <div class="empty-copy">
             <p class="panel-kicker">Расчёт не выполнен</p>
             <h2>Здесь появится схема армирования</h2>
-            <p>Загрузите DXF, выберите методы и запустите расчёт. Исходная мозаика,
-              прямоугольные зоны и метрики будут показаны в этой области.</p>
+            <p>Можно сразу запустить встроенный DXF или выбрать собственный файл. Исходная
+              мозаика, прямоугольные зоны и метрики будут показаны в этой области.</p>
             <dl class="workflow-facts">
-              <div><dt>Вход</dt><dd>DXF одного направления</dd></div>
+              <div><dt>Вход</dt><dd>Демо или DXF одного направления</dd></div>
               <div><dt>Результат</dt><dd>Зоны, стержни, масса</dd></div>
               <div><dt>Хранение</dt><dd>Файлы не сохраняются</dd></div>
             </dl>
