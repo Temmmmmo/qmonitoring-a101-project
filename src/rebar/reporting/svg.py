@@ -4,21 +4,19 @@ from __future__ import annotations
 
 import html
 
+from ezdxf.colors import aci2rgb
+
 from rebar.optimization import LayoutProblem, LayoutSolution
 from rebar.optimization.services import bar_segments
 
-LEVEL_COLORS = (
-    "#e8edf2",
-    "#9ad5ca",
-    "#52b8a5",
-    "#ffd166",
-    "#f5a65b",
-    "#ef6f6c",
-    "#c8558c",
-    "#775da6",
-    "#3949ab",
-)
 ZONE_COLORS = ("#0066ff", "#d7263d", "#6a4c93", "#00875a", "#b35c00")
+
+
+def _aci_hex(aci: int) -> str:
+    """Преобразовать исходный AutoCAD Color Index в CSS-цвет без своей палитры."""
+
+    red, green, blue = aci2rgb(aci)
+    return f"#{red:02X}{green:02X}{blue:02X}"
 
 
 def render_solution_svg(problem: LayoutProblem, solution: LayoutSolution) -> str:
@@ -35,10 +33,12 @@ def render_solution_svg(problem: LayoutProblem, solution: LayoutSolution) -> str
     cells: list[str] = []
     for cell in problem.demand.cells:
         points = " ".join(f"{x - xmin:.3f},{ymax - y:.3f}" for x, y in cell.poly)
-        color = LEVEL_COLORS[cell.level_index % len(LEVEL_COLORS)]
+        color = _aci_hex(cell.aci)
         cells.append(
             f'<polygon points="{points}" fill="{color}" stroke="#ffffff" '
-            'stroke-width="1" vector-effect="non-scaling-stroke"/>'
+            'stroke-width="1" vector-effect="non-scaling-stroke"><title>'
+            f'КЭ {cell.id} · уровень {cell.level_index} · ACI {cell.aci}'
+            "</title></polygon>"
         )
 
     partition_domain: list[str] = []

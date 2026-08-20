@@ -95,6 +95,9 @@ def test_demo_runs_real_dxf_pipeline_without_upload():
     assert payload["source"]["mapping_id"] == "plate-zero-d12-v1"
     assert payload["solutions"][0]["algorithm"] == "bbox"
     assert payload["solutions"][0]["metrics"]["under_reinforced_cell_count"] == 0
+    assert "#9F7FFF" in payload["solutions"][0]["svg"]
+    assert "#FF0000" in payload["solutions"][0]["svg"]
+    assert "ACI 181" in payload["solutions"][0]["svg"]
 
 
 def test_demo_rejects_unknown_case():
