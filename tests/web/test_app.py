@@ -34,12 +34,20 @@ def test_landing_health_and_options_are_available():
     landing = client.get("/")
     health = client.get("/healthz")
     options = client.get("/api/options")
+    script = client.get("/static/app.js")
 
     assert landing.status_code == 200
     assert "Раскладка дополнительной арматуры" in landing.text
     assert "Параметры задачи" in landing.text
     assert "Рабочая область" in landing.text
+    assert "/static/app.js?v=web-mvp-2" in landing.text
+    assert landing.headers["cache-control"] == "no-store, max-age=0"
+    assert options.headers["cache-control"] == "no-store, max-age=0"
+    assert script.headers["cache-control"] == "no-store, max-age=0"
+    assert "normalizedOptions(payload)" in script.text
+    assert "payload.demo_cases.map" not in script.text
     assert health.json() == {"status": "ok"}
+    assert options.json()["schema_version"] == 1
     assert {item["id"] for item in options.json()["algorithms"]} == {
         "agglomerative",
         "bbox",

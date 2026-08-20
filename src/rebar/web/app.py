@@ -7,7 +7,7 @@ from tempfile import TemporaryDirectory
 from typing import Annotated
 
 from ezdxf.lldxf.const import DXFError
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
@@ -33,6 +33,7 @@ from rebar.reporting.svg import render_solution_svg
 
 STATIC_DIR = Path(__file__).with_name("static")
 MAX_UPLOAD_BYTES = 30 * 1024 * 1024
+OPTIONS_SCHEMA_VERSION = 1
 
 ALGORITHM_INFO = {
     "agglomerative": {
@@ -75,6 +76,18 @@ app = FastAPI(
     version="0.1.0",
 )
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+@app.middleware("http")
+async def prevent_stale_web_assets(request: Request, call_next):
+    """Не смешивать UI и API разных релизов в кеше браузера или reverse proxy."""
+
+    response = await call_next(request)
+    path = request.url.path
+    if path == "/" or path.startswith(("/api/", "/static/")):
+        response.headers["Cache-Control"] = "no-store, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+    return response
 
 
 def _safe_name(upload: UploadFile, fallback: str) -> str:
@@ -163,6 +176,7 @@ def healthz() -> dict[str, str]:
 def options() -> dict:
     registry_names = built_in_optimizer_registry().names()
     return {
+        "schema_version": OPTIONS_SCHEMA_VERSION,
         "algorithms": [
             {
                 "id": name,

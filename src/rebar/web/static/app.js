@@ -23,6 +23,8 @@ let analysis = null;
 let activeSolution = 0;
 let showDetailing = false;
 
+const OPTIONS_SCHEMA_VERSION = 1;
+
 const number = (value, digits = 0) => new Intl.NumberFormat("ru-RU", {
   maximumFractionDigits: digits,
 }).format(value ?? 0);
@@ -58,6 +60,21 @@ function sourceMode() {
   return sourceModeInputs.find((input) => input.checked)?.value ?? "demo";
 }
 
+function normalizedOptions(payload) {
+  const incompatibleMessage = "Интерфейс и сервер имеют разные версии. Обновите страницу с очисткой кеша.";
+  if (!payload || typeof payload !== "object" || payload.schema_version !== OPTIONS_SCHEMA_VERSION) {
+    throw new Error(incompatibleMessage);
+  }
+  const listKeys = ["algorithms", "mappings", "demo_cases", "cutting_profiles"];
+  if (listKeys.some((key) => !Array.isArray(payload[key])) || !payload.defaults) {
+    throw new Error(incompatibleMessage);
+  }
+  if (!payload.demo_cases.length) {
+    throw new Error("На сервере не настроена ни одна встроенная задача.");
+  }
+  return payload;
+}
+
 function updateDemoDescription() {
   const selected = options?.demo_cases.find((item) => item.id === demoSelect.value);
   document.querySelector("#demo-description").textContent = selected?.description
@@ -78,27 +95,28 @@ function updateSourceMode() {
 }
 
 function renderOptions(payload) {
-  options = payload;
-  mappingSelect.innerHTML = payload.mappings.map((item) => (
+  options = normalizedOptions(payload);
+  mappingSelect.innerHTML = options.mappings.map((item) => (
     `<option value="${escapeHtml(item.id)}">${escapeHtml(item.title)}</option>`
   )).join("");
-  demoSelect.innerHTML = payload.demo_cases.map((item) => (
+  demoSelect.innerHTML = options.demo_cases.map((item) => (
     `<option value="${escapeHtml(item.id)}">${escapeHtml(item.title)}</option>`
   )).join("");
-  cuttingProfileSelect.innerHTML = payload.cutting_profiles.map((item) => (
+  cuttingProfileSelect.innerHTML = options.cutting_profiles.map((item) => (
     `<option value="${escapeHtml(item.id)}">${escapeHtml(item.title)}</option>`
   )).join("");
-  algorithmList.innerHTML = payload.algorithms.map((item) => `
+  algorithmList.innerHTML = options.algorithms.map((item) => `
     <label class="algorithm-option">
       <input type="checkbox" name="algorithm" value="${escapeHtml(item.id)}" ${item.default ? "checked" : ""}>
       <span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.description)}</small></span>
     </label>
   `).join("");
-  document.querySelector("#max-details").value = payload.defaults.max_details;
-  document.querySelector("#min-width").value = payload.defaults.min_width_cells;
-  cuttingProfileSelect.value = payload.defaults.cutting_profile;
-  demoSelect.value = payload.defaults.demo_id;
-  const defaultMode = payload.defaults.source_mode ?? "demo";
+  document.querySelector("#max-details").value = options.defaults.max_details;
+  document.querySelector("#min-width").value = options.defaults.min_width_cells;
+  cuttingProfileSelect.value = options.defaults.cutting_profile;
+  demoSelect.value = options.defaults.demo_id;
+  if (!demoSelect.value) demoSelect.selectedIndex = 0;
+  const defaultMode = options.defaults.source_mode ?? "demo";
   sourceModeInputs.forEach((input) => { input.checked = input.value === defaultMode; });
   updateDemoDescription();
   updateSourceMode();
@@ -106,7 +124,7 @@ function renderOptions(payload) {
 
 async function loadOptions() {
   try {
-    const response = await fetch("/api/options");
+    const response = await fetch("/api/options", { cache: "no-store" });
     if (!response.ok) throw new Error("Не удалось получить настройки приложения.");
     renderOptions(await response.json());
     setWorkspaceState(sourceMode() === "demo" ? "Демо готово" : "Система готова", "ready");
