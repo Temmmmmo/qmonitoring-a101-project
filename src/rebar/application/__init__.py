@@ -7,6 +7,11 @@ from .analyze_direction import (
     available_cutting_profile_ids,
     available_mapping_ids,
 )
+from .analyze_plate import (
+    PlateAnalysis,
+    PlateDirectionSource,
+    analyze_plate,
+)
 from .demo import (
     IRREGULAR_PLATE_DEMO,
     DemoCase,
@@ -14,13 +19,26 @@ from .demo import (
     get_demo_case,
     write_demo_dxf,
 )
+from .gate_assessment import (
+    GateAssessment,
+    GateDeviation,
+    assess_layout_gates,
+    assess_plate_gates,
+)
 
 __all__ = [
     "DEFAULT_ALGORITHMS",
     "IRREGULAR_PLATE_DEMO",
     "DemoCase",
     "DirectionAnalysis",
+    "GateAssessment",
+    "GateDeviation",
+    "PlateAnalysis",
+    "PlateDirectionSource",
     "analyze_direction",
+    "analyze_plate",
+    "assess_layout_gates",
+    "assess_plate_gates",
     "available_cutting_profile_ids",
     "available_demo_cases",
     "available_mapping_ids",

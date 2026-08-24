@@ -1,5 +1,14 @@
 """Стабильные входные и выходные контракты оптимизации."""
 
+from .front import (
+    CandidateRejection,
+    ComplexityAxis,
+    ConstructabilityMetrics,
+    DirectionCandidate,
+    DirectionParetoFront,
+    PlateCandidate,
+    PlateParetoFront,
+)
 from .problem import (
     BBox,
     DemandCell,
@@ -7,6 +16,13 @@ from .problem import (
     DemandMap,
     LayoutConstraints,
     LayoutProblem,
+)
+from .plate import (
+    PLATE_DIRECTIONS,
+    PlateDirectionSolution,
+    PlateMetrics,
+    PlateProblem,
+    PlateSolution,
 )
 from .result import (
     AlgorithmRequest,
@@ -21,9 +37,14 @@ from .result import (
 __all__ = [
     "AlgorithmRequest",
     "BBox",
+    "CandidateRejection",
+    "ComplexityAxis",
+    "ConstructabilityMetrics",
     "DemandCell",
     "DemandLevel",
     "DemandMap",
+    "DirectionCandidate",
+    "DirectionParetoFront",
     "LayoutConstraints",
     "LayoutEvaluation",
     "LayoutMetrics",
@@ -31,5 +52,12 @@ __all__ = [
     "LayoutSolution",
     "LayoutZone",
     "ObjectiveWeights",
+    "PLATE_DIRECTIONS",
+    "PlateCandidate",
+    "PlateDirectionSolution",
+    "PlateMetrics",
+    "PlateParetoFront",
+    "PlateProblem",
+    "PlateSolution",
     "SolutionStatus",
 ]

@@ -29,6 +29,9 @@ def test_analyze_direction_runs_selected_algorithm(monkeypatch, direction_mosaic
     assert analysis.problem.constraints.min_width_cells == 1
     assert [solution.algorithm for solution in analysis.solutions] == ["bbox"]
     assert analysis.solutions[0].request.max_details == 3
+    assert analysis.front is not None
+    assert len(analysis.front.candidates) == 1
+    assert analysis.front.candidates[0].solution.algorithm == "bbox"
 
 
 def test_analyze_direction_validates_choices_before_reading(monkeypatch):

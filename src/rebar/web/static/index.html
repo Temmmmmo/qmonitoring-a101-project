@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#263643">
     <title>Rebar Layout · инженерный расчёт</title>
-    <link rel="stylesheet" href="/static/styles.css?v=web-mvp-2">
+    <link rel="stylesheet" href="/static/styles.css?v=web-mvp-7">
   </head>
   <body>
     <header class="app-header">
@@ -17,7 +17,7 @@
         </span>
       </a>
       <div class="header-context" aria-label="Контекст приложения">
-        <span>Одно направление</span>
+        <span id="scope-label">Одно направление</span>
         <span class="environment-badge"><i aria-hidden="true"></i> Web MVP</span>
       </div>
     </header>
@@ -29,7 +29,13 @@
             <p class="panel-kicker">Параметры задачи</p>
             <h1>Новый расчёт</h1>
           </div>
-          <span class="panel-code">DXF · 01</span>
+          <span id="panel-code" class="panel-code">DXF · 01</span>
+        </div>
+
+        <div class="assistant-role">
+          <strong>Инженерный помощник</strong>
+          <span>Система готовит и сравнивает варианты, показывает нарушения и отклонения.
+            Выбор, корректировка и выпуск решения остаются за конструктором.</span>
         </div>
 
         <section class="control-section" aria-labelledby="source-heading">
@@ -37,7 +43,7 @@
             <span class="section-index">01</span>
             <div>
               <h2 id="source-heading">Исходные данные</h2>
-              <p>Запустите встроенный пример или загрузите один DXF.</p>
+              <p>Один DXF для отладки или комплект четырёх направлений плиты.</p>
             </div>
           </div>
 
@@ -49,6 +55,10 @@
             <label class="source-mode-option">
               <input type="radio" name="source_mode" value="upload">
               <span><strong>Свой DXF</strong><small>Загрузка файла и шкалы</small></span>
+            </label>
+            <label class="source-mode-option">
+              <input type="radio" name="source_mode" value="plate">
+              <span><strong>Плита · 4 DXF</strong><small>Общая масса и статус</small></span>
             </label>
           </div>
 
@@ -86,6 +96,56 @@
               </label>
             </div>
           </div>
+
+          <div id="plate-source" class="plate-source" hidden>
+            <p class="plate-note">Направления проверяются по именам файлов. Комплект
+              должен содержать нижнее/верхнее армирование вдоль X и Y.</p>
+            <div class="plate-files">
+              <label class="plate-file-row" for="plate-bottom-x">
+                <input id="plate-bottom-x" name="dxf_bottom_x" type="file" accept=".dxf">
+                <span class="direction-token">Низ · X</span>
+                <span><strong data-file-title>Выбрать DXF</strong><small data-file-meta>не выбран</small></span>
+              </label>
+              <label class="plate-file-row" for="plate-bottom-y">
+                <input id="plate-bottom-y" name="dxf_bottom_y" type="file" accept=".dxf">
+                <span class="direction-token">Низ · Y</span>
+                <span><strong data-file-title>Выбрать DXF</strong><small data-file-meta>не выбран</small></span>
+              </label>
+              <label class="plate-file-row" for="plate-top-x">
+                <input id="plate-top-x" name="dxf_top_x" type="file" accept=".dxf">
+                <span class="direction-token">Верх · X</span>
+                <span><strong data-file-title>Выбрать DXF</strong><small data-file-meta>не выбран</small></span>
+              </label>
+              <label class="plate-file-row" for="plate-top-y">
+                <input id="plate-top-y" name="dxf_top_y" type="file" accept=".dxf">
+                <span class="direction-token">Верх · Y</span>
+                <span><strong data-file-title>Выбрать DXF</strong><small data-file-meta>не выбран</small></span>
+              </label>
+            </div>
+            <div class="field-stack">
+              <label class="field">
+                <span>Источник армирования <i>для комплекта</i></span>
+                <select id="plate-mapping-select" name="plate_mapping_id"></select>
+                <small>Выберите встроенную таблицу или загрузите один общий .shk.</small>
+              </label>
+              <label id="plate-shk-field" class="field file-field" hidden>
+                <span>Общий файл шкалы <i>для 4 DXF</i></span>
+                <input id="plate-shk-input" name="plate_shk" type="file" accept=".shk">
+                <span id="plate-shk-label" class="file-field-label">Выбрать .shk</span>
+                <small>Число полос проверяется отдельно для каждого направления.</small>
+              </label>
+              <label class="field">
+                <span>Название расчёта <i>необязательно</i></span>
+                <input id="plate-case-id" class="text-input" name="case_id" type="text"
+                  maxlength="200" placeholder="Например, плита нуля">
+              </label>
+              <label class="field">
+                <span>Инженерный эталон <i>для сравнения</i></span>
+                <select id="plate-reference-select" name="reference_id"></select>
+                <small>Эталон не управляет алгоритмом и не заменяет проверку безопасности.</small>
+              </label>
+            </div>
+          </div>
         </section>
 
         <section class="control-section" aria-labelledby="algorithm-heading">
@@ -113,6 +173,18 @@
             </label>
             <label class="field"><span>Профиль раскроя</span>
               <select id="cutting-profile" name="cutting_profile"></select>
+            </label>
+            <label class="field"><span>Популяция GA</span>
+              <input id="genetic-population" name="genetic_population_size"
+                type="number" min="4" max="64" value="16">
+            </label>
+            <label class="field"><span>Поколения GA</span>
+              <input id="genetic-generations" name="genetic_generations"
+                type="number" min="1" max="200" value="30">
+            </label>
+            <label class="field"><span>Seed GA</span>
+              <input id="genetic-seed" name="genetic_seed"
+                type="number" min="0" max="2147483647" value="42">
             </label>
           </div>
         </details>
@@ -149,8 +221,8 @@
             <p>Можно сразу запустить встроенный DXF или выбрать собственный файл. Исходная
               мозаика, прямоугольные зоны и метрики будут показаны в этой области.</p>
             <dl class="workflow-facts">
-              <div><dt>Вход</dt><dd>Демо или DXF одного направления</dd></div>
-              <div><dt>Результат</dt><dd>Зоны, стержни, масса</dd></div>
+              <div><dt>Вход</dt><dd>Демо, один DXF или комплект из четырёх</dd></div>
+              <div><dt>Результат</dt><dd>Зоны, стержни и общая масса плиты</dd></div>
               <div><dt>Хранение</dt><dd>Файлы не сохраняются</dd></div>
             </dl>
           </div>
@@ -167,13 +239,15 @@
         <section id="results" class="results" hidden>
           <div class="results-head">
             <div>
-              <p class="panel-kicker">Активный файл</p>
+              <p id="result-kicker" class="panel-kicker">Активный файл</p>
               <h2 id="result-filename"></h2>
             </div>
             <button id="new-analysis" class="secondary-button" type="button">К параметрам</button>
           </div>
           <div id="source-facts" class="source-facts"></div>
           <div id="solution-tabs" class="solution-tabs" role="tablist" aria-label="Алгоритмы"></div>
+          <div id="direction-tabs" class="direction-tabs" role="tablist"
+            aria-label="Направления армирования" hidden></div>
 
           <article class="solution-view">
             <div class="drawing-column">
@@ -192,10 +266,20 @@
                 <div id="active-status" class="status-pill"></div>
               </div>
               <div id="active-metrics" class="metric-grid"></div>
+              <section id="gate-panel" class="gate-panel">
+                <div class="gate-heading">
+                  <h3>Проверка по гейтам</h3>
+                  <span id="gate-summary"></span>
+                </div>
+                <p class="gate-disclaimer">Показаны только автоматически измеримые
+                  требования. Непроверенные пункты нельзя считать выполненными.</p>
+                <div id="gate-list" class="gate-list"></div>
+              </section>
               <div id="trajectory-panel" class="trajectory-panel" hidden>
-                <h3>Траектория вариантов</h3>
+                <h3 id="trajectory-title">Траектория вариантов</h3>
                 <div id="trajectory-chart" class="trajectory-chart"></div>
-                <p>Зелёным отмечены недоминируемые точки внутри текущей жадной траектории.</p>
+                <p id="trajectory-note">Зелёным отмечены недоминируемые точки внутри
+                  текущей жадной траектории.</p>
               </div>
               <div class="diagnostics">
                 <h3>Диагностика</h3>
@@ -222,6 +306,6 @@
       <span>Внутренние единицы: мм</span>
       <span>Qmonitoring × A101</span>
     </footer>
-    <script src="/static/app.js?v=web-mvp-2" defer></script>
+    <script src="/static/app.js?v=web-mvp-7" defer></script>
   </body>
 </html>

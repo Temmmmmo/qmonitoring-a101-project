@@ -8,6 +8,7 @@ from rebar.optimization import (
     AgglomerativeOptimizer,
     AlgorithmRequest,
     BspOptimizer,
+    GeneticParetoOptimizer,
     GreedyStripOptimizer,
     LayoutConstraints,
     PriorityGreedyOptimizer,
@@ -89,6 +90,49 @@ def test_algorithms_share_contract_and_independent_metrics(splittable_mosaic):
         assert evaluate_layout(problem, solution.zones, request).valid
 
 
+def test_genetic_optimizer_returns_reproducible_valid_pareto_candidates(
+    splittable_mosaic,
+):
+    problem = build_layout_problem(
+        splittable_mosaic,
+        LayoutConstraints(min_width_cells=1, enforce_zone_gap=False),
+    )
+    request = AlgorithmRequest(
+        max_details=8,
+        params={
+            "population_size": 8,
+            "generations": 5,
+            "random_seed": 17,
+        },
+    )
+
+    first = GeneticParetoOptimizer().solve_many(problem, request)
+    second = GeneticParetoOptimizer().solve_many(problem, request)
+
+    first_points = [
+        (solution.metrics.detail_count, solution.metrics.total_mass_kg)
+        for solution in first
+    ]
+    assert first_points == [
+        (solution.metrics.detail_count, solution.metrics.total_mass_kg)
+        for solution in second
+    ]
+    assert first_points
+    assert all(solution.algorithm == "genetic-pareto" for solution in first)
+    assert all(solution.status is SolutionStatus.FEASIBLE for solution in first)
+    assert all(evaluate_layout(problem, solution.zones, request).valid for solution in first)
+    assert all(
+        not (
+            first_mass <= second_mass
+            and first_count <= second_count
+            and (first_mass < second_mass or first_count < second_count)
+        )
+        for first_count, first_mass in first_points
+        for second_count, second_mass in first_points
+        if (first_count, first_mass) != (second_count, second_mass)
+    )
+
+
 def test_greedy_respects_limit_and_supports_both_axes(splittable_mosaic):
     transposed = Mosaic(
         direction=Direction(Layer.BOTTOM, Axis.Y),
@@ -127,6 +171,7 @@ def test_built_in_registry_switches_real_algorithms(splittable_mosaic):
         "agglomerative",
         "bbox",
         "bsp",
+        "genetic-pareto",
         "greedy",
         "greedy-priority",
         "row-run-greedy",
@@ -137,6 +182,7 @@ def test_built_in_registry_switches_real_algorithms(splittable_mosaic):
         "agglomerative",
         "bbox",
         "bsp",
+        "genetic-pareto",
         "greedy",
         "greedy-priority",
         "row-run-greedy",
@@ -196,10 +242,19 @@ def test_real_mosaic_is_accepted_by_every_algorithm(dxf_bottom_x):
     registry = built_in_optimizer_registry()
 
     for name in registry.names():
-        max_details = 32 if name == "spatial-partition-greedy" else 1
+        max_details = (
+            32
+            if name in {"genetic-pareto", "spatial-partition-greedy"}
+            else 1
+        )
+        params = (
+            {"population_size": 4, "generations": 1}
+            if name == "genetic-pareto"
+            else {}
+        )
         solution = registry.create(name).solve(
             problem,
-            AlgorithmRequest(max_details=max_details),
+            AlgorithmRequest(max_details=max_details, params=params),
         )
         assert solution.status is SolutionStatus.FEASIBLE
         assert solution.metrics.demanded_cell_count > 0
@@ -248,6 +303,32 @@ def test_c1_spatial_partition_keeps_a_real_pareto_scale(c1_top_y_dxf, shk_full):
         for index, first in enumerate(solution.zones)
         for second in solution.zones[index + 1 :]
     )
+
+
+def test_c1_genetic_search_builds_valid_multi_point_front(c1_top_y_dxf, shk_full):
+    problem = build_layout_problem(
+        read_mosaic(str(c1_top_y_dxf), shk_path=str(shk_full))
+    )
+    request = AlgorithmRequest(
+        max_details=32,
+        params={
+            "population_size": 8,
+            "generations": 5,
+            "random_seed": 42,
+        },
+    )
+
+    solutions = GeneticParetoOptimizer().solve_many(problem, request)
+    points = [
+        (solution.metrics.detail_count, solution.metrics.total_mass_kg)
+        for solution in solutions
+    ]
+
+    assert len(points) >= 4
+    assert len({count for count, _mass in points}) >= 4
+    assert max(count for count, _mass in points) <= 32
+    assert all(solution.status is SolutionStatus.FEASIBLE for solution in solutions)
+    assert all(solution.metrics.under_reinforced_cell_count == 0 for solution in solutions)
 
 
 def test_spatial_partition_does_not_merge_through_missing_fe_tile():

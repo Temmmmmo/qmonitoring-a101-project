@@ -3,14 +3,21 @@
 from __future__ import annotations
 
 import importlib
+from contextlib import ExitStack
+from dataclasses import replace
 
 from fastapi.testclient import TestClient
 
-from rebar.application import DirectionAnalysis
+from rebar.application import DirectionAnalysis, PlateAnalysis
 from rebar.optimization import (
+    PLATE_DIRECTIONS,
     AlgorithmRequest,
     LayoutConstraints,
+    PlateDirectionSolution,
     build_layout_problem,
+    build_plate_pareto_front,
+    build_plate_problem,
+    build_plate_solution,
     built_in_optimizer_registry,
 )
 
@@ -30,6 +37,43 @@ def _analysis(mosaic) -> DirectionAnalysis:
     return DirectionAnalysis(mosaic=mosaic, problem=problem, solutions=(solution,))
 
 
+def _plate_analysis(mosaic, source_paths) -> PlateAnalysis:
+    direction_analyses = tuple(
+        _analysis(
+            replace(
+                mosaic,
+                direction=direction,
+                source_path=str(source.dxf_path),
+            )
+        )
+        for direction, source in zip(PLATE_DIRECTIONS, source_paths)
+    )
+    problem = build_plate_problem(
+        (analysis.problem for analysis in direction_analyses),
+        case_id="web-plate",
+    )
+    solution = build_plate_solution(
+        PlateDirectionSolution(
+            direction=analysis.problem.demand.direction,
+            solution=analysis.solutions[0],
+        )
+        for analysis in direction_analyses
+    )
+    front = build_plate_pareto_front(
+        problem,
+        {
+            analysis.problem.demand.direction: analysis.solutions
+            for analysis in direction_analyses
+        },
+    )
+    return PlateAnalysis(
+        problem=problem,
+        direction_analyses=direction_analyses,
+        solutions=(solution,),
+        front=front,
+    )
+
+
 def test_landing_health_and_options_are_available():
     landing = client.get("/")
     health = client.get("/healthz")
@@ -40,11 +84,12 @@ def test_landing_health_and_options_are_available():
     assert "Раскладка дополнительной арматуры" in landing.text
     assert "Параметры задачи" in landing.text
     assert "Рабочая область" in landing.text
-    assert "/static/app.js?v=web-mvp-2" in landing.text
+    assert "/static/app.js?v=web-mvp-7" in landing.text
     assert landing.headers["cache-control"] == "no-store, max-age=0"
     assert options.headers["cache-control"] == "no-store, max-age=0"
     assert script.headers["cache-control"] == "no-store, max-age=0"
     assert "normalizedOptions(payload)" in script.text
+    assert '"/api/analyze-plate"' in script.text
     assert "payload.demo_cases.map" not in script.text
     assert health.json() == {"status": "ok"}
     assert options.json()["schema_version"] == 1
@@ -52,6 +97,7 @@ def test_landing_health_and_options_are_available():
         "agglomerative",
         "bbox",
         "bsp",
+        "genetic-pareto",
         "greedy",
         "greedy-priority",
         "row-run-greedy",
@@ -64,6 +110,17 @@ def test_landing_health_and_options_are_available():
     }
     assert options.json()["defaults"]["source_mode"] == "demo"
     assert options.json()["defaults"]["demo_id"] == "irregular-plate-x"
+    assert options.json()["defaults"]["algorithms"] == ["genetic-pareto"]
+    assert options.json()["defaults"]["genetic_population_size"] == 16
+    assert options.json()["references"] == [
+        {
+            "id": "plate-zero-k09",
+            "title": "Корпус 2.9 · плита нуля",
+            "expected_mass_kg": 3177.64,
+            "expected_bar_count": 1019,
+            "expected_position_count": 79,
+        }
+    ]
     assert options.json()["demo_cases"] == [
         {
             "id": "irregular-plate-x",
@@ -107,6 +164,38 @@ def test_demo_rejects_unknown_case():
     assert "неизвестный демонстрационный пример" in response.json()["detail"]
 
 
+def test_demo_genetic_algorithm_returns_clickable_pareto_front():
+    response = client.post(
+        "/api/demo",
+        data={
+            "demo_id": "irregular-plate-x",
+            "algorithms": "genetic-pareto",
+            "max_details": "12",
+            "min_width_cells": "1",
+            "genetic_population_size": "8",
+            "genetic_generations": "5",
+            "genetic_seed": "7",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["schema_version"] == 3
+    assert payload["pareto_front"]["source_candidate_count"] >= 2
+    assert len(payload["pareto_front"]["points"]) >= 2
+    assert len(payload["solutions"]) == len(payload["pareto_front"]["points"])
+    assert all(
+        solution["algorithm"] == "genetic-pareto"
+        for solution in payload["solutions"]
+    )
+    assert len(
+        {
+            solution["metrics"]["detail_count"]
+            for solution in payload["solutions"]
+        }
+    ) >= 2
+
+
 def test_analyze_returns_metrics_zones_and_inline_svg(monkeypatch, direction_mosaic):
     captured = {}
 
@@ -135,6 +224,7 @@ def test_analyze_returns_metrics_zones_and_inline_svg(monkeypatch, direction_mos
     assert payload["source"]["direction"] == {"layer": "bottom", "axis": "X"}
     assert payload["solutions"][0]["algorithm"] == "bbox"
     assert payload["solutions"][0]["physical_bar_count"] > 0
+    assert payload["solutions"][0]["gate_assessment"]["summary"]["pass"] >= 1
     assert payload["solutions"][0]["svg"].startswith("<svg")
     assert payload["solutions"][0]["zones"]
     assert captured["filename"] == "Нижняя по Х.dxf"
@@ -161,3 +251,184 @@ def test_analyze_rejects_wrong_extensions_and_conflicting_mapping():
     assert ".dxf" in wrong_dxf.json()["detail"]
     assert conflict.status_code == 400
     assert "либо .shk, либо" in conflict.json()["detail"]
+
+
+def test_analyze_plate_returns_aggregate_metrics_and_four_svgs(
+    monkeypatch,
+    direction_mosaic,
+):
+    captured = {}
+
+    def fake_analyze(sources, **kwargs):
+        captured["sources"] = sources
+        captured.update(kwargs)
+        return _plate_analysis(direction_mosaic, sources)
+
+    monkeypatch.setattr(web_app, "analyze_plate", fake_analyze)
+    response = client.post(
+        "/api/analyze-plate",
+        files={
+            "dxf_bottom_x": ("Нижняя по Х.dxf", b"bottom x", "application/dxf"),
+            "dxf_bottom_y": ("Нижняя по У.dxf", b"bottom y", "application/dxf"),
+            "dxf_top_x": ("Верхняя по Х.dxf", b"top x", "application/dxf"),
+            "dxf_top_y": ("Верхняя по У.dxf", b"top y", "application/dxf"),
+        },
+        data={
+            "case_id": "plate-web-test",
+            "mapping_id": "plate-zero-d12-v1",
+            "algorithms": "bbox",
+            "max_details": "4",
+            "min_width_cells": "1",
+            "cutting_profile": "continuous",
+            "reference_id": "plate-zero-k09",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["schema_version"] == 4
+    assert payload["kind"] == "plate"
+    assert payload["plate"]["direction_count"] == 4
+    assert payload["pareto_front"]["complexity_axis"] == "zone_count"
+    assert payload["pareto_front"]["combination_count"] == 1
+    assert [source["filename"] for source in payload["sources"]] == [
+        "Нижняя по Х.dxf",
+        "Нижняя по У.dxf",
+        "Верхняя по Х.dxf",
+        "Верхняя по У.dxf",
+    ]
+    solution = payload["solutions"][0]
+    assert solution["algorithm"] == "bbox"
+    assert solution["valid"] is True
+    assert solution["metrics"]["direction_count"] == 4
+    assert solution["metrics"]["zone_count"] == 4
+    assert solution["constructability"]["zone_count"] == 4
+    assert solution["candidate_id"].startswith("plate:")
+    assert solution["gate_assessment"]["reference_id"] == "plate-zero-k09"
+    gate_items = {item["id"]: item for item in solution["gate_assessment"]["items"]}
+    assert gate_items["plate-directions"]["absolute_deviation"] == 0.0
+    assert gate_items["reference-mass"]["target"] == 3177.64
+    assert len(solution["direction_solutions"]) == 4
+    assert all(
+        item["solution"]["svg"].startswith("<svg")
+        for item in solution["direction_solutions"]
+    )
+    assert captured["max_details_per_direction"] == 4
+    assert all(source.mapping_id == "plate-zero-d12-v1" for source in captured["sources"])
+
+
+def test_analyze_plate_rejects_non_dxf_and_automatic_mapping():
+    files = {
+        "dxf_bottom_x": ("Нижняя по Х.txt", b"bottom x", "text/plain"),
+        "dxf_bottom_y": ("Нижняя по У.dxf", b"bottom y", "application/dxf"),
+        "dxf_top_x": ("Верхняя по Х.dxf", b"top x", "application/dxf"),
+        "dxf_top_y": ("Верхняя по У.dxf", b"top y", "application/dxf"),
+    }
+    wrong_extension = client.post("/api/analyze-plate", files=files)
+    files["dxf_bottom_x"] = ("Нижняя по Х.dxf", b"bottom x", "application/dxf")
+    automatic_mapping = client.post(
+        "/api/analyze-plate",
+        files=files,
+        data={"mapping_id": "auto"},
+    )
+
+    assert wrong_extension.status_code == 400
+    assert "Все четыре файла" in wrong_extension.json()["detail"]
+    assert automatic_mapping.status_code == 400
+    assert "общий .shk" in automatic_mapping.json()["detail"]
+
+
+def test_analyze_plate_accepts_one_explicit_shared_shk(
+    monkeypatch,
+    direction_mosaic,
+):
+    captured = {}
+
+    def fake_analyze(sources, **kwargs):
+        captured["sources"] = sources
+        return _plate_analysis(direction_mosaic, sources)
+
+    monkeypatch.setattr(web_app, "analyze_plate", fake_analyze)
+    response = client.post(
+        "/api/analyze-plate",
+        files={
+            "dxf_bottom_x": ("Нижняя по Х.dxf", b"bottom x", "application/dxf"),
+            "dxf_bottom_y": ("Нижняя по У.dxf", b"bottom y", "application/dxf"),
+            "dxf_top_x": ("Верхняя по Х.dxf", b"top x", "application/dxf"),
+            "dxf_top_y": ("Верхняя по У.dxf", b"top y", "application/dxf"),
+            "shk": ("Общая шкала.shk", b"shared scale", "application/octet-stream"),
+        },
+        data={
+            "mapping_id": "auto",
+            "algorithms": "bbox",
+            "min_width_cells": "1",
+        },
+    )
+
+    assert response.status_code == 200
+    sources = captured["sources"]
+    assert all(source.mapping_id == "auto" for source in sources)
+    assert all(source.shk_path is not None for source in sources)
+    assert len({str(source.shk_path) for source in sources}) == 1
+    assert str(sources[0].shk_path).endswith("shared-Общая шкала.shk")
+
+
+def test_analyze_plate_rejects_bad_or_conflicting_shared_shk():
+    dxf_files = {
+        "dxf_bottom_x": ("Нижняя по Х.dxf", b"bottom x", "application/dxf"),
+        "dxf_bottom_y": ("Нижняя по У.dxf", b"bottom y", "application/dxf"),
+        "dxf_top_x": ("Верхняя по Х.dxf", b"top x", "application/dxf"),
+        "dxf_top_y": ("Верхняя по У.dxf", b"top y", "application/dxf"),
+    }
+    wrong_extension = client.post(
+        "/api/analyze-plate",
+        files={**dxf_files, "shk": ("scale.txt", b"scale", "text/plain")},
+        data={"mapping_id": "auto"},
+    )
+    conflict = client.post(
+        "/api/analyze-plate",
+        files={
+            **dxf_files,
+            "shk": ("scale.shk", b"scale", "application/octet-stream"),
+        },
+        data={"mapping_id": "plate-zero-d12-v1"},
+    )
+
+    assert wrong_extension.status_code == 400
+    assert "расширение .shk" in wrong_extension.json()["detail"]
+    assert conflict.status_code == 400
+    assert "либо общий .shk, либо" in conflict.json()["detail"]
+
+
+def test_analyze_plate_real_multipart_pipeline(plate_zero_dxf_files):
+    assert len(plate_zero_dxf_files) == 4
+    field_names = ("dxf_bottom_x", "dxf_bottom_y", "dxf_top_x", "dxf_top_y")
+
+    with ExitStack() as stack:
+        files = {
+            field_name: (
+                path.name,
+                stack.enter_context(path.open("rb")),
+                "application/dxf",
+            )
+            for field_name, path in zip(field_names, plate_zero_dxf_files)
+        }
+        response = client.post(
+            "/api/analyze-plate",
+            files=files,
+            data={
+                "case_id": "plate-zero-web",
+                "mapping_id": "plate-zero-d12-v1",
+                "algorithms": "bbox",
+                "max_details": "32",
+                "min_width_cells": "2",
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["plate"]["case_id"] == "plate-zero-web"
+    assert payload["solutions"][0]["valid"] is True
+    assert payload["solutions"][0]["metrics"]["direction_count"] == 4
+    assert payload["solutions"][0]["metrics"]["physical_bar_count"] > 0
+    assert len(payload["solutions"][0]["direction_solutions"]) == 4

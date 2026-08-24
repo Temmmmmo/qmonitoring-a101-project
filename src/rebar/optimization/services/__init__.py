@@ -18,6 +18,7 @@ from .cutting import (
     CutLengthCatalog,
     select_installed_length_mm,
 )
+from .constructability import measure_constructability, measure_plate_constructability
 from .detailing import (
     STEEL_KG_PER_M_PER_MM2,
     DetailingContext,
@@ -39,6 +40,12 @@ from .geometry import (
     polygon_in_bbox,
 )
 from .phase import feasible_first_bar_coordinates, resolve_zone_phases
+from .pareto import (
+    build_direction_pareto_front,
+    build_plate_pareto_front,
+    combine_direction_pareto_fronts,
+)
+from .plate import build_plate_problem, build_plate_solution
 
 __all__ = [
     "PLATE_11700_CATALOG",
@@ -57,11 +64,18 @@ __all__ = [
     "bboxes_overlap",
     "build_zone",
     "build_zone_from_bbox",
+    "build_direction_pareto_front",
+    "build_plate_problem",
+    "build_plate_pareto_front",
+    "build_plate_solution",
     "cell_bbox",
+    "combine_direction_pareto_fronts",
     "demanded_cells",
     "evaluate_layout",
     "feasible_first_bar_coordinates",
     "longitudinal_interval",
+    "measure_constructability",
+    "measure_plate_constructability",
     "point_in_bbox",
     "polygon_area",
     "polygon_bbox_intersection_area",

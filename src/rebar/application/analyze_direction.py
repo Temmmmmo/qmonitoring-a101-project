@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from rebar.dxf_ingest import read_mosaic
 from rebar.models import Mosaic
@@ -11,23 +13,22 @@ from rebar.optimization import (
     PLATE_ZERO_D12,
     PLATE_11700_CATALOG,
     AlgorithmRequest,
+    ComplexityAxis,
+    DirectionParetoFront,
+    LayoutCandidateGenerator,
     LayoutConstraints,
     LayoutProblem,
     LayoutSolution,
     ObjectiveWeights,
     RebarMapping,
+    SolutionStatus,
     apply_rebar_mapping,
+    build_direction_pareto_front,
     build_layout_problem,
     built_in_optimizer_registry,
 )
 
-DEFAULT_ALGORITHMS = (
-    "spatial-partition-greedy",
-    "row-run-greedy",
-    "strip-profile-dp",
-    "bsp",
-    "agglomerative",
-)
+DEFAULT_ALGORITHMS = ("genetic-pareto",)
 _MAPPINGS: dict[str, RebarMapping] = {PLATE_ZERO_D12.id: PLATE_ZERO_D12}
 _CUTTING_PROFILES: dict[str, tuple[float, ...]] = {
     "continuous": (),
@@ -42,6 +43,8 @@ class DirectionAnalysis:
     mosaic: Mosaic
     problem: LayoutProblem
     solutions: tuple[LayoutSolution, ...]
+    candidate_solutions: tuple[LayoutSolution, ...] = ()
+    front: DirectionParetoFront | None = None
 
 
 def available_mapping_ids() -> tuple[str, ...]:
@@ -92,6 +95,70 @@ def _algorithm_names(names: tuple[str, ...]) -> tuple[str, ...]:
     return normalized
 
 
+def _algorithm_requests(
+    names: tuple[str, ...],
+    *,
+    max_details: int,
+    detail_penalty_kg: float,
+    algorithm_params: Mapping[str, Mapping[str, Any]] | None,
+) -> dict[str, AlgorithmRequest]:
+    normalized_params = {
+        name.strip().casefold(): dict(params)
+        for name, params in (algorithm_params or {}).items()
+    }
+    unexpected = sorted(set(normalized_params) - set(names))
+    if unexpected:
+        raise ValueError(
+            "параметры переданы для незапущенных алгоритмов: "
+            f"{unexpected}"
+        )
+    return {
+        name: AlgorithmRequest(
+            objective=ObjectiveWeights(detail_penalty_kg=detail_penalty_kg),
+            max_details=max_details,
+            params=normalized_params.get(name, {}),
+        )
+        for name in names
+    }
+
+
+def _representative(candidates: tuple[LayoutSolution, ...]) -> LayoutSolution:
+    """Выбрать стабильный центральный вариант, не называя его «Точкой 3»."""
+
+    usable = tuple(
+        solution
+        for solution in candidates
+        if solution.status in {SolutionStatus.FEASIBLE, SolutionStatus.OPTIMAL}
+        and solution.metrics.under_reinforced_cell_count == 0
+    ) or candidates
+    if len(usable) == 1:
+        return usable[0]
+
+    masses = [solution.metrics.total_mass_kg for solution in usable]
+    counts = [solution.metrics.detail_count for solution in usable]
+    mass_span = max(masses) - min(masses)
+    count_span = max(counts) - min(counts)
+
+    def distance(solution: LayoutSolution) -> tuple[float, float, int]:
+        normalized_mass = (
+            (solution.metrics.total_mass_kg - min(masses)) / mass_span
+            if mass_span > 0
+            else 0.0
+        )
+        normalized_count = (
+            (solution.metrics.detail_count - min(counts)) / count_span
+            if count_span > 0
+            else 0.0
+        )
+        return (
+            normalized_mass**2 + normalized_count**2,
+            solution.metrics.total_mass_kg,
+            solution.metrics.detail_count,
+        )
+
+    return min(usable, key=distance)
+
+
 def analyze_direction(
     dxf_path: str | Path,
     *,
@@ -102,6 +169,8 @@ def analyze_direction(
     min_width_cells: int = 2,
     detail_penalty_kg: float = 0.0,
     cutting_profile: str = "continuous",
+    complexity_axis: ComplexityAxis = ComplexityAxis.ZONE_COUNT,
+    algorithm_params: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> DirectionAnalysis:
     """Разобрать один DXF и выполнить выбранные взаимозаменяемые оптимизаторы."""
 
@@ -126,12 +195,36 @@ def analyze_direction(
             cutting_profile=cutting_profile.strip().casefold(),
         ),
     )
-    request = AlgorithmRequest(
-        objective=ObjectiveWeights(detail_penalty_kg=detail_penalty_kg),
+    requests = _algorithm_requests(
+        selected_algorithms,
         max_details=max_details,
+        detail_penalty_kg=detail_penalty_kg,
+        algorithm_params=algorithm_params,
     )
     registry = built_in_optimizer_registry()
-    solutions = tuple(
-        registry.create(name).solve(problem, request) for name in selected_algorithms
+    solutions: list[LayoutSolution] = []
+    candidate_solutions: list[LayoutSolution] = []
+    for name in selected_algorithms:
+        optimizer = registry.create(name)
+        request = requests[name]
+        generated = (
+            optimizer.solve_many(problem, request)
+            if isinstance(optimizer, LayoutCandidateGenerator)
+            else (optimizer.solve(problem, request),)
+        )
+        if not generated:
+            raise RuntimeError(f"алгоритм {name!r} не вернул ни одного решения")
+        candidate_solutions.extend(generated)
+        solutions.append(_representative(generated))
+    front = build_direction_pareto_front(
+        problem,
+        candidate_solutions,
+        complexity_axis=complexity_axis,
     )
-    return DirectionAnalysis(mosaic=mosaic, problem=problem, solutions=solutions)
+    return DirectionAnalysis(
+        mosaic=mosaic,
+        problem=problem,
+        solutions=tuple(solutions),
+        candidate_solutions=tuple(candidate_solutions),
+        front=front,
+    )
