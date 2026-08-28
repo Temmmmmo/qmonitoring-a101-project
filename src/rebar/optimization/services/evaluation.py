@@ -249,6 +249,14 @@ def evaluate_layout(
     if len(zone_ids) != len(set(zone_ids)):
         diagnostics.append("ERROR: идентификаторы зон должны быть уникальными")
 
+    natural_minimum = 1 if demanded else 0
+    natural_maximum = len(problem.demand.cells) if demanded else 0
+    if not natural_minimum <= len(zones) <= natural_maximum:
+        diagnostics.append(
+            "ERROR: число зон должно быть в естественном диапазоне "
+            f"{natural_minimum}..{natural_maximum}, получено {len(zones)}"
+        )
+
     typical_cell_width: float | None = None
     if zones and problem.demand.cells:
         typical_cell_width = prepare_detailing(problem).typical_transverse_cell_size_mm

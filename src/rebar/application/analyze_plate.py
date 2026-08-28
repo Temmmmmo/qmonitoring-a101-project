@@ -79,7 +79,7 @@ def analyze_plate(
     sources: Iterable[PlateDirectionSource],
     *,
     algorithm_names: tuple[str, ...] = DEFAULT_ALGORITHMS,
-    max_details_per_direction: int = 32,
+    max_details_per_direction: int | None = None,
     min_width_cells: int = 2,
     detail_penalty_kg: float = 0.0,
     cutting_profile: str = "continuous",

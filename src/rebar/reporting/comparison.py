@@ -14,8 +14,10 @@ from rebar.optimization import (
     LayoutSolution,
     ObjectiveWeights,
     PLATE_11700_CATALOG,
+    apply_single_cell_rule,
     build_layout_problem,
     built_in_optimizer_registry,
+    resolve_zone_count_limit,
 )
 
 from .serialization import to_jsonable
@@ -103,7 +105,7 @@ def generate_comparison_report(
         "strip-profile-dp",
     ),
     *,
-    max_details: int = 32,
+    max_details: int | None = None,
     detail_penalty_kg: float = 0.0,
     min_width_cells: int = 2,
     allow_overlaps: bool = True,
@@ -124,10 +126,11 @@ def generate_comparison_report(
         allowed_cut_lengths_mm=allowed_cut_lengths,
         cutting_profile=normalized_cutting_profile,
     )
-    problem = build_layout_problem(mosaic, constraints)
+    problem = apply_single_cell_rule(build_layout_problem(mosaic, constraints))
+    effective_max_details = resolve_zone_count_limit(problem, max_details)
     request = AlgorithmRequest(
         objective=ObjectiveWeights(detail_penalty_kg=detail_penalty_kg),
-        max_details=max_details,
+        max_details=effective_max_details,
     )
     registry = built_in_optimizer_registry()
     solutions = tuple(registry.create(name).solve(problem, request) for name in algorithm_names)
@@ -152,7 +155,7 @@ def generate_comparison_report(
 <html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
 <title>Сравнение алгоритмов раскладки</title><style>{PAGE_STYLE}</style></head><body>
 <header><h1>Локальное сравнение алгоритмов</h1><p>{source}</p>
-<p>Миллиметры · максимум зон: {max_details} · overlap demand_bbox: {overlap_mode} ·
+<p>Миллиметры · максимум зон: {effective_max_details or 0} · overlap demand_bbox: {overlap_mode} ·
 JSON: solutions.json</p></header>
 <main><div class="notice"><strong>Рабочая инженерная модель.</strong> Пересечения зон
 разрешены, но вклад слабых зон не суммируется: каждый КЭ должен быть полностью покрыт

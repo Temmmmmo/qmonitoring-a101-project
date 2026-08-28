@@ -10,6 +10,8 @@ from typing import Any
 from rebar.dxf_ingest import read_mosaic
 from rebar.models import Mosaic
 from rebar.optimization import (
+    K09_ABOVE_3_D10,
+    K09_MINUS_2_D12,
     PLATE_ZERO_D12,
     PLATE_11700_CATALOG,
     AlgorithmRequest,
@@ -23,13 +25,18 @@ from rebar.optimization import (
     RebarMapping,
     SolutionStatus,
     apply_rebar_mapping,
+    apply_single_cell_rule,
     build_direction_pareto_front,
     build_layout_problem,
     built_in_optimizer_registry,
+    resolve_zone_count_limit,
 )
 
 DEFAULT_ALGORITHMS = ("genetic-pareto",)
-_MAPPINGS: dict[str, RebarMapping] = {PLATE_ZERO_D12.id: PLATE_ZERO_D12}
+_MAPPINGS: dict[str, RebarMapping] = {
+    mapping.id: mapping
+    for mapping in (K09_ABOVE_3_D10, K09_MINUS_2_D12, PLATE_ZERO_D12)
+}
 _CUTTING_PROFILES: dict[str, tuple[float, ...]] = {
     "continuous": (),
     PLATE_11700_CATALOG.id: PLATE_11700_CATALOG.lengths_mm,
@@ -98,8 +105,9 @@ def _algorithm_names(names: tuple[str, ...]) -> tuple[str, ...]:
 def _algorithm_requests(
     names: tuple[str, ...],
     *,
-    max_details: int,
+    max_details: int | None,
     detail_penalty_kg: float,
+    complexity_axis: ComplexityAxis,
     algorithm_params: Mapping[str, Mapping[str, Any]] | None,
 ) -> dict[str, AlgorithmRequest]:
     normalized_params = {
@@ -112,14 +120,17 @@ def _algorithm_requests(
             "параметры переданы для незапущенных алгоритмов: "
             f"{unexpected}"
         )
-    return {
-        name: AlgorithmRequest(
+    requests: dict[str, AlgorithmRequest] = {}
+    for name in names:
+        params = dict(normalized_params.get(name, {}))
+        if name == "genetic-pareto":
+            params.setdefault("complexity_axis", complexity_axis.value)
+        requests[name] = AlgorithmRequest(
             objective=ObjectiveWeights(detail_penalty_kg=detail_penalty_kg),
             max_details=max_details,
-            params=normalized_params.get(name, {}),
+            params=params,
         )
-        for name in names
-    }
+    return requests
 
 
 def _representative(candidates: tuple[LayoutSolution, ...]) -> LayoutSolution:
@@ -165,7 +176,7 @@ def analyze_direction(
     shk_path: str | Path | None = None,
     mapping_id: str = "auto",
     algorithm_names: tuple[str, ...] = DEFAULT_ALGORITHMS,
-    max_details: int = 32,
+    max_details: int | None = None,
     min_width_cells: int = 2,
     detail_penalty_kg: float = 0.0,
     cutting_profile: str = "continuous",
@@ -187,18 +198,22 @@ def analyze_direction(
     if selected_mapping is not None:
         mosaic = apply_rebar_mapping(mosaic, selected_mapping)
 
-    problem = build_layout_problem(
-        mosaic,
-        LayoutConstraints(
-            min_width_cells=min_width_cells,
-            allowed_cut_lengths_mm=allowed_cut_lengths,
-            cutting_profile=cutting_profile.strip().casefold(),
-        ),
+    problem = apply_single_cell_rule(
+        build_layout_problem(
+            mosaic,
+            LayoutConstraints(
+                min_width_cells=min_width_cells,
+                allowed_cut_lengths_mm=allowed_cut_lengths,
+                cutting_profile=cutting_profile.strip().casefold(),
+            ),
+        )
     )
+    effective_max_details = resolve_zone_count_limit(problem, max_details)
     requests = _algorithm_requests(
         selected_algorithms,
-        max_details=max_details,
+        max_details=effective_max_details,
         detail_penalty_kg=detail_penalty_kg,
+        complexity_axis=complexity_axis,
         algorithm_params=algorithm_params,
     )
     registry = built_in_optimizer_registry()

@@ -10,7 +10,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from rebar.golden import GoldenCaseDefinition
+from rebar.golden import GoldenCaseDefinition, PlateMetricReference
 from rebar.optimization import (
     LayoutProblem,
     LayoutSolution,
@@ -248,7 +248,7 @@ def assess_plate_gates(
     problem: PlateProblem,
     solution: PlateSolution,
     *,
-    reference: GoldenCaseDefinition | None = None,
+    reference: GoldenCaseDefinition | PlateMetricReference | None = None,
 ) -> GateAssessment:
     """Оценить общеплитный результат и, если выбран, инженерный golden-case."""
 

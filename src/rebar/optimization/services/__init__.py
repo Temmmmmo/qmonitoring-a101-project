@@ -46,6 +46,11 @@ from .pareto import (
     combine_direction_pareto_fronts,
 )
 from .plate import build_plate_problem, build_plate_solution
+from .preprocessing import (
+    apply_single_cell_rule,
+    resolve_zone_count_limit,
+    zone_count_bounds,
+)
 
 __all__ = [
     "PLATE_11700_CATALOG",
@@ -59,6 +64,7 @@ __all__ = [
     "bar_coordinates",
     "bar_segments",
     "bars_conflict",
+    "apply_single_cell_rule",
     "coverage_bbox",
     "bboxes_distance",
     "bboxes_overlap",
@@ -85,9 +91,11 @@ __all__ = [
     "prepare_detailing",
     "rebar_mass_kg",
     "resolve_zone_phases",
+    "resolve_zone_count_limit",
     "select_installed_length_mm",
     "transverse_axis_gap",
     "transverse_interval",
     "zone_coverage_bbox",
     "zones_conflict",
+    "zone_count_bounds",
 ]

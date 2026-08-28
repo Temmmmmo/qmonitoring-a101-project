@@ -16,19 +16,21 @@ scenario = importlib.import_module("rebar.application.analyze_direction")
 
 
 def test_analyze_direction_runs_selected_algorithm(monkeypatch, direction_mosaic):
+    direction_mosaic.cells[0].band = direction_mosaic.legend[1]
+    direction_mosaic.cells[0].aci = direction_mosaic.legend[1].aci
     monkeypatch.setattr(scenario, "read_mosaic", lambda *_args, **_kwargs: direction_mosaic)
 
     analysis = analyze_direction(
         "Нижнее армирование вдоль ОСИ Х.dxf",
         algorithm_names=("bbox",),
-        max_details=3,
+        max_details=2,
         min_width_cells=1,
     )
 
     assert analysis.mosaic is direction_mosaic
     assert analysis.problem.constraints.min_width_cells == 1
     assert [solution.algorithm for solution in analysis.solutions] == ["bbox"]
-    assert analysis.solutions[0].request.max_details == 3
+    assert analysis.solutions[0].request.max_details == 2
     assert analysis.front is not None
     assert len(analysis.front.candidates) == 1
     assert analysis.front.candidates[0].solution.algorithm == "bbox"
@@ -55,7 +57,11 @@ def test_analyze_direction_validates_choices_before_reading(monkeypatch):
 
 
 def test_manual_mapping_catalog_is_explicit():
-    assert available_mapping_ids() == ("plate-zero-d12-v1",)
+    assert available_mapping_ids() == (
+        "k09-above-3-d10-v1",
+        "k09-minus-2-d12-v1",
+        "plate-zero-d12-v1",
+    )
     assert available_cutting_profile_ids() == ("continuous", "plate-11700")
 
 

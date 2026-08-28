@@ -8,6 +8,8 @@ import statistics
 from dataclasses import dataclass, replace
 from time import perf_counter
 
+from rebar.models import Axis
+
 from ..contracts import (
     AlgorithmRequest,
     BBox,
@@ -270,38 +272,75 @@ def _initial_rectangles(
     problem: LayoutProblem,
     grid: _Grid,
     context: DetailingContext,
+    *,
+    align_with_bar_axis: bool = False,
 ) -> list[_Rectangle]:
-    horizontal: list[tuple[int, int, int, int, int, tuple[int, ...]]] = []
-    for row, levels in enumerate(grid.levels):
-        column = 0
-        while column < grid.column_count:
-            level = levels[column]
-            if level is None:
-                column += 1
-                continue
-            end = column + 1
-            source_ids = set(grid.source_cell_ids[row][column])
-            while end < grid.column_count and levels[end] == level:
-                source_ids.update(grid.source_cell_ids[row][end])
-                end += 1
-            horizontal.append((row, row + 1, column, end, level, tuple(sorted(source_ids))))
-            column = end
-
     merged: list[list[object]] = []
     active_by_profile: dict[tuple[int, int, int], int] = {}
-    for row_start, row_end, column_start, column_end, level, source_ids in horizontal:
-        profile = (column_start, column_end, level)
-        previous_index = active_by_profile.get(profile)
-        if previous_index is not None and merged[previous_index][1] == row_start:
-            merged[previous_index][1] = row_end
-            merged[previous_index][5] = tuple(
-                sorted({*merged[previous_index][5], *source_ids})
-            )
-        else:
-            active_by_profile[profile] = len(merged)
-            merged.append(
-                [row_start, row_end, column_start, column_end, level, source_ids]
-            )
+    if not align_with_bar_axis or problem.demand.direction.axis is Axis.X:
+        runs: list[tuple[int, int, int, int, int, tuple[int, ...]]] = []
+        for row, levels in enumerate(grid.levels):
+            column = 0
+            while column < grid.column_count:
+                level = levels[column]
+                if level is None:
+                    column += 1
+                    continue
+                end = column + 1
+                source_ids = set(grid.source_cell_ids[row][column])
+                while end < grid.column_count and levels[end] == level:
+                    source_ids.update(grid.source_cell_ids[row][end])
+                    end += 1
+                runs.append(
+                    (row, row + 1, column, end, level, tuple(sorted(source_ids)))
+                )
+                column = end
+
+        for row_start, row_end, column_start, column_end, level, source_ids in runs:
+            profile = (column_start, column_end, level)
+            previous_index = active_by_profile.get(profile)
+            if previous_index is not None and merged[previous_index][1] == row_start:
+                merged[previous_index][1] = row_end
+                merged[previous_index][5] = tuple(
+                    sorted({*merged[previous_index][5], *source_ids})
+                )
+            else:
+                active_by_profile[profile] = len(merged)
+                merged.append(
+                    [row_start, row_end, column_start, column_end, level, source_ids]
+                )
+    else:
+        runs = []
+        for column in range(grid.column_count):
+            row = 0
+            while row < grid.row_count:
+                level = grid.levels[row][column]
+                if level is None:
+                    row += 1
+                    continue
+                end = row + 1
+                source_ids = set(grid.source_cell_ids[row][column])
+                while end < grid.row_count and grid.levels[end][column] == level:
+                    source_ids.update(grid.source_cell_ids[end][column])
+                    end += 1
+                runs.append(
+                    (row, end, column, column + 1, level, tuple(sorted(source_ids)))
+                )
+                row = end
+
+        for row_start, row_end, column_start, column_end, level, source_ids in runs:
+            profile = (row_start, row_end, level)
+            previous_index = active_by_profile.get(profile)
+            if previous_index is not None and merged[previous_index][3] == column_start:
+                merged[previous_index][3] = column_end
+                merged[previous_index][5] = tuple(
+                    sorted({*merged[previous_index][5], *source_ids})
+                )
+            else:
+                active_by_profile[profile] = len(merged)
+                merged.append(
+                    [row_start, row_end, column_start, column_end, level, source_ids]
+                )
 
     return [
         _make_rectangle(

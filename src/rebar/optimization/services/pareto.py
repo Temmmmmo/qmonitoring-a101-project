@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import replace
-from itertools import product
 from math import prod
 
 from rebar.models import Direction
@@ -92,56 +91,67 @@ def _objective(candidate, axis: ComplexityAxis) -> tuple[float, int]:
     )
 
 
-def _dominates(first, second, axis: ComplexityAxis) -> bool:
-    first_mass, first_complexity = _objective(first, axis)
-    second_mass, second_complexity = _objective(second, axis)
-    no_worse = (
-        first_mass <= second_mass + _MASS_TOLERANCE_KG
-        and first_complexity <= second_complexity
-    )
-    strictly_better = (
-        first_mass < second_mass - _MASS_TOLERANCE_KG
-        or first_complexity < second_complexity
-    )
-    return no_worse and strictly_better
-
-
-def _same_point(first, second, axis: ComplexityAxis) -> bool:
-    first_mass, first_complexity = _objective(first, axis)
-    second_mass, second_complexity = _objective(second, axis)
-    return (
-        abs(first_mass - second_mass) <= _MASS_TOLERANCE_KG
-        and first_complexity == second_complexity
-    )
-
-
 def _pareto_candidates(candidates, axis: ComplexityAxis):
-    nondominated = [
-        candidate
-        for candidate in candidates
-        if not any(
-            other is not candidate and _dominates(other, candidate, axis)
-            for other in candidates
-        )
-    ]
-    nondominated.sort(key=lambda item: (*reversed(_objective(item, axis)), item.id))
+    """Отфильтровать двумерный фронт за ``O(n log n)``.
 
+    После сортировки по сложности кандидат недоминируем только тогда, когда его масса
+    строго улучшает лучшую массу всех меньших значений сложности. Кандидаты одной
+    точки сохраняются как эквивалентные идентификаторы.
+    """
+
+    ordered = sorted(
+        candidates,
+        key=lambda item: (
+            _objective(item, axis)[1],
+            _objective(item, axis)[0],
+            item.id,
+        ),
+    )
     representatives = []
     equivalent_count = 0
-    for candidate in nondominated:
-        if representatives and _same_point(representatives[-1], candidate, axis):
-            representative = representatives[-1]
-            representatives[-1] = replace(
-                representative,
-                equivalent_candidate_ids=(
-                    *representative.equivalent_candidate_ids,
-                    candidate.id,
-                    *candidate.equivalent_candidate_ids,
-                ),
-            )
-            equivalent_count += 1 + len(candidate.equivalent_candidate_ids)
-        else:
-            representatives.append(candidate)
+    best_mass = float("inf")
+    index = 0
+    while index < len(ordered):
+        complexity = _objective(ordered[index], axis)[1]
+        group_end = index + 1
+        while (
+            group_end < len(ordered)
+            and _objective(ordered[group_end], axis)[1] == complexity
+        ):
+            group_end += 1
+
+        group = ordered[index:group_end]
+        minimum_mass = _objective(group[0], axis)[0]
+        equivalent = tuple(
+            candidate
+            for candidate in group
+            if abs(_objective(candidate, axis)[0] - minimum_mass)
+            <= _MASS_TOLERANCE_KG
+        )
+        if minimum_mass < best_mass - _MASS_TOLERANCE_KG:
+            representative = equivalent[0]
+            if len(equivalent) > 1:
+                representative = replace(
+                    representative,
+                    equivalent_candidate_ids=(
+                        *representative.equivalent_candidate_ids,
+                        *(
+                            candidate_id
+                            for candidate in equivalent[1:]
+                            for candidate_id in (
+                                candidate.id,
+                                *candidate.equivalent_candidate_ids,
+                            )
+                        ),
+                    ),
+                )
+                equivalent_count += sum(
+                    1 + len(candidate.equivalent_candidate_ids)
+                    for candidate in equivalent[1:]
+                )
+            representatives.append(representative)
+            best_mass = minimum_mass
+        index = group_end
     return tuple(representatives), equivalent_count
 
 
@@ -253,8 +263,54 @@ def combine_direction_pareto_fronts(
     candidate_groups = tuple(front.candidates for front in canonical_fronts)
     combination_count = prod(len(group) for group in candidate_groups)
 
+    partial_combinations: tuple[tuple[DirectionCandidate, ...], ...] = ((),)
+    for group in candidate_groups:
+        expanded = tuple(
+            (*partial, candidate)
+            for partial in partial_combinations
+            for candidate in group
+        )
+        ordered = sorted(
+            expanded,
+            key=lambda combination: (
+                sum(
+                    candidate.constructability.value(complexity_axis)
+                    for candidate in combination
+                ),
+                sum(
+                    candidate.solution.metrics.total_mass_kg
+                    for candidate in combination
+                ),
+                tuple(candidate.id for candidate in combination),
+            ),
+        )
+        partial_front: list[tuple[DirectionCandidate, ...]] = []
+        best_mass = float("inf")
+        index = 0
+        while index < len(ordered):
+            complexity = sum(
+                candidate.constructability.value(complexity_axis)
+                for candidate in ordered[index]
+            )
+            group_end = index + 1
+            while group_end < len(ordered) and sum(
+                candidate.constructability.value(complexity_axis)
+                for candidate in ordered[group_end]
+            ) == complexity:
+                group_end += 1
+            minimum_mass_combination = ordered[index]
+            minimum_mass = sum(
+                candidate.solution.metrics.total_mass_kg
+                for candidate in minimum_mass_combination
+            )
+            if minimum_mass < best_mass - _MASS_TOLERANCE_KG:
+                partial_front.append(minimum_mass_combination)
+                best_mass = minimum_mass
+            index = group_end
+        partial_combinations = tuple(partial_front)
+
     plate_candidates: list[PlateCandidate] = []
-    for index, combination in enumerate(product(*candidate_groups)):
+    for index, combination in enumerate(partial_combinations):
         plate_solution = build_plate_solution(
             (
                 PlateDirectionSolution(
@@ -293,7 +349,7 @@ def combine_direction_pareto_fronts(
         direction_fronts=canonical_fronts,
         combination_count=combination_count,
         dominated_candidate_count=(
-            len(plate_candidates) - len(front) - equivalent_count
+            combination_count - len(front) - equivalent_count
         ),
         equivalent_candidate_count=equivalent_count,
     )

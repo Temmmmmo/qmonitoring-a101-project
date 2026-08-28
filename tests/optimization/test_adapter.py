@@ -5,8 +5,11 @@ import pytest
 from rebar import Axis, Direction, Layer, Rebar
 from rebar.optimization import (
     MissingRebarSpecificationError,
+    apply_single_cell_rule,
     build_demand_map,
     build_layout_problem,
+    resolve_zone_count_limit,
+    zone_count_bounds,
 )
 
 
@@ -51,3 +54,37 @@ def test_unknown_aci_is_rejected_instead_of_becoming_background(mosaic_with_lege
 
     with pytest.raises(ValueError, match=r"\[77\]"):
         build_demand_map(mosaic_with_legend)
+
+
+def test_single_isolated_finite_element_is_lowered_with_audit_log(
+    mosaic_with_legend,
+):
+    raw_problem = build_layout_problem(mosaic_with_legend)
+
+    problem = apply_single_cell_rule(raw_problem)
+
+    assert [cell.level_index for cell in raw_problem.demand.cells] == [0, 1]
+    assert [cell.level_index for cell in problem.demand.cells] == [0, 0]
+    protocol = problem.meta["single_cell_preprocessing"]
+    assert protocol["changed_count"] == 1
+    assert protocol["changes"] == (
+        {"cell_id": 1, "from_level_index": 1, "to_level_index": 0},
+    )
+    assert zone_count_bounds(problem) == (0, 0)
+    assert resolve_zone_count_limit(problem, None) is None
+
+
+def test_zone_count_bounds_use_all_input_cells_for_non_empty_demand(
+    mosaic_with_legend,
+):
+    mosaic_with_legend.cells[0].band = mosaic_with_legend.legend[1]
+    mosaic_with_legend.cells[0].aci = mosaic_with_legend.legend[1].aci
+    problem = apply_single_cell_rule(build_layout_problem(mosaic_with_legend))
+
+    assert [cell.level_index for cell in problem.demand.cells] == [1, 1]
+    assert problem.meta["single_cell_preprocessing"]["changed_count"] == 0
+    assert zone_count_bounds(problem) == (1, 2)
+    assert resolve_zone_count_limit(problem, None) == 2
+    assert resolve_zone_count_limit(problem, 1) == 1
+    with pytest.raises(ValueError, match="1..2"):
+        resolve_zone_count_limit(problem, 3)

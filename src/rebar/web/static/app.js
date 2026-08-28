@@ -145,11 +145,13 @@ function renderOptions(payload) {
       <span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.description)}</small></span>
     </label>
   `).join("");
-  document.querySelector("#max-details").value = options.defaults.max_details;
+  document.querySelector("#max-details").value = options.defaults.max_details ?? "";
   document.querySelector("#min-width").value = options.defaults.min_width_cells;
   document.querySelector("#genetic-population").value = options.defaults.genetic_population_size;
   document.querySelector("#genetic-generations").value = options.defaults.genetic_generations;
   document.querySelector("#genetic-seed").value = options.defaults.genetic_seed;
+  document.querySelector("#genetic-operator-policy").value = options.defaults.genetic_operator_policy;
+  document.querySelector("#genetic-ucb-exploration").value = options.defaults.genetic_ucb_exploration;
   cuttingProfileSelect.value = options.defaults.cutting_profile;
   demoSelect.value = options.defaults.demo_id;
   if (!demoSelect.value) demoSelect.selectedIndex = 0;
@@ -270,10 +272,14 @@ function sourceFacts(source) {
   const mapping = source.mapping_id || ".shk";
   const width = source.bbox[2] - source.bbox[0];
   const height = source.bbox[3] - source.bbox[1];
+  const maximumZones = source.zone_count_bounds?.maximum ?? source.cell_count;
+  const loweredCells = source.single_cell_preprocessing?.changed_count ?? 0;
   return [
     `<span><b>${escapeHtml(layer)} · ось ${escapeHtml(source.direction.axis)}</b></span>`,
     `<span><b>${number(source.cell_count)}</b> КЭ</span>`,
     `<span><b>${number(source.level_count)}</b> уровней</span>`,
+    `<span>диапазон зон: <b>${maximumZones ? `1–${number(maximumZones)}` : "0"}</b></span>`,
+    `<span>одиночных КЭ понижено: <b>${number(loweredCells)}</b></span>`,
     `<span><b>${number(width)} × ${number(height)}</b> мм</span>`,
     `<span>источник: <b>${escapeHtml(mapping)}</b></span>`,
   ].join("");
@@ -286,11 +292,16 @@ function directionLabel(direction) {
 
 function plateSourceFacts(sources) {
   const totalCells = sources.reduce((sum, source) => sum + Number(source.cell_count ?? 0), 0);
+  const loweredCells = sources.reduce((sum, source) => (
+    sum + Number(source.single_cell_preprocessing?.changed_count ?? 0)
+  ), 0);
   return [
     `<span><b>4 направления</b></span>`,
     `<span><b>${number(totalCells)}</b> КЭ суммарно</span>`,
+    `<span><b>${number(loweredCells)}</b> одиночных КЭ понижено</span>`,
     ...sources.map((source) => (
-      `<span><b>${escapeHtml(directionLabel(source.direction))}</b> · ${escapeHtml(source.filename)}</span>`
+      `<span><b>${escapeHtml(directionLabel(source.direction))}</b> · `
+      + `${escapeHtml(source.filename)} · зоны 1–${number(source.zone_count_bounds?.maximum)}</span>`
     )),
   ].join("");
 }
@@ -630,13 +641,16 @@ form.addEventListener("submit", async (event) => {
     body.append("mapping_id", mappingSelect.value);
   }
   body.append("algorithms", selectedAlgorithms.join(","));
-  body.append("max_details", document.querySelector("#max-details").value);
+  const maxDetails = document.querySelector("#max-details").value;
+  if (maxDetails) body.append("max_details", maxDetails);
   body.append("min_width_cells", document.querySelector("#min-width").value);
   body.append("detail_penalty_kg", document.querySelector("#detail-penalty").value);
   body.append("cutting_profile", cuttingProfileSelect.value);
   body.append("genetic_population_size", document.querySelector("#genetic-population").value);
   body.append("genetic_generations", document.querySelector("#genetic-generations").value);
   body.append("genetic_seed", document.querySelector("#genetic-seed").value);
+  body.append("genetic_operator_policy", document.querySelector("#genetic-operator-policy").value);
+  body.append("genetic_ucb_exploration", document.querySelector("#genetic-ucb-exploration").value);
 
   submitButton.disabled = true;
   results.hidden = true;

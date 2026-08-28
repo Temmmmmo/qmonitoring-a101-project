@@ -163,7 +163,9 @@
           <summary><span>Параметры эксперимента</span><i aria-hidden="true">+</i></summary>
           <div class="field-grid">
             <label class="field"><span>Максимум зон</span>
-              <input id="max-details" name="max_details" type="number" min="1" max="100" value="32">
+              <input id="max-details" name="max_details" type="number" min="1"
+                placeholder="Авто: число входных КЭ">
+              <small>Пусто — полный диапазон от 1 до общего числа КЭ мозаики.</small>
             </label>
             <label class="field"><span>Минимум КЭ по ширине</span>
               <input id="min-width" name="min_width_cells" type="number" min="1" max="10" value="2">
@@ -185,6 +187,17 @@
             <label class="field"><span>Seed GA</span>
               <input id="genetic-seed" name="genetic_seed"
                 type="number" min="0" max="2147483647" value="42">
+            </label>
+            <label class="field"><span>Выбор мутаций GA</span>
+              <select id="genetic-operator-policy" name="genetic_operator_policy">
+                <option value="ucb1">UCB · адаптивный</option>
+                <option value="uniform">Uniform · контроль</option>
+              </select>
+              <small>UCB учится распределять попытки между split/merge/shift, не меняя hard-правила.</small>
+            </label>
+            <label class="field"><span>Исследование UCB</span>
+              <input id="genetic-ucb-exploration" name="genetic_ucb_exploration"
+                type="number" min="0" max="10" step="0.05" value="1.4142">
             </label>
           </div>
         </details>
@@ -306,6 +319,6 @@
       <span>Внутренние единицы: мм</span>
       <span>Qmonitoring × A101</span>
     </footer>
-    <script src="/static/app.js?v=web-mvp-7" defer></script>
+    <script src="/static/app.js?v=web-mvp-8" defer></script>
   </body>
 </html>

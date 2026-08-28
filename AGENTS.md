@@ -30,6 +30,10 @@
    реализованного DXF-ingest.
 12. [`src/rebar/models.py`](src/rebar/models.py) — публичный контракт данных. Поля и
    сигнатуры не менять без явного согласования.
+13. [`docs/genetic-experiments.md`](docs/genetic-experiments.md) — benchmark-параметры,
+   форматы отчёта, первый smoke плиты нуля и правила следующей серии.
+14. [`docs/engineer-learning-dataset.md`](docs/engineer-learning-dataset.md) — manifest
+   11 инженерских выдач, пять числовых слабых меток и границы будущего обучения.
 
 ## Текущее состояние
 
@@ -46,19 +50,27 @@
 
 - `optimization/contracts/` — единые вход и выход всех методов;
 - `optimization/adapters/` — граница с `Mosaic`;
-- `optimization/mappings/` — явные проверяемые таблицы для DXF без `.shk`; для плиты
-  нуля реализована `plate-zero-d12-v1` со статусом MVP-допущения;
+- `optimization/mappings/` — явные проверяемые таблицы для DXF без `.shk`:
+  `plate-zero-d12-v1`, `k09-minus-2-d12-v1` и узкая `k09-above-3-d10-v1`;
+  восьмиполосные верхние направления 9-го этажа последняя таблица явно отклоняет;
 - `optimization/services/` — общие формулы и независимая проверка;
 - `optimization/algorithms/` — отдельный модуль на каждый алгоритм (`bbox`, `bsp`,
   `greedy`, `greedy-priority`, `agglomerative`, `row-run-greedy`,
   `strip-profile-dp`, `spatial-partition-greedy`, `genetic-pareto`); последний реализует
-  `solve_many()` и возвращает популяцию кандидатов;
+  `solve_many()` и возвращает популяцию кандидатов; внутренний пакет
+  `algorithms/genetic/` хранит предметные операторы и uniform/UCB1-политику;
 - `reporting/` и `scripts/compare_optimizers.py` — локальное сравнение через SVG/HTML.
 - `golden/` и `scripts/verify_golden_case.py` — проверка PDF-спецификаций плиты нуля и
   автономный HTML «изополе ↔ решение инженера»; на полном датасете golden-тест фиксирует
   79 позиций, 1019 физических стержней и 3177,64 кг.
+- `golden/dataset_*`, `reporting/engineer_dataset.py` и
+  `scripts/inventory_engineer_dataset.py` — переносимый manifest 11 инженерских выдач /
+  15 входов; пять plate-level спецификаций повторно сверяются с PDF, шесть старых PDF
+  явно требуют OCR.
 - `application/analyze_direction.py` — единый сценарий анализа одного DXF без
   дублирования parser/mapping/optimizer-логики;
+- `optimization/services/preprocessing.py` — протоколируемое правило одиночного КЭ и
+  естественный диапазон зон `1..число входных КЭ` (`0..0` для пустого спроса);
 - `optimization/contracts/plate.py`, `optimization/services/plate.py` и
   `application/analyze_plate.py` — полный комплект `bottom/top × X/Y`, отдельные суммы
   зон, физических стержней и массы и plate-level статус;
@@ -74,6 +86,12 @@
   кандидата. Для комплекта можно явно выбрать mapping либо загрузить один общий `.shk`;
   совместимость проверяется для всех четырёх DXF. Файлы живут только во временном
   каталоге, БД и очередей нет.
+- `application/genetic_benchmark.py`, `reporting/genetic_benchmark.py` и
+  `scripts/benchmark_genetic.py` — воспроизводимая сетка seed/параметров с HTML/JSON/CSV,
+  гейтами, golden-дельтами, hypervolume и телеметрией операторов.
+- `learning/preference.py`, `reporting/preference_calibration.py` и
+  `scripts/calibrate_engineer_preference.py` — один прозрачный вес выбора допустимой
+  точки фронта и leave-one-project-out отчёт без обучения генератора зон.
 
 Это baseline с явно указанными аппроксимациями, не готовая инженерная выдача.
 `src/rebar/png_ingest.py` пока является заготовкой.
@@ -122,10 +140,31 @@
 плиту. Общий `DirectionParetoFront`/`PlateParetoFront` уже строится из фактически
 переданных допустимых решений и комбинирует разные алгоритмы по направлениям. Он не
 является глобальным фронтом: `genetic-pareto` уже возвращает многоточечную популяцию
-через `LayoutCandidateGenerator.solve_many()`, но ищет внутри конечного
-пространственного CandidateSet. Новые простые baseline и их ручной тюнинг заморожены.
-Любой стохастический кандидат проходит общий repair и hard-валидатор. Следующий контроль
-качества — несколько seed, одинаковый бюджет и exact-oracle на малых масках.
+через `LayoutCandidateGenerator.solve_many()`, но ищет внутри конечного CandidateSet.
+Он использует геометрии `bsp`, `greedy-priority` и `agglomerative` как elite seed,
+предметные `split/merge/shift/change-level/baseline-patch` и online UCB1; `uniform`
+остаётся обязательным A/B-контролем. Новые простые baseline и их ручной тюнинг
+заморожены. Любой стохастический кандидат проходит общий repair и hard-валидатор. Ось внутреннего
+GA совпадает с выбранной внешней осью сложности; двумерный plate Pareto-pruning работает
+за `O(n log n)`. Следующий контроль качества — uniform-vs-UCB по нескольким seed,
+одинаковый бюджет, hypervolume и exact-oracle на малых масках.
+
+Короткий plate-zero A/B (`population=8`, `generations=3`, seed `7/17/42`) дал для обеих
+политик `3424,34 кг / +7,76%`, 3/3 прохождения гейта и ноль недоармированных КЭ.
+Медианы hypervolume практически равны (`uniform 0,67431`, `UCB1 0,67417`), поэтому не
+заявлять, что UCB уже доказанно лучше. Его статус — экспериментальная online
+hyper-heuristic; следующий тест требует большего бюджета и exact-oracle малых масок.
+
+Равнобюджетные smoke-фронты (`population=8`, `generations=3`, seed `7`) дали:
+
+- плита нуля: `3424,34 кг / +7,76%`, 1319 стержней / `+29,44%`;
+- плита над −2: `3304,95 кг / +1,36%`, 1252 стержня / `+46,26%`;
+- плита над 3: `3026,58 кг / +5,13%`, 1500 стержней / `+22,25%`.
+
+Первый scalar ranker обучен только выбирать среди hard-valid точек: глобальный вес
+массы `0,75`, LOPO top-1 `2/3`, top-3 `3/3`, гейт массы top-1 `2/3`. Не объявлять это
+доказанной моделью предпочтений: выбор слабой цели `0,5·Δмассы + 0,5·Δстержней` пока
+является исследовательской постановкой, а не подтверждённой функцией конструктора.
 
 Web позиционирует продукт как помощника конструктора: показывает факт, норматив,
 абсолютное/относительное отклонение и непроверенные правила. Не называть результат
@@ -173,6 +212,8 @@ python3 -m compileall -q src tests scripts
 ```bash
 python3 scripts/verify_stage_a.py
 python3 scripts/verify_golden_case.py
+python3 scripts/inventory_engineer_dataset.py
+python3 scripts/calibrate_engineer_preference.py path/to/three/benchmark.json
 python3 -m uvicorn rebar.web.app:app --app-dir src --reload
 ```
 

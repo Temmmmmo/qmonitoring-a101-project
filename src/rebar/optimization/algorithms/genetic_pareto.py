@@ -8,18 +8,46 @@ NSGA-II-подобный отбор оптимизирует массу и чи�
 
 from __future__ import annotations
 
+import bisect
 import math
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from time import perf_counter
 
-from ..contracts import AlgorithmRequest, LayoutProblem, LayoutSolution, SolutionStatus
-from ..services import demanded_cells, evaluate_layout, prepare_detailing, resolve_zone_phases
+from rebar.models import Axis
+
+from ..contracts import (
+    AlgorithmRequest,
+    ComplexityAxis,
+    LayoutProblem,
+    LayoutSolution,
+    SolutionStatus,
+)
+from ..services import (
+    DetailingContext,
+    build_zone_from_bbox,
+    demanded_cells,
+    evaluate_layout,
+    prepare_detailing,
+    resolve_zone_phases,
+)
+from ..services.geometry import GEOMETRY_TOLERANCE_MM
+from .agglomerative import AgglomerativeOptimizer
+from .bsp import BspOptimizer
+from .genetic import (
+    MUTATION_OPERATORS,
+    OperatorPolicy,
+    build_operator_policy,
+    mutate_genome,
+)
+from .genetic.operators import available_operators
+from .greedy_priority import PriorityGreedyOptimizer
 from .spatial_partition_greedy import (
     _Grid,
     _Rectangle,
     _build_grid,
     _candidate,
+    _contains,
     _initial_rectangles,
     _make_rectangle,
     _neighbor_pairs,
@@ -35,6 +63,7 @@ class _PoolCandidate:
     rectangle: _Rectangle
     leaf_ids: frozenset[int]
     source_cell_ids: tuple[int, ...]
+    origins: frozenset[str]
 
     @property
     def mass_kg(self) -> float:
@@ -42,13 +71,29 @@ class _PoolCandidate:
 
 
 @dataclass(frozen=True)
+class _AtomicLeaf:
+    """Одна требуемая плитка сетки — минимальная единица repair-покрытия."""
+
+    row_start: int
+    row_end: int
+    column_start: int
+    column_end: int
+    level_index: int
+    source_cell_ids: tuple[int, ...]
+
+
+@dataclass(frozen=True)
 class _SearchSpace:
     grid: _Grid
     candidates: tuple[_PoolCandidate, ...]
     seed_genomes: tuple[frozenset[int], ...]
+    baseline_seed_genomes: tuple[frozenset[int], ...]
+    baseline_seed_algorithms: tuple[str, ...]
+    baseline_seed_metrics: tuple[dict[str, float | int | str], ...]
     leaf_count: int
     initial_rectangle_count: int
     trajectory_count: int
+    trajectory_state_count: int
     stopped_by_time_limit: bool
 
 
@@ -56,6 +101,7 @@ class _SearchSpace:
 class _Individual:
     genome: frozenset[int]
     mass_kg: float
+    complexity: int
 
     @property
     def zone_count(self) -> int:
@@ -76,109 +122,489 @@ def _pool_sort_key(candidate: _PoolCandidate) -> tuple[int, int, int, int, int]:
     return _rectangle_signature(candidate.rectangle)
 
 
+def _atomic_leaves(grid: _Grid) -> tuple[_AtomicLeaf, ...]:
+    return tuple(
+        _AtomicLeaf(
+            row_start=row,
+            row_end=row + 1,
+            column_start=column,
+            column_end=column + 1,
+            level_index=level,
+            source_cell_ids=grid.source_cell_ids[row][column],
+        )
+        for row, levels in enumerate(grid.levels)
+        for column, level in enumerate(levels)
+        if level is not None
+    )
+
+
+def _leaf_ids_for_rectangle(
+    rectangle: _Rectangle,
+    leaves: tuple[_AtomicLeaf, ...],
+) -> frozenset[int]:
+    hull = (
+        rectangle.row_start,
+        rectangle.row_end,
+        rectangle.column_start,
+        rectangle.column_end,
+    )
+    return frozenset(
+        leaf_id
+        for leaf_id, leaf in enumerate(leaves)
+        if leaf.level_index <= rectangle.level_index and _contains(hull, leaf)
+    )
+
+
+_BASELINE_SEED_OPTIMIZERS = {
+    "agglomerative": AgglomerativeOptimizer,
+    "bsp": BspOptimizer,
+    "greedy-priority": PriorityGreedyOptimizer,
+}
+
+
+def _covering_grid_range(
+    edges: tuple[float, ...],
+    lower: float,
+    upper: float,
+) -> tuple[int, int]:
+    """Привязать bbox baseline к покрывающим его границам регулярной сетки."""
+
+    start = max(
+        0,
+        min(
+            len(edges) - 2,
+            bisect.bisect_right(edges, lower + GEOMETRY_TOLERANCE_MM) - 1,
+        ),
+    )
+    end = max(
+        start + 1,
+        min(
+            len(edges) - 1,
+            bisect.bisect_left(edges, upper - GEOMETRY_TOLERANCE_MM),
+        ),
+    )
+    return start, end
+
+
+def _baseline_seed_rectangles(
+    problem: LayoutProblem,
+    request: AlgorithmRequest,
+    grid: _Grid,
+    context: DetailingContext,
+    leaves: tuple[_AtomicLeaf, ...],
+    algorithm_names: tuple[str, ...],
+    *,
+    deadline: float | None,
+) -> tuple[
+    tuple[str, tuple[tuple[_Rectangle, frozenset[int]], ...], dict[str, float | int | str]],
+    ...,
+]:
+    """Материализовать допустимые frozen-baseline как геометрические seed GA."""
+
+    result = []
+    next_key = 2_000_000
+    baseline_request = AlgorithmRequest(
+        objective=request.objective,
+        max_details=request.max_details,
+        time_limit_s=None,
+        params={},
+    )
+    for algorithm_name in algorithm_names:
+        if deadline is not None and perf_counter() >= deadline:
+            break
+        optimizer_type = _BASELINE_SEED_OPTIMIZERS[algorithm_name]
+        solution = optimizer_type().solve(problem, baseline_request)
+        if (
+            solution.status not in {SolutionStatus.FEASIBLE, SolutionStatus.OPTIMAL}
+            or solution.metrics.under_reinforced_cell_count != 0
+        ):
+            continue
+
+        seed_rectangles: list[tuple[_Rectangle, frozenset[int]]] = []
+        covered: set[int] = set()
+        for zone in solution.zones:
+            column_start, column_end = _covering_grid_range(
+                grid.x_edges,
+                zone.demand_bbox[0],
+                zone.demand_bbox[2],
+            )
+            row_start, row_end = _covering_grid_range(
+                grid.y_edges,
+                zone.demand_bbox[1],
+                zone.demand_bbox[3],
+            )
+            hull = (row_start, row_end, column_start, column_end)
+            leaf_ids = frozenset(
+                leaf_id
+                for leaf_id, leaf in enumerate(leaves)
+                if leaf.level_index <= zone.level_index and _contains(hull, leaf)
+            )
+            if not leaf_ids:
+                continue
+            source_ids = tuple(
+                sorted(
+                    {
+                        cell_id
+                        for leaf_id in leaf_ids
+                        for cell_id in leaves[leaf_id].source_cell_ids
+                    }
+                )
+            )
+            # Индексы сетки нужны операторам соседства, но физическую геометрию и
+            # стоимость seed сохраняем в точности как у проверенного baseline.
+            rectangle = _Rectangle(
+                key=next_key,
+                row_start=row_start,
+                row_end=row_end,
+                column_start=column_start,
+                column_end=column_end,
+                level_index=zone.level_index,
+                source_cell_ids=source_ids,
+                zone=zone,
+            )
+            seed_rectangles.append((rectangle, leaf_ids))
+            covered.update(leaf_ids)
+            next_key += 1
+        if len(covered) != len(leaves):
+            continue
+        result.append(
+            (
+                algorithm_name,
+                tuple(seed_rectangles),
+                {
+                    "algorithm": algorithm_name,
+                    "zone_count": solution.metrics.detail_count,
+                    "physical_bar_count": solution.metrics.physical_bar_count,
+                    "mass_kg": solution.metrics.total_mass_kg,
+                },
+            )
+        )
+    return tuple(result)
+
+
+def _layer_bridge_candidates(
+    problem: LayoutProblem,
+    grid: _Grid,
+    context: DetailingContext,
+    initial: list[_Rectangle],
+    *,
+    neighbor_span: int,
+) -> tuple[tuple[_Rectangle, frozenset[int]], ...]:
+    """Построить длинные зоны одного уровня под локальными сильными накладками."""
+
+    result: dict[
+        tuple[int, int, int, int, int],
+        tuple[_Rectangle, frozenset[int]],
+    ] = {}
+    axis = problem.demand.direction.axis
+    next_key = 1_000_000
+    for first_index, first in enumerate(initial):
+        aligned: list[tuple[int, int]] = []
+        for second_index, second in enumerate(initial):
+            if first_index == second_index or first.level_index != second.level_index:
+                continue
+            if axis is Axis.X:
+                transverse_overlap = min(first.row_end, second.row_end) > max(
+                    first.row_start,
+                    second.row_start,
+                )
+                if not transverse_overlap or second.column_start < first.column_end:
+                    continue
+                gap = second.column_start - first.column_end
+            else:
+                transverse_overlap = min(first.column_end, second.column_end) > max(
+                    first.column_start,
+                    second.column_start,
+                )
+                if not transverse_overlap or second.row_start < first.row_end:
+                    continue
+                gap = second.row_start - first.row_end
+            aligned.append((gap, second_index))
+
+        for _gap, second_index in sorted(aligned)[:neighbor_span]:
+            second = initial[second_index]
+            hull = (
+                min(first.row_start, second.row_start),
+                max(first.row_end, second.row_end),
+                min(first.column_start, second.column_start),
+                max(first.column_end, second.column_end),
+            )
+            if not grid.is_fully_allowed(*hull):
+                continue
+            covered_leaves = frozenset(
+                leaf_id
+                for leaf_id, rectangle in enumerate(initial)
+                if rectangle.level_index <= first.level_index
+                and _contains(hull, rectangle)
+            )
+            if len(covered_leaves) < 2:
+                continue
+            source_ids = tuple(
+                sorted(
+                    {
+                        cell_id
+                        for leaf_id in covered_leaves
+                        for cell_id in initial[leaf_id].source_cell_ids
+                    }
+                )
+            )
+            rectangle = _make_rectangle(
+                problem,
+                grid,
+                context,
+                key=next_key,
+                row_start=hull[0],
+                row_end=hull[1],
+                column_start=hull[2],
+                column_end=hull[3],
+                level_index=first.level_index,
+                source_cell_ids=source_ids,
+            )
+            result.setdefault(
+                _rectangle_signature(rectangle),
+                (rectangle, covered_leaves),
+            )
+            next_key += 1
+    return tuple(result.values())
+
+
 def _build_search_space(
     problem: LayoutProblem,
     request: AlgorithmRequest,
     *,
     candidate_window: int,
+    candidate_trajectories: int,
+    layer_bridge_span: int,
     maximum_merge_reduction: int,
     maximum_pool_merges: int,
+    baseline_seed_algorithms: tuple[str, ...],
+    random_seed: int,
     deadline: float | None,
 ) -> _SearchSpace:
-    """Собрать прямоугольный CandidateSet за один пространственный проход."""
+    """Собрать CandidateSet по нескольким воспроизводимым merge-траекториям."""
 
     grid = _build_grid(problem, request)
     context = prepare_detailing(problem)
-    initial = _initial_rectangles(problem, grid, context)
-    initial_by_leaf = {leaf_id: rectangle for leaf_id, rectangle in enumerate(initial)}
+    initial = _initial_rectangles(
+        problem,
+        grid,
+        context,
+        align_with_bar_axis=True,
+    )
+    if request.max_details is not None and request.max_details < len(initial):
+        initial = _initial_rectangles(problem, grid, context)
+    leaves = _atomic_leaves(grid)
 
-    rectangles = list(initial)
-    leaves_by_key: dict[int, frozenset[int]] = {
-        rectangle.key: frozenset((leaf_id,))
-        for leaf_id, rectangle in enumerate(initial)
-    }
     pool_rectangles: dict[tuple[int, int, int, int, int], _Rectangle] = {}
     pool_leaves: dict[tuple[int, int, int, int, int], set[int]] = {}
-    trajectory: list[tuple[tuple[int, int, int, int, int], ...]] = []
+    pool_origins: dict[tuple[int, int, int, int, int], set[str]] = {}
+    trajectory_states: list[tuple[tuple[int, int, int, int, int], ...]] = []
 
-    def add_to_pool(rectangle: _Rectangle, leaf_ids: frozenset[int]) -> None:
+    def add_to_pool(
+        rectangle: _Rectangle,
+        leaf_ids: frozenset[int],
+        origin: str,
+    ) -> None:
         signature = _rectangle_signature(rectangle)
         pool_rectangles.setdefault(signature, rectangle)
         pool_leaves.setdefault(signature, set()).update(leaf_ids)
+        pool_origins.setdefault(signature, set()).add(origin)
 
-    def record_state() -> None:
-        trajectory.append(tuple(_rectangle_signature(item) for item in rectangles))
+    for rectangle in initial:
+        add_to_pool(
+            rectangle,
+            _leaf_ids_for_rectangle(rectangle, leaves),
+            "spatial-atom",
+        )
+    for rectangle, _initial_leaf_ids in _layer_bridge_candidates(
+        problem,
+        grid,
+        context,
+        initial,
+        neighbor_span=layer_bridge_span,
+    ):
+        add_to_pool(
+            rectangle,
+            _leaf_ids_for_rectangle(rectangle, leaves),
+            "layer-bridge",
+        )
 
-    for leaf_id, rectangle in enumerate(initial):
-        add_to_pool(rectangle, frozenset((leaf_id,)))
-    record_state()
+    baseline_seeds = _baseline_seed_rectangles(
+        problem,
+        request,
+        grid,
+        context,
+        leaves,
+        baseline_seed_algorithms,
+        deadline=deadline,
+    )
+    baseline_metrics = [metrics for _name, _rectangles, metrics in baseline_seeds]
 
-    next_key = len(rectangles)
-    merge_count = 0
+    pool_rng = random.Random(random_seed ^ 0xA101)
+    total_merge_count = 0
+    completed_trajectories = 0
     stopped_by_time_limit = False
-    while len(rectangles) > 1 and merge_count < maximum_pool_merges:
+
+    for trajectory_index in range(candidate_trajectories):
+        if total_merge_count >= maximum_pool_merges:
+            break
         if deadline is not None and perf_counter() >= deadline:
             stopped_by_time_limit = True
             break
 
-        merge_candidates = []
-        for first_index, second_index in _neighbor_pairs(rectangles):
-            candidate = _candidate(
-                problem,
-                request,
-                grid,
-                context,
-                rectangles,
-                first_index,
-                second_index,
-                next_key,
-            )
-            if candidate is None or candidate.detail_reduction > maximum_merge_reduction:
-                continue
-            merge_candidates.append(candidate)
-        if not merge_candidates:
-            break
-
-        merge_candidates.sort(
-            key=lambda item: (
-                item.objective_delta / item.detail_reduction,
-                item.objective_delta,
-                -item.detail_reduction,
-                _rectangle_signature(item.rectangle),
-                item.absorbed_keys,
-            )
+        rectangles = list(initial)
+        leaves_by_key: dict[int, frozenset[int]] = {
+            rectangle.key: _leaf_ids_for_rectangle(rectangle, leaves)
+            for rectangle in initial
+        }
+        next_key = len(rectangles)
+        trajectory_states.append(
+            tuple(_rectangle_signature(item) for item in rectangles)
         )
-        for alternative in merge_candidates[:candidate_window]:
-            alternative_leaves = frozenset(
+        completed_trajectories += 1
+
+        while len(rectangles) > 1 and total_merge_count < maximum_pool_merges:
+            if deadline is not None and perf_counter() >= deadline:
+                stopped_by_time_limit = True
+                break
+
+            merge_candidates = []
+            seen_absorbed: set[tuple[int, ...]] = set()
+            for first_index, second_index in _neighbor_pairs(rectangles):
+                candidate = _candidate(
+                    problem,
+                    request,
+                    grid,
+                    context,
+                    rectangles,
+                    first_index,
+                    second_index,
+                    next_key,
+                )
+                if (
+                    candidate is None
+                    or candidate.detail_reduction > maximum_merge_reduction
+                    or candidate.absorbed_keys in seen_absorbed
+                ):
+                    continue
+                seen_absorbed.add(candidate.absorbed_keys)
+                merge_candidates.append(candidate)
+            if not merge_candidates:
+                break
+
+            strategy = trajectory_index % 3
+            if strategy == 0:
+                merge_candidates.sort(
+                    key=lambda item: (
+                        item.objective_delta / item.detail_reduction,
+                        item.objective_delta,
+                        -item.detail_reduction,
+                        _rectangle_signature(item.rectangle),
+                        item.absorbed_keys,
+                    )
+                )
+            elif strategy == 1:
+                merge_candidates.sort(
+                    key=lambda item: (
+                        item.objective_delta,
+                        item.objective_delta / item.detail_reduction,
+                        -item.detail_reduction,
+                        _rectangle_signature(item.rectangle),
+                        item.absorbed_keys,
+                    )
+                )
+            else:
+                merge_candidates.sort(
+                    key=lambda item: (
+                        -item.detail_reduction,
+                        item.objective_delta / item.detail_reduction,
+                        item.objective_delta,
+                        _rectangle_signature(item.rectangle),
+                        item.absorbed_keys,
+                    )
+                )
+
+            alternatives = merge_candidates[:candidate_window]
+            for alternative in alternatives:
+                alternative_leaves = frozenset(
+                    leaf_id
+                    for key in alternative.absorbed_keys
+                    for leaf_id in leaves_by_key[key]
+                )
+                add_to_pool(
+                    alternative.rectangle,
+                    alternative_leaves,
+                    "merge-alternative",
+                )
+
+            chosen = (
+                alternatives[0]
+                if trajectory_index == 0
+                else alternatives[
+                    pool_rng.randrange(min(6, len(alternatives)))
+                ]
+            )
+            absorbed = set(chosen.absorbed_keys)
+            chosen_leaves = frozenset(
                 leaf_id
-                for key in alternative.absorbed_keys
+                for key in chosen.absorbed_keys
                 for leaf_id in leaves_by_key[key]
             )
-            add_to_pool(alternative.rectangle, alternative_leaves)
-
-        best = merge_candidates[0]
-        absorbed = set(best.absorbed_keys)
-        best_leaves = frozenset(
-            leaf_id for key in best.absorbed_keys for leaf_id in leaves_by_key[key]
-        )
-        rectangles = [item for item in rectangles if item.key not in absorbed]
-        rectangles.append(best.rectangle)
-        rectangles.sort(
-            key=lambda item: (
-                item.row_start,
-                item.column_start,
-                item.row_end,
-                item.column_end,
-                item.key,
+            rectangles = [item for item in rectangles if item.key not in absorbed]
+            rectangles.append(chosen.rectangle)
+            rectangles.sort(
+                key=lambda item: (
+                    item.row_start,
+                    item.column_start,
+                    item.row_end,
+                    item.column_end,
+                    item.key,
+                )
             )
+            for key in absorbed:
+                leaves_by_key.pop(key)
+            leaves_by_key[chosen.rectangle.key] = chosen_leaves
+            add_to_pool(chosen.rectangle, chosen_leaves, "merge-trajectory")
+            trajectory_states.append(
+                tuple(_rectangle_signature(item) for item in rectangles)
+            )
+            next_key += 1
+            total_merge_count += 1
+
+        if stopped_by_time_limit:
+            break
+
+    # Baseline может намеренно использовать более сильный уровень на bbox. Добавляем
+    # минимально достаточный вариант той же геометрии, чтобы change-level мог убрать
+    # локальный перерасход, не изобретая непроверенную форму.
+    for signature, rectangle in tuple(pool_rectangles.items()):
+        leaf_ids = frozenset(pool_leaves[signature])
+        if not leaf_ids:
+            continue
+        minimum_level = max(leaves[leaf_id].level_index for leaf_id in leaf_ids)
+        if minimum_level == rectangle.level_index:
+            continue
+        variant = _make_rectangle(
+            problem,
+            grid,
+            context,
+            key=3_000_000 + len(pool_rectangles),
+            row_start=rectangle.row_start,
+            row_end=rectangle.row_end,
+            column_start=rectangle.column_start,
+            column_end=rectangle.column_end,
+            level_index=minimum_level,
+            source_cell_ids=tuple(
+                sorted(
+                    {
+                        cell_id
+                        for leaf_id in leaf_ids
+                        for cell_id in leaves[leaf_id].source_cell_ids
+                    }
+                )
+            ),
         )
-        for key in absorbed:
-            leaves_by_key.pop(key)
-        leaves_by_key[best.rectangle.key] = best_leaves
-        add_to_pool(best.rectangle, best_leaves)
-        record_state()
-        next_key += 1
-        merge_count += 1
+        add_to_pool(variant, leaf_ids, "minimal-level-variant")
 
     ordered_signatures = sorted(pool_rectangles)
     index_by_signature = {
@@ -192,7 +618,7 @@ def _build_search_space(
                 {
                     cell_id
                     for leaf_id in leaf_ids
-                    for cell_id in initial_by_leaf[leaf_id].source_cell_ids
+                    for cell_id in leaves[leaf_id].source_cell_ids
                 }
             )
         )
@@ -201,22 +627,72 @@ def _build_search_space(
                 rectangle=pool_rectangles[signature],
                 leaf_ids=leaf_ids,
                 source_cell_ids=source_ids,
+                origins=frozenset(pool_origins[signature]),
             )
         )
 
-    seed_genomes = tuple(
+    baseline_genomes_list: list[frozenset[int]] = []
+    for algorithm_name, rectangles, _metrics in baseline_seeds:
+        candidate_indexes = []
+        for rectangle, leaf_ids in rectangles:
+            candidate_indexes.append(len(pool))
+            pool.append(
+                _PoolCandidate(
+                    rectangle=rectangle,
+                    leaf_ids=leaf_ids,
+                    source_cell_ids=rectangle.source_cell_ids,
+                    origins=frozenset((f"baseline:{algorithm_name}",)),
+                )
+            )
+        baseline_genomes_list.append(frozenset(candidate_indexes))
+
+    trajectory_genomes = tuple(
         dict.fromkeys(
             frozenset(index_by_signature[signature] for signature in state)
-            for state in trajectory
+            for state in trajectory_states
+        )
+    )
+    initial_genome = frozenset(
+        index_by_signature[_rectangle_signature(rectangle)]
+        for rectangle in initial
+    )
+    initial_candidate_indexes = frozenset(
+        index_by_signature[_rectangle_signature(rectangle)] for rectangle in initial
+    )
+    replacement_genomes = tuple(
+        frozenset(
+            {
+                *(
+                    initial_genome
+                    - {
+                        index
+                        for index in initial_candidate_indexes
+                        if pool[index].leaf_ids <= candidate.leaf_ids
+                    }
+                ),
+                candidate_index,
+            }
+        )
+        for candidate_index, candidate in enumerate(pool)
+        if len(candidate.leaf_ids) > 1
+    )
+    baseline_genomes = tuple(dict.fromkeys(baseline_genomes_list))
+    seed_genomes = tuple(
+        dict.fromkeys(
+            (*baseline_genomes, *trajectory_genomes, *replacement_genomes)
         )
     )
     return _SearchSpace(
         grid=grid,
         candidates=tuple(pool),
         seed_genomes=seed_genomes,
-        leaf_count=len(initial),
+        baseline_seed_genomes=baseline_genomes,
+        baseline_seed_algorithms=tuple(name for name, _rectangles, _metrics in baseline_seeds),
+        baseline_seed_metrics=tuple(baseline_metrics),
+        leaf_count=len(leaves),
         initial_rectangle_count=len(initial),
-        trajectory_count=len(trajectory),
+        trajectory_count=completed_trajectories,
+        trajectory_state_count=len(trajectory_states),
         stopped_by_time_limit=stopped_by_time_limit,
     )
 
@@ -340,21 +816,34 @@ def _repair(
     return frozenset(selected)
 
 
-def _individual(space: _SearchSpace, genome: frozenset[int]) -> _Individual:
+def _individual(
+    space: _SearchSpace,
+    genome: frozenset[int],
+    complexity_axis: ComplexityAxis,
+) -> _Individual:
+    if complexity_axis is ComplexityAxis.ZONE_COUNT:
+        complexity = len(genome)
+    elif complexity_axis is ComplexityAxis.PHYSICAL_BAR_COUNT:
+        complexity = sum(
+            space.candidates[index].rectangle.zone.bar_count for index in genome
+        )
+    else:
+        raise ValueError(f"неподдерживаемая ось сложности GA: {complexity_axis}")
     return _Individual(
         genome=genome,
         mass_kg=sum(space.candidates[index].mass_kg for index in genome),
+        complexity=complexity,
     )
 
 
 def _dominates(first: _Individual, second: _Individual) -> bool:
     no_worse = (
         first.mass_kg <= second.mass_kg + _MASS_TOLERANCE_KG
-        and first.zone_count <= second.zone_count
+        and first.complexity <= second.complexity
     )
     strictly_better = (
         first.mass_kg < second.mass_kg - _MASS_TOLERANCE_KG
-        or first.zone_count < second.zone_count
+        or first.complexity < second.complexity
     )
     return no_worse and strictly_better
 
@@ -396,7 +885,7 @@ def _crowding(front: tuple[_Individual, ...]) -> dict[_Individual, float]:
         return {candidate: math.inf for candidate in front}
     for value in (
         lambda item: item.mass_kg,
-        lambda item: float(item.zone_count),
+        lambda item: float(item.complexity),
     ):
         ordered = sorted(front, key=value)
         distance[ordered[0]] = math.inf
@@ -443,6 +932,7 @@ def _select_population(
                 front,
                 key=lambda item: (
                     -crowding[item],
+                    item.complexity,
                     item.zone_count,
                     item.mass_kg,
                     tuple(sorted(item.genome)),
@@ -477,6 +967,7 @@ def _tournament(
         key=lambda item: (
             rank[item],
             -crowding[item],
+            item.complexity,
             item.zone_count,
             item.mass_kg,
             tuple(sorted(item.genome)),
@@ -497,51 +988,73 @@ def _crossover(
     )
 
 
-def _mutate(
+def _operator_reward(
+    parent: _Individual,
+    child: _Individual,
+    *,
+    novel: bool,
+) -> float:
+    """Оценить локальное улучшение двух Парето-целей для online AOS."""
+
+    if child.genome == parent.genome:
+        return -0.25
+    mass_gain = (parent.mass_kg - child.mass_kg) / max(parent.mass_kg, 1.0)
+    complexity_gain = (parent.complexity - child.complexity) / max(
+        parent.complexity,
+        1,
+    )
+    dominance = 0.5 if _dominates(child, parent) else 0.0
+    if _dominates(parent, child):
+        dominance = -0.5
+    novelty_bonus = 0.05 if novel else -0.05
+    return max(
+        -1.0,
+        min(1.0, dominance + mass_gain + complexity_gain + novelty_bonus),
+    )
+
+
+def _mutate_with_policy(
     space: _SearchSpace,
     genome: frozenset[int],
+    policy: OperatorPolicy,
     rng: random.Random,
-) -> frozenset[int]:
-    selected = set(genome)
-    operation = rng.randrange(3)
-    if operation == 0 and selected:
-        selected.remove(rng.choice(tuple(sorted(selected))))
-    else:
-        available = tuple(index for index in range(len(space.candidates)) if index not in selected)
-        if available:
-            added = rng.choice(available)
-            selected.add(added)
-            if operation == 2:
-                covered = space.candidates[added].leaf_ids
-                removable = [
-                    index
-                    for index in selected
-                    if index != added and space.candidates[index].leaf_ids <= covered
-                ]
-                if removable:
-                    selected.remove(rng.choice(removable))
-    return frozenset(selected)
+) -> tuple[frozenset[int], str | None]:
+    available = available_operators(space, genome)
+    if not available:
+        return genome, None
+    operator = policy.choose(available, rng)
+    outcome = mutate_genome(space, genome, operator, rng)
+    return outcome.genome, outcome.operator
 
 
 def _sample_seed_genomes(
     space: _SearchSpace,
     detail_limit: int,
     population_size: int,
+    complexity_axis: ComplexityAxis,
 ) -> list[frozenset[int]]:
-    eligible = [
-        genome for genome in space.seed_genomes if len(genome) <= detail_limit
-    ]
+    eligible = tuple(sorted(
+        {
+            genome for genome in space.seed_genomes if len(genome) <= detail_limit
+        },
+        key=lambda genome: (len(genome), tuple(sorted(genome))),
+    ))
     if not eligible:
-        eligible = list(space.seed_genomes[-1:])
-    by_count = {len(genome): genome for genome in eligible}
-    ordered = [by_count[count] for count in sorted(by_count)]
-    if len(ordered) <= population_size:
-        return ordered
-    indexes = {
-        round(index * (len(ordered) - 1) / (population_size - 1))
-        for index in range(population_size)
-    }
-    return [ordered[index] for index in sorted(indexes)]
+        eligible = space.seed_genomes[-1:]
+    protected_baselines = tuple(
+        genome
+        for genome in space.baseline_seed_genomes
+        if genome in eligible
+    )[:population_size]
+    remaining_size = population_size - len(protected_baselines)
+    other_eligible = tuple(
+        genome for genome in eligible if genome not in protected_baselines
+    )
+    selected = _select_population(
+        [_individual(space, genome, complexity_axis) for genome in other_eligible],
+        remaining_size,
+    )
+    return [*protected_baselines, *(individual.genome for individual in selected)]
 
 
 def _evolve(
@@ -552,26 +1065,72 @@ def _evolve(
     generations: int,
     crossover_rate: float,
     mutation_rate: float,
+    complexity_axis: ComplexityAxis,
+    operator_policy: OperatorPolicy,
     rng: random.Random,
     deadline: float | None,
-) -> tuple[tuple[_Individual, ...], tuple[dict[str, int], ...], bool]:
-    seed_genomes = _sample_seed_genomes(space, detail_limit, population_size)
+) -> tuple[
+    tuple[_Individual, ...],
+    tuple[dict[str, object], ...],
+    bool,
+    dict[str, object],
+]:
+    seed_genomes = _sample_seed_genomes(
+        space,
+        detail_limit,
+        population_size,
+        complexity_axis,
+    )
     population = [
         _individual(
             space,
-            _repair(space, genome, detail_limit=detail_limit, rng=rng),
+            (
+                genome
+                if genome in space.baseline_seed_genomes
+                else _repair(space, genome, detail_limit=detail_limit, rng=rng)
+            ),
+            complexity_axis,
         )
         for genome in seed_genomes
     ]
+    for _index in range(population_size):
+        greedy_cover = _repair(
+            space,
+            frozenset(),
+            detail_limit=detail_limit,
+            rng=rng,
+        )
+        population.append(_individual(space, greedy_cover, complexity_axis))
     attempts = 0
     while len(_unique_individuals(population)) < population_size and attempts < population_size * 20:
-        base = population[rng.randrange(len(population))].genome
-        mutated = _mutate(space, base, rng)
+        parent = population[rng.randrange(len(population))]
+        mutated, operator = _mutate_with_policy(
+            space,
+            parent.genome,
+            operator_policy,
+            rng,
+        )
         repaired = _repair(space, mutated, detail_limit=detail_limit, rng=rng)
-        population.append(_individual(space, repaired))
+        child = _individual(space, repaired, complexity_axis)
+        if operator is not None:
+            operator_policy.update(
+                operator,
+                _operator_reward(
+                    parent,
+                    child,
+                    novel=all(child.genome != item.genome for item in population),
+                ),
+            )
+        population.append(child)
         attempts += 1
     population_tuple = _select_population(population, population_size)
-    history: list[dict[str, int]] = []
+    protected_baselines = tuple(
+        _individual(space, genome, complexity_axis)
+        for genome in space.baseline_seed_genomes
+        if len(genome) <= detail_limit
+    )
+    archive_front = _non_dominated_fronts(_unique_individuals(population))[0]
+    history: list[dict[str, object]] = []
     stopped_by_time_limit = False
 
     for generation in range(generations):
@@ -588,28 +1147,57 @@ def _evolve(
                 if rng.random() < crossover_rate
                 else first.genome
             )
+            operator: str | None = None
             if rng.random() < mutation_rate:
-                genome = _mutate(space, genome, rng)
+                genome, operator = _mutate_with_policy(
+                    space,
+                    genome,
+                    operator_policy,
+                    rng,
+                )
             repaired = _repair(space, genome, detail_limit=detail_limit, rng=rng)
-            offspring.append(_individual(space, repaired))
+            child = _individual(space, repaired, complexity_axis)
+            if operator is not None:
+                operator_policy.update(
+                    operator,
+                    _operator_reward(
+                        first,
+                        child,
+                        novel=all(
+                            child.genome != item.genome
+                            for item in (*population_tuple, *offspring)
+                        ),
+                    ),
+                )
+            offspring.append(child)
         population_tuple = _select_population(
             [*population_tuple, *offspring],
             population_size,
         )
         first_front = _non_dominated_fronts(population_tuple)[0]
+        archive_front = _non_dominated_fronts(
+            _unique_individuals([*archive_front, *offspring])
+        )[0]
         history.append(
             {
                 "generation": generation + 1,
                 "population_size": len(population_tuple),
                 "front_size": len(first_front),
+                "archive_front_size": len(archive_front),
+                "operator_policy": operator_policy.snapshot(),
             }
         )
 
-    return population_tuple, tuple(history), stopped_by_time_limit
+    return (
+        _unique_individuals([*archive_front, *protected_baselines]),
+        tuple(history),
+        stopped_by_time_limit,
+        operator_policy.snapshot(),
+    )
 
 
 class GeneticParetoOptimizer:
-    """Искать приближённый Парето-фронт по массе и числу прямоугольных зон."""
+    """Искать приближённый фронт по массе и явно выбранной оси сложности."""
 
     name = "genetic-pareto"
 
@@ -627,11 +1215,41 @@ class GeneticParetoOptimizer:
         crossover_rate = float(params.get("crossover_rate", 0.85))
         mutation_rate = float(params.get("mutation_rate", 0.35))
         candidate_window = int(params.get("candidate_window", 6))
+        candidate_trajectories = int(params.get("candidate_trajectories", 3))
+        layer_bridge_span = int(params.get("layer_bridge_span", 6))
         maximum_merge_reduction = int(
-            params.get("maximum_detail_reduction_per_merge", 4)
+            params.get("maximum_detail_reduction_per_merge", 12)
         )
         maximum_pool_merges = int(params.get("maximum_pool_merges", 5_000))
+        operator_policy_name = str(params.get("operator_policy", "ucb1"))
+        ucb_exploration = float(params.get("ucb_exploration", math.sqrt(2.0)))
+        raw_baseline_seed_algorithms = params.get(
+            "baseline_seed_algorithms",
+            tuple(_BASELINE_SEED_OPTIMIZERS),
+        )
+        if isinstance(raw_baseline_seed_algorithms, str):
+            baseline_seed_algorithms = tuple(
+                item.strip()
+                for item in raw_baseline_seed_algorithms.split(",")
+                if item.strip()
+            )
+        else:
+            baseline_seed_algorithms = tuple(
+                str(item).strip()
+                for item in raw_baseline_seed_algorithms
+                if str(item).strip()
+            )
+        baseline_seed_algorithms = tuple(dict.fromkeys(baseline_seed_algorithms))
         detail_limit = request.max_details or int(params.get("maximum_zones", 32))
+        raw_complexity_axis = params.get(
+            "complexity_axis",
+            ComplexityAxis.ZONE_COUNT.value,
+        )
+        complexity_axis = (
+            raw_complexity_axis
+            if isinstance(raw_complexity_axis, ComplexityAxis)
+            else ComplexityAxis(str(raw_complexity_axis))
+        )
 
         if population_size < 4:
             raise ValueError("population_size должен быть не меньше 4")
@@ -643,14 +1261,33 @@ class GeneticParetoOptimizer:
             raise ValueError("mutation_rate должен быть от 0 до 1")
         if candidate_window < 1:
             raise ValueError("candidate_window должен быть не меньше 1")
+        if candidate_trajectories < 1:
+            raise ValueError("candidate_trajectories должен быть не меньше 1")
+        if layer_bridge_span < 0:
+            raise ValueError("layer_bridge_span не может быть отрицательным")
         if maximum_merge_reduction < 1:
             raise ValueError(
                 "maximum_detail_reduction_per_merge должен быть не меньше 1"
             )
         if maximum_pool_merges < 1:
             raise ValueError("maximum_pool_merges должен быть не меньше 1")
+        unknown_baselines = tuple(
+            name
+            for name in baseline_seed_algorithms
+            if name not in _BASELINE_SEED_OPTIMIZERS
+        )
+        if unknown_baselines:
+            raise ValueError(
+                "неизвестный baseline для seed генетического поиска: "
+                f"{unknown_baselines[0]}"
+            )
         if detail_limit < 1:
             raise ValueError("maximum_zones должен быть не меньше 1")
+        operator_policy = build_operator_policy(
+            operator_policy_name,
+            MUTATION_OPERATORS,
+            exploration=ucb_exploration,
+        )
 
         if not demanded_cells(problem):
             evaluation = evaluate_layout(problem, (), request)
@@ -667,6 +1304,7 @@ class GeneticParetoOptimizer:
                         "kind": "genetic_spatial_candidate_set",
                         "random_seed": random_seed,
                         "pareto_population": True,
+                        "operator_learning": operator_policy.snapshot(),
                     },
                 ),
             )
@@ -681,25 +1319,31 @@ class GeneticParetoOptimizer:
             problem,
             request,
             candidate_window=candidate_window,
+            candidate_trajectories=candidate_trajectories,
+            layer_bridge_span=layer_bridge_span,
             maximum_merge_reduction=maximum_merge_reduction,
             maximum_pool_merges=maximum_pool_merges,
+            baseline_seed_algorithms=baseline_seed_algorithms,
+            random_seed=random_seed,
             deadline=deadline,
         )
-        population, history, evolution_timed_out = _evolve(
+        population, history, evolution_timed_out, operator_learning = _evolve(
             space,
             detail_limit=detail_limit,
             population_size=population_size,
             generations=generations,
             crossover_rate=crossover_rate,
             mutation_rate=mutation_rate,
+            complexity_axis=complexity_axis,
+            operator_policy=operator_policy,
             rng=rng,
             deadline=deadline,
         )
-        approximate_front = _non_dominated_fronts(population)[0]
         approximate_front = tuple(
             sorted(
-                approximate_front,
+                population,
                 key=lambda item: (
+                    item.complexity,
                     item.zone_count,
                     -item.mass_kg,
                     tuple(sorted(item.genome)),
@@ -709,40 +1353,45 @@ class GeneticParetoOptimizer:
         context = prepare_detailing(problem)
         solutions: list[LayoutSolution] = []
         for candidate_number, individual in enumerate(approximate_front, 1):
-            rectangles = [
-                _make_rectangle(
-                    problem,
-                    space.grid,
-                    context,
-                    key=index + 1,
-                    row_start=space.candidates[candidate_index].rectangle.row_start,
-                    row_end=space.candidates[candidate_index].rectangle.row_end,
-                    column_start=space.candidates[candidate_index].rectangle.column_start,
-                    column_end=space.candidates[candidate_index].rectangle.column_end,
-                    level_index=space.candidates[candidate_index].rectangle.level_index,
-                    source_cell_ids=space.candidates[candidate_index].source_cell_ids,
-                    collect_coverage=True,
+            exact_baseline_seed = individual.genome in space.baseline_seed_genomes
+            if exact_baseline_seed:
+                raw_zones = tuple(
+                    space.candidates[candidate_index].rectangle.zone
+                    for candidate_index in sorted(individual.genome)
                 )
-                for index, candidate_index in enumerate(sorted(individual.genome))
-            ]
-            phase_diagnostic: str | None = None
-            raw_zones = tuple(rectangle.zone for rectangle in rectangles)
-            try:
-                zones = tuple(
-                    resolve_zone_phases(
+            else:
+                raw_zones = tuple(
+                    build_zone_from_bbox(
                         problem,
-                        raw_zones,
+                        space.candidates[candidate_index].rectangle.zone.demand_bbox,
+                        space.candidates[candidate_index].rectangle.level_index,
+                        f"genetic-{index + 1}",
+                        seed_cell_ids=space.candidates[candidate_index].source_cell_ids,
+                        collect_coverage=True,
                         context=context,
                     )
+                    for index, candidate_index in enumerate(sorted(individual.genome))
                 )
-            except ValueError as error:
-                # Индивидуально построенные зоны остаются геометрически допустимыми;
-                # общий валидатор ниже независимо проверит их оси и коллизии.
+            phase_diagnostic: str | None = None
+            if exact_baseline_seed:
                 zones = raw_zones
-                phase_diagnostic = (
-                    "WARNING: repair поперечных фаз не нашёл совместный вариант: "
-                    f"{error}"
-                )
+            else:
+                try:
+                    zones = tuple(
+                        resolve_zone_phases(
+                            problem,
+                            raw_zones,
+                            context=context,
+                        )
+                    )
+                except ValueError as error:
+                    # Индивидуально построенные зоны остаются геометрически допустимыми;
+                    # общий валидатор ниже независимо проверит их оси и коллизии.
+                    zones = raw_zones
+                    phase_diagnostic = (
+                        "WARNING: repair поперечных фаз не нашёл совместный вариант: "
+                        f"{error}"
+                    )
             evaluation = evaluate_layout(problem, zones, request)
             timed_out = space.stopped_by_time_limit or evolution_timed_out
             diagnostics = evaluation.diagnostics
@@ -776,16 +1425,105 @@ class GeneticParetoOptimizer:
                         "generations_requested": generations,
                         "generations_completed": len(history),
                         "candidate_pool_size": len(space.candidates),
+                        "candidate_pool_origin_counts": {
+                            origin: sum(
+                                origin in candidate.origins
+                                for candidate in space.candidates
+                            )
+                            for origin in sorted(
+                                {
+                                    origin
+                                    for candidate in space.candidates
+                                    for origin in candidate.origins
+                                }
+                            )
+                        },
+                        "layer_bridge_span": layer_bridge_span,
                         "initial_rectangle_count": space.initial_rectangle_count,
+                        "baseline_seed_algorithms_requested": baseline_seed_algorithms,
+                        "baseline_seed_algorithms": space.baseline_seed_algorithms,
+                        "baseline_seed_count": len(space.baseline_seed_genomes),
+                        "baseline_seed_metrics": space.baseline_seed_metrics,
+                        "exact_baseline_seed": exact_baseline_seed,
                         "trajectory_count": space.trajectory_count,
+                        "trajectory_state_count": space.trajectory_state_count,
                         "genome_candidate_indexes": sorted(individual.genome),
                         "search_history": history,
                         "approximate_mass_kg": individual.mass_kg,
                         "approximate_zone_count": individual.zone_count,
+                        "approximate_complexity": individual.complexity,
+                        "complexity_axis": complexity_axis.value,
+                        "mutation_operators": MUTATION_OPERATORS,
+                        "operator_learning": operator_learning,
                     },
                 )
             )
-        return tuple(solutions)
+        valid_solutions = tuple(
+            solution
+            for solution in solutions
+            if solution.status in {SolutionStatus.FEASIBLE, SolutionStatus.OPTIMAL}
+            and solution.metrics.under_reinforced_cell_count == 0
+        )
+        if not valid_solutions:
+            return tuple(solutions)
+
+        def actual_complexity(solution: LayoutSolution) -> int:
+            if complexity_axis is ComplexityAxis.ZONE_COUNT:
+                return solution.metrics.detail_count
+            return solution.metrics.physical_bar_count
+
+        def solution_dominates(
+            first: LayoutSolution,
+            second: LayoutSolution,
+        ) -> bool:
+            first_complexity = actual_complexity(first)
+            second_complexity = actual_complexity(second)
+            return (
+                first.metrics.total_mass_kg
+                <= second.metrics.total_mass_kg + _MASS_TOLERANCE_KG
+                and first_complexity <= second_complexity
+                and (
+                    first.metrics.total_mass_kg
+                    < second.metrics.total_mass_kg - _MASS_TOLERANCE_KG
+                    or first_complexity < second_complexity
+                )
+            )
+
+        unique_by_point: dict[tuple[int, float], LayoutSolution] = {}
+        for solution in valid_solutions:
+            point = (
+                actual_complexity(solution),
+                round(solution.metrics.total_mass_kg, 6),
+            )
+            unique_by_point.setdefault(point, solution)
+        unique = tuple(unique_by_point.values())
+        actual_front = tuple(
+            solution
+            for solution in unique
+            if not any(
+                solution_dominates(other, solution)
+                for other in unique
+                if other is not solution
+            )
+        )
+        hard_rejection_count = len(solutions) - len(valid_solutions)
+        return tuple(
+            replace(
+                solution,
+                meta={
+                    **solution.meta,
+                    "internal_hard_rejection_count": hard_rejection_count,
+                },
+            )
+            for solution in sorted(
+                actual_front,
+                key=lambda item: (
+                    actual_complexity(item),
+                    -item.metrics.total_mass_kg,
+                    item.metrics.detail_count,
+                ),
+            )
+        )
 
     def solve(
         self,

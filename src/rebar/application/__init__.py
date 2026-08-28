@@ -25,6 +25,11 @@ from .gate_assessment import (
     assess_layout_gates,
     assess_plate_gates,
 )
+from .genetic_benchmark import (
+    GeneticRunConfig,
+    GeneticRunResult,
+    run_genetic_benchmark,
+)
 
 __all__ = [
     "DEFAULT_ALGORITHMS",
@@ -33,6 +38,8 @@ __all__ = [
     "DirectionAnalysis",
     "GateAssessment",
     "GateDeviation",
+    "GeneticRunConfig",
+    "GeneticRunResult",
     "PlateAnalysis",
     "PlateDirectionSource",
     "analyze_direction",
@@ -43,5 +50,6 @@ __all__ = [
     "available_demo_cases",
     "available_mapping_ids",
     "get_demo_case",
+    "run_genetic_benchmark",
     "write_demo_dxf",
 ]

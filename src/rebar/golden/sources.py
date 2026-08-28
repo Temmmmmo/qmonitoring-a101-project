@@ -5,6 +5,9 @@ from __future__ import annotations
 import unicodedata
 from pathlib import Path
 
+from rebar.models import Direction
+
+from .dataset_models import EngineerReferenceCase, EngineerReferenceFiles
 from .models import GoldenCaseDefinition, GoldenCaseFiles
 
 
@@ -40,6 +43,20 @@ def _find_unique(root: Path, name: str, *, directories: bool | None = None) -> P
     return matches[0]
 
 
+def _resolve_normalised_parts(root: Path, parts: tuple[str, ...]) -> Path:
+    current = root
+    for index, part in enumerate(parts):
+        expected = _normalised(part)
+        matches = [child for child in current.iterdir() if _normalised(child.name) == expected]
+        if len(matches) != 1:
+            relative = "/".join(parts[: index + 1])
+            raise GoldenSourceNotFoundError(
+                f"Ожидался один путь {relative!r} внутри {root}, найдено: {len(matches)}"
+            )
+        current = matches[0]
+    return current
+
+
 def resolve_golden_case_files(
     case: GoldenCaseDefinition,
     data_dir: Path,
@@ -65,3 +82,39 @@ def resolve_golden_case_files(
         input_png_by_direction=input_png_by_direction,
     )
 
+
+def resolve_engineer_reference_files(
+    case: EngineerReferenceCase,
+    data_dir: Path,
+) -> EngineerReferenceFiles:
+    """Разрешить PDF и все DXF одного manifest-case без абсолютных путей."""
+
+    if not data_dir.is_dir():
+        raise GoldenSourceNotFoundError(f"Каталог материалов не найден: {data_dir}")
+
+    if _normalised(data_dir.name) == _normalised(case.dataset_dir_name):
+        dataset_dir = data_dir
+    else:
+        dataset_dir = _find_unique(data_dir, case.dataset_dir_name, directories=True)
+
+    engineer_pdf = _resolve_normalised_parts(dataset_dir, case.engineer_pdf_parts)
+    if not engineer_pdf.is_file():
+        raise GoldenSourceNotFoundError(f"Инженерный PDF не найден: {engineer_pdf}")
+
+    dxf_by_input_set: dict[str, dict[Direction, Path]] = {}
+    for input_set in case.input_sets:
+        input_dir = _resolve_normalised_parts(dataset_dir, input_set.relative_directory)
+        if not input_dir.is_dir():
+            raise GoldenSourceNotFoundError(f"Каталог входного комплекта не найден: {input_dir}")
+        dxf_by_input_set[input_set.id] = {
+            direction: _resolve_normalised_parts(input_dir, (file_name,))
+            for direction, file_name in input_set.dxf_by_direction
+        }
+        missing = [path for path in dxf_by_input_set[input_set.id].values() if not path.is_file()]
+        if missing:
+            raise GoldenSourceNotFoundError(f"Входной DXF не найден: {missing[0]}")
+
+    return EngineerReferenceFiles(
+        engineer_pdf=engineer_pdf,
+        dxf_by_input_set=dxf_by_input_set,
+    )

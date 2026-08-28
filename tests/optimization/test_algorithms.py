@@ -103,6 +103,7 @@ def test_genetic_optimizer_returns_reproducible_valid_pareto_candidates(
             "population_size": 8,
             "generations": 5,
             "random_seed": 17,
+            "candidate_trajectories": 3,
         },
     )
 
@@ -121,6 +122,16 @@ def test_genetic_optimizer_returns_reproducible_valid_pareto_candidates(
     assert all(solution.algorithm == "genetic-pareto" for solution in first)
     assert all(solution.status is SolutionStatus.FEASIBLE for solution in first)
     assert all(evaluate_layout(problem, solution.zones, request).valid for solution in first)
+    assert all(solution.meta["trajectory_count"] == 3 for solution in first)
+    assert all(
+        solution.meta["trajectory_state_count"] >= solution.meta["trajectory_count"]
+        for solution in first
+    )
+    assert all(solution.meta["baseline_seed_count"] >= 1 for solution in first)
+    assert all(
+        solution.meta["operator_learning"]["name"] == "ucb1"
+        for solution in first
+    )
     assert all(
         not (
             first_mass <= second_mass
@@ -130,6 +141,39 @@ def test_genetic_optimizer_returns_reproducible_valid_pareto_candidates(
         for first_count, first_mass in first_points
         for second_count, second_mass in first_points
         if (first_count, first_mass) != (second_count, second_mass)
+    )
+
+
+def test_genetic_baseline_seeding_preserves_best_frozen_mass(splittable_mosaic):
+    problem = build_layout_problem(
+        splittable_mosaic,
+        LayoutConstraints(min_width_cells=1, enforce_zone_gap=False),
+    )
+    request = AlgorithmRequest(
+        max_details=8,
+        params={
+            "population_size": 8,
+            "generations": 2,
+            "mutation_rate": 1.0,
+            "random_seed": 31,
+            "operator_policy": "uniform",
+        },
+    )
+    baselines = (
+        AgglomerativeOptimizer().solve(problem, request),
+        BspOptimizer().solve(problem, request),
+        PriorityGreedyOptimizer().solve(problem, request),
+    )
+
+    candidates = GeneticParetoOptimizer().solve_many(problem, request)
+
+    assert min(item.metrics.total_mass_kg for item in candidates) <= min(
+        item.metrics.total_mass_kg for item in baselines
+    ) + 1e-6
+    assert all(item.meta["operator_learning"]["name"] == "uniform" for item in candidates)
+    assert all(
+        item.meta["operator_learning"]["total_selections"] > 0
+        for item in candidates
     )
 
 

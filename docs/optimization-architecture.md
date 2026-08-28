@@ -54,6 +54,8 @@ src/rebar/optimization/
     contracts.py     формат версионированной таблицы As -> арматура
     binder.py        проверка шкалы и создание Band без мутации исходного Mosaic
     plate_zero.py    MVP-таблица plate-zero-d12-v1 из легенд PNG
+    k09_minus_2.py   узкая MVP-таблица плиты над −2 этажом
+    k09_above_3.py   узкая MVP-таблица только плиты над 3 этажом
   services/
     geometry.py      чистые геометрические примитивы
     detailing.py     build_zone для групп КЭ и build_zone_from_bbox для spatial-разбиения
@@ -73,6 +75,10 @@ src/rebar/optimization/
     row_run_greedy.py жадное объединение продольных профилей спроса
     strip_profile_dp.py DP по последовательным поперечным полосам
     spatial_partition_greedy.py сеточная маска и укрупнение непересекающихся зон
+    genetic_pareto.py NSGA-II-подобная оркестрация и материализация фронта
+    genetic/
+      operators.py   split/merge/shift/change-level/baseline-patch
+      policy.py      uniform и online UCB1 выбора мутаций
   registry.py        явная регистрация и выбор алгоритма
 src/rebar/golden/
   catalog.py         проверенный инженерный эталон и страницы PDF
@@ -104,6 +110,11 @@ DXF ingest -> mapping? -> LayoutProblem -> OptimizerRegistry -> LayoutSolution[]
 тот же сценарий без копирования алгоритмов. Встроенный demo-case создаётся как настоящий
 синтетический DXF в `application/demo.py` и проходит тот же путь. Загруженные web-файлы
 сейчас не сохраняются.
+
+`src/rebar/learning/preference.py` расположен после Pareto/hard-validation. Он принимает
+только метрики допустимых `PlateCandidate`, учит один вес ранжирования и не может
+создавать зоны или менять инженерные ограничения. JSON/HTML этого эксперимента остаётся
+в `reporting/preference_calibration.py`.
 
 ## Контракт алгоритма
 
@@ -241,10 +252,19 @@ LayoutSolution[] × 4
 4. добавить общий поведенческий тест в `tests/optimization/test_algorithms.py`;
 5. после этого имя автоматически можно передать в локальный отчёт через `--algorithms`.
 
-Генетический оптимизатор реализован отдельным `genetic_pareto.py`. Хромосома выбирает
-прямоугольники из пространственного CandidateSet, но crossover/mutation не получают
+Генетический оптимизатор реализован публичным `genetic_pareto.py` и внутренним пакетом
+`algorithms/genetic/`. Хромосома выбирает прямоугольники из пространственного
+CandidateSet, дополненного геометриями сильных frozen-baseline. UCB1 адаптивно выбирает
+один из фиксированных предметных операторов, но crossover/mutation не получают
 права создавать непроверенный инженерный результат: после них обязательны
 детерминированный repair, общая постобработка и `evaluate_layout`.
+
+До любого оптимизатора application-слой вызывает `apply_single_cell_rule()`. Сервис
+возвращает новый `LayoutProblem`, не изменяет `Mosaic` и кладёт полный протокол понижений
+в `problem.meta`. Там же `resolve_zone_count_limit()` заменяет отсутствующий cap на
+естественный максимум: `1..число всех КЭ` для непустого спроса и `0..0` для пустого.
+Внешний Парето-фильтр для двух целей работает после сортировки за `O(n log n)`, поэтому
+общеплитное произведение кандидатов больше не попадает в квадратичный dominance-loop.
 
 ML выбора «Точки 3» находится над `PlateSolution`, а не внутри геометрического
 валидатора. Локально доступно 11 объединённых инженерских выдач и 0 явно размеченных

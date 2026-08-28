@@ -84,7 +84,7 @@ def test_landing_health_and_options_are_available():
     assert "Раскладка дополнительной арматуры" in landing.text
     assert "Параметры задачи" in landing.text
     assert "Рабочая область" in landing.text
-    assert "/static/app.js?v=web-mvp-7" in landing.text
+    assert "/static/app.js?v=web-mvp-8" in landing.text
     assert landing.headers["cache-control"] == "no-store, max-age=0"
     assert options.headers["cache-control"] == "no-store, max-age=0"
     assert script.headers["cache-control"] == "no-store, max-age=0"
@@ -92,7 +92,7 @@ def test_landing_health_and_options_are_available():
     assert '"/api/analyze-plate"' in script.text
     assert "payload.demo_cases.map" not in script.text
     assert health.json() == {"status": "ok"}
-    assert options.json()["schema_version"] == 1
+    assert options.json()["schema_version"] == 2
     assert {item["id"] for item in options.json()["algorithms"]} == {
         "agglomerative",
         "bbox",
@@ -108,9 +108,19 @@ def test_landing_health_and_options_are_available():
         "continuous",
         "plate-11700",
     }
+    mappings = {item["id"]: item for item in options.json()["mappings"]}
+    assert set(mappings) == {
+        "auto",
+        "k09-above-3-d10-v1",
+        "k09-minus-2-d12-v1",
+        "plate-zero-d12-v1",
+    }
+    assert mappings["k09-above-3-d10-v1"]["title"] == "Плита над 3 этажом · ⌀10"
+    assert mappings["k09-minus-2-d12-v1"]["title"] == "Плита над −2 этажом · ⌀12"
     assert options.json()["defaults"]["source_mode"] == "demo"
     assert options.json()["defaults"]["demo_id"] == "irregular-plate-x"
     assert options.json()["defaults"]["algorithms"] == ["genetic-pareto"]
+    assert options.json()["defaults"]["max_details"] is None
     assert options.json()["defaults"]["genetic_population_size"] == 16
     assert options.json()["references"] == [
         {
@@ -149,6 +159,8 @@ def test_demo_runs_real_dxf_pipeline_without_upload():
     assert payload["source"]["source_kind"] == "demo"
     assert payload["source"]["source_id"] == "irregular-plate-x"
     assert payload["source"]["cell_count"] == 96
+    assert payload["source"]["zone_count_bounds"] == {"minimum": 1, "maximum": 96}
+    assert payload["source"]["single_cell_preprocessing"]["policy"].endswith("-v1")
     assert payload["source"]["mapping_id"] == "plate-zero-d12-v1"
     assert payload["solutions"][0]["algorithm"] == "bbox"
     assert payload["solutions"][0]["metrics"]["under_reinforced_cell_count"] == 0
@@ -162,6 +174,21 @@ def test_demo_rejects_unknown_case():
 
     assert response.status_code == 400
     assert "неизвестный демонстрационный пример" in response.json()["detail"]
+
+
+def test_demo_rejects_zone_cap_above_finite_element_count():
+    response = client.post(
+        "/api/demo",
+        data={
+            "demo_id": "irregular-plate-x",
+            "algorithms": "bbox",
+            "max_details": "97",
+            "min_width_cells": "1",
+        },
+    )
+
+    assert response.status_code == 422
+    assert "1..96" in response.json()["detail"]
 
 
 def test_demo_genetic_algorithm_returns_clickable_pareto_front():

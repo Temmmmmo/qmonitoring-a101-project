@@ -34,13 +34,14 @@ from rebar.optimization import (
     RebarMappingError,
     built_in_optimizer_registry,
     measure_plate_constructability,
+    zone_count_bounds,
 )
 from rebar.reporting.serialization import to_jsonable
 from rebar.reporting.svg import render_solution_svg
 
 STATIC_DIR = Path(__file__).with_name("static")
 MAX_UPLOAD_BYTES = 30 * 1024 * 1024
-OPTIONS_SCHEMA_VERSION = 1
+OPTIONS_SCHEMA_VERSION = 2
 
 ALGORITHM_INFO = {
     "agglomerative": {
@@ -57,7 +58,10 @@ ALGORITHM_INFO = {
     },
     "genetic-pareto": {
         "title": "Genetic Pareto",
-        "description": "Эволюционно строит серию вариантов массы и числа зон.",
+        "description": (
+            "Эволюционно строит серию вариантов; UCB адаптивно выбирает "
+            "предметные мутации."
+        ),
     },
     "greedy": {
         "title": "Greedy",
@@ -78,6 +82,21 @@ ALGORITHM_INFO = {
     "strip-profile-dp": {
         "title": "Strip profile DP",
         "description": "Ищет лучший вариант внутри класса поперечных полос.",
+    },
+}
+
+MAPPING_INFO = {
+    "k09-above-3-d10-v1": {
+        "title": "Плита над 3 этажом · ⌀10",
+        "description": "Таблица из собственной PNG-легенды комплекта над 3 этажом.",
+    },
+    "k09-minus-2-d12-v1": {
+        "title": "Плита над −2 этажом · ⌀12",
+        "description": "Таблица из собственной PNG-легенды комплекта над −2 этажом.",
+    },
+    "plate-zero-d12-v1": {
+        "title": "Плита нуля · ⌀12",
+        "description": "Таблица из собственной PNG-легенды golden-case плиты нуля.",
     },
 }
 
@@ -127,6 +146,7 @@ def _source_payload(
 ) -> dict:
     mosaic = analysis.mosaic
     mapping = mosaic.meta.get("rebar_mapping") or {}
+    minimum_zones, maximum_zones = zone_count_bounds(analysis.problem)
     return {
         "filename": filename,
         "source_kind": source_kind,
@@ -143,6 +163,13 @@ def _source_payload(
         "level_count": len(analysis.problem.demand.levels),
         "legend_source": "mapping" if mapping else "shk",
         "mapping_id": mapping.get("id"),
+        "zone_count_bounds": {
+            "minimum": minimum_zones,
+            "maximum": maximum_zones,
+        },
+        "single_cell_preprocessing": analysis.problem.meta.get(
+            "single_cell_preprocessing"
+        ),
     }
 
 
@@ -418,8 +445,7 @@ def options() -> dict:
             *[
                 {
                     "id": mapping_id,
-                    "title": "Плита нуля · ⌀12",
-                    "description": "Зафиксированная MVP-таблица для golden-case.",
+                    **MAPPING_INFO[mapping_id],
                 }
                 for mapping_id in available_mapping_ids()
             ],
@@ -463,12 +489,14 @@ def options() -> dict:
             "source_mode": "demo",
             "demo_id": IRREGULAR_PLATE_DEMO.id,
             "algorithms": list(DEFAULT_ALGORITHMS),
-            "max_details": 32,
+            "max_details": None,
             "min_width_cells": 2,
             "cutting_profile": "continuous",
             "genetic_population_size": 16,
             "genetic_generations": 30,
             "genetic_seed": 42,
+            "genetic_operator_policy": "ucb1",
+            "genetic_ucb_exploration": 2**0.5,
         },
         "limits": {"max_upload_mb": MAX_UPLOAD_BYTES // 1024 // 1024},
     }
@@ -483,13 +511,15 @@ async def _execute_analysis(
     shk_path: Path | None,
     mapping_id: str,
     algorithms: str,
-    max_details: int,
+    max_details: int | None,
     min_width_cells: int,
     detail_penalty_kg: float,
     cutting_profile: str,
     genetic_population_size: int,
     genetic_generations: int,
     genetic_seed: int,
+    genetic_operator_policy: str,
+    genetic_ucb_exploration: float,
 ) -> dict:
     """Выполнить общий application-сценарий для upload и встроенного DXF."""
 
@@ -500,6 +530,8 @@ async def _execute_analysis(
                 "population_size": genetic_population_size,
                 "generations": genetic_generations,
                 "random_seed": genetic_seed,
+                "operator_policy": genetic_operator_policy,
+                "ucb_exploration": genetic_ucb_exploration,
             }
         }
         if "genetic-pareto" in {name.casefold() for name in algorithm_names}
@@ -536,7 +568,7 @@ async def _execute_plate_analysis(
     *,
     filename_by_path: dict[str, str],
     algorithms: str,
-    max_details: int,
+    max_details: int | None,
     min_width_cells: int,
     detail_penalty_kg: float,
     cutting_profile: str,
@@ -545,6 +577,8 @@ async def _execute_plate_analysis(
     genetic_population_size: int,
     genetic_generations: int,
     genetic_seed: int,
+    genetic_operator_policy: str,
+    genetic_ucb_exploration: float,
 ) -> dict:
     """Выполнить общеплитный application-сценарий в рабочем потоке."""
 
@@ -555,6 +589,8 @@ async def _execute_plate_analysis(
                 "population_size": genetic_population_size,
                 "generations": genetic_generations,
                 "random_seed": genetic_seed,
+                "operator_policy": genetic_operator_policy,
+                "ucb_exploration": genetic_ucb_exploration,
             }
         }
         if "genetic-pareto" in {name.casefold() for name in algorithm_names}
@@ -586,13 +622,15 @@ async def analyze(
     shk: Annotated[UploadFile | None, File(description="Необязательная шкала .shk")] = None,
     mapping_id: Annotated[str, Form()] = "auto",
     algorithms: Annotated[str, Form()] = ",".join(DEFAULT_ALGORITHMS),
-    max_details: Annotated[int, Form(ge=1, le=100)] = 32,
+    max_details: Annotated[int | None, Form(ge=1)] = None,
     min_width_cells: Annotated[int, Form(ge=1, le=10)] = 2,
     detail_penalty_kg: Annotated[float, Form(ge=0, le=1_000_000)] = 0.0,
     cutting_profile: Annotated[str, Form()] = "continuous",
     genetic_population_size: Annotated[int, Form(ge=4, le=64)] = 16,
     genetic_generations: Annotated[int, Form(ge=1, le=200)] = 30,
     genetic_seed: Annotated[int, Form(ge=0, le=2_147_483_647)] = 42,
+    genetic_operator_policy: Annotated[str, Form()] = "ucb1",
+    genetic_ucb_exploration: Annotated[float, Form(ge=0, le=10)] = 2**0.5,
 ) -> dict:
     dxf_name = _safe_name(dxf, "input.dxf")
     if Path(dxf_name).suffix.casefold() != ".dxf":
@@ -633,6 +671,8 @@ async def analyze(
             genetic_population_size=genetic_population_size,
             genetic_generations=genetic_generations,
             genetic_seed=genetic_seed,
+            genetic_operator_policy=genetic_operator_policy,
+            genetic_ucb_exploration=genetic_ucb_exploration,
         )
 
 
@@ -648,13 +688,15 @@ async def analyze_plate_upload(
     ] = None,
     mapping_id: Annotated[str, Form()] = "plate-zero-d12-v1",
     algorithms: Annotated[str, Form()] = ",".join(DEFAULT_ALGORITHMS),
-    max_details: Annotated[int, Form(ge=1, le=100)] = 32,
+    max_details: Annotated[int | None, Form(ge=1)] = None,
     min_width_cells: Annotated[int, Form(ge=1, le=10)] = 2,
     detail_penalty_kg: Annotated[float, Form(ge=0, le=1_000_000)] = 0.0,
     cutting_profile: Annotated[str, Form()] = "continuous",
     genetic_population_size: Annotated[int, Form(ge=4, le=64)] = 16,
     genetic_generations: Annotated[int, Form(ge=1, le=200)] = 30,
     genetic_seed: Annotated[int, Form(ge=0, le=2_147_483_647)] = 42,
+    genetic_operator_policy: Annotated[str, Form()] = "ucb1",
+    genetic_ucb_exploration: Annotated[float, Form(ge=0, le=10)] = 2**0.5,
     case_id: Annotated[str, Form(max_length=200)] = "",
     reference_id: Annotated[str, Form(max_length=200)] = "",
 ) -> dict:
@@ -732,6 +774,8 @@ async def analyze_plate_upload(
             genetic_population_size=genetic_population_size,
             genetic_generations=genetic_generations,
             genetic_seed=genetic_seed,
+            genetic_operator_policy=genetic_operator_policy,
+            genetic_ucb_exploration=genetic_ucb_exploration,
         )
 
 
@@ -739,13 +783,15 @@ async def analyze_plate_upload(
 async def analyze_demo(
     demo_id: Annotated[str, Form()] = IRREGULAR_PLATE_DEMO.id,
     algorithms: Annotated[str, Form()] = ",".join(DEFAULT_ALGORITHMS),
-    max_details: Annotated[int, Form(ge=1, le=100)] = 32,
+    max_details: Annotated[int | None, Form(ge=1)] = None,
     min_width_cells: Annotated[int, Form(ge=1, le=10)] = 2,
     detail_penalty_kg: Annotated[float, Form(ge=0, le=1_000_000)] = 0.0,
     cutting_profile: Annotated[str, Form()] = "continuous",
     genetic_population_size: Annotated[int, Form(ge=4, le=64)] = 16,
     genetic_generations: Annotated[int, Form(ge=1, le=200)] = 30,
     genetic_seed: Annotated[int, Form(ge=0, le=2_147_483_647)] = 42,
+    genetic_operator_policy: Annotated[str, Form()] = "ucb1",
+    genetic_ucb_exploration: Annotated[float, Form(ge=0, le=10)] = 2**0.5,
 ) -> dict:
     """Рассчитать встроенный синтетический DXF тем же production-пайплайном."""
 
@@ -772,4 +818,6 @@ async def analyze_demo(
             genetic_population_size=genetic_population_size,
             genetic_generations=genetic_generations,
             genetic_seed=genetic_seed,
+            genetic_operator_policy=genetic_operator_policy,
+            genetic_ucb_exploration=genetic_ucb_exploration,
         )

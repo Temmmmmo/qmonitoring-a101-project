@@ -33,7 +33,12 @@ def main() -> None:
             "strip-profile-dp",
         ],
     )
-    parser.add_argument("--max-details", type=int, default=32)
+    parser.add_argument(
+        "--max-details",
+        type=int,
+        default=None,
+        help="cap числа зон; по умолчанию равен числу требующих армирования КЭ",
+    )
     parser.add_argument("--detail-penalty-kg", type=float, default=0.0)
     parser.add_argument("--min-width-cells", type=int, default=2)
     overlap_group = parser.add_mutually_exclusive_group()

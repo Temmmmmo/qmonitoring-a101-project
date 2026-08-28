@@ -41,6 +41,8 @@ from .contracts import (
     SolutionStatus,
 )
 from .mappings import (
+    K09_ABOVE_3_D10,
+    K09_MINUS_2_D12,
     PLATE_ZERO_D12,
     RebarBandMapping,
     RebarMapping,
@@ -53,6 +55,7 @@ from .services import (
     PLATE_11700_CUT_LENGTHS_MM,
     CutLengthCatalog,
     FixedDiameterAnchoragePolicy,
+    apply_single_cell_rule,
     bar_coordinates,
     bar_segments,
     build_zone,
@@ -66,9 +69,13 @@ from .services import (
     evaluate_layout,
     measure_constructability,
     measure_plate_constructability,
+    resolve_zone_count_limit,
+    zone_count_bounds,
 )
 
 __all__ = [
+    "K09_ABOVE_3_D10",
+    "K09_MINUS_2_D12",
     "PLATE_ZERO_D12",
     "PLATE_11700_CATALOG",
     "PLATE_11700_CUT_LENGTHS_MM",
@@ -115,6 +122,7 @@ __all__ = [
     "StripProfileDpOptimizer",
     "StrongestBBoxOptimizer",
     "apply_rebar_mapping",
+    "apply_single_cell_rule",
     "bar_coordinates",
     "bar_segments",
     "build_demand_map",
@@ -131,4 +139,6 @@ __all__ = [
     "evaluate_layout",
     "measure_constructability",
     "measure_plate_constructability",
+    "resolve_zone_count_limit",
+    "zone_count_bounds",
 ]
