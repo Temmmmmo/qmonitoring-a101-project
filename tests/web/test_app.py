@@ -84,12 +84,14 @@ def test_landing_health_and_options_are_available():
     assert "Раскладка дополнительной арматуры" in landing.text
     assert "Параметры задачи" in landing.text
     assert "Рабочая область" in landing.text
-    assert "/static/app.js?v=web-mvp-8" in landing.text
+    assert "/static/app.js?v=web-mvp-9" in landing.text
     assert landing.headers["cache-control"] == "no-store, max-age=0"
     assert options.headers["cache-control"] == "no-store, max-age=0"
     assert script.headers["cache-control"] == "no-store, max-age=0"
     assert "normalizedOptions(payload)" in script.text
+    assert "const OPTIONS_SCHEMA_VERSION = 2;" in script.text
     assert '"/api/analyze-plate"' in script.text
+    assert "Скачать черновик JSON" in script.text
     assert "payload.demo_cases.map" not in script.text
     assert health.json() == {"status": "ok"}
     assert options.json()["schema_version"] == 2
@@ -336,6 +338,17 @@ def test_analyze_plate_returns_aggregate_metrics_and_four_svgs(
     assert gate_items["plate-directions"]["absolute_deviation"] == 0.0
     assert gate_items["reference-mass"]["target"] == 3177.64
     assert len(solution["direction_solutions"]) == 4
+    revit_export = solution["revit_export"]
+    assert revit_export["schema_version"] == "plate-solution-revit/v1"
+    assert revit_export["contract_status"] == "draft"
+    assert revit_export["checks"]["export_eligible"] is False
+    assert "a101-allowed-positions" in revit_export["checks"]["blocking_check_ids"]
+    assert len(revit_export["directions"]) == 4
+    assert all(
+        zone["mark"] and zone["callout"]
+        for direction in revit_export["directions"]
+        for zone in direction["zones"]
+    )
     assert all(
         item["solution"]["svg"].startswith("<svg")
         for item in solution["direction_solutions"]

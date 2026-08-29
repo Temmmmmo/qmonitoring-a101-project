@@ -84,6 +84,10 @@ src/rebar/golden/
   catalog.py         проверенный инженерный эталон и страницы PDF
   sources.py         поиск локальных материалов без абсолютных путей
   pdf_specs.py       извлечение спецификаций и превью страниц
+src/rebar/reporting/
+  zone_schedule.py   стабильные марки и выноски параметрических зон
+src/rebar/application/
+  revit_export.py    компактный draft JSON только выбранного plate-кандидата
 ```
 
 `src/rebar/optimization/__init__.py` — единственная рекомендуемая точка импорта для
@@ -110,6 +114,11 @@ DXF ingest -> mapping? -> LayoutProblem -> OptimizerRegistry -> LayoutSolution[]
 тот же сценарий без копирования алгоритмов. Встроенный demo-case создаётся как настоящий
 синтетический DXF в `application/demo.py` и проходит тот же путь. Загруженные web-файлы
 сейчас не сохраняются.
+
+`application/revit_export.py` является отдельной выходной границей: он принимает уже
+выбранный и проверенный `PlateSolution`, добавляет ведомость марок и создаёт компактный
+`plate-solution-revit/v1` без web-SVG и остальных кандидатов. Пока safety-гейты не
+закрыты, контракт остаётся `draft` и не выдаёт решение за готовое к применению.
 
 `src/rebar/learning/preference.py` расположен после Pareto/hard-validation. Он принимает
 только метрики допустимых `PlateCandidate`, учит один вес ранжирования и не может

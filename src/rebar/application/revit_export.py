@@ -1,0 +1,112 @@
+"""Компактный черновой контракт выбранного решения для Revit-интеграции."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from rebar.optimization import PlateProblem, PlateSolution
+from rebar.reporting.serialization import to_jsonable
+from rebar.reporting.zone_schedule import build_zone_schedule
+
+from .gate_assessment import assess_plate_gates
+
+REVIT_EXPORT_SCHEMA = "plate-solution-revit/v1"
+
+_EXPORT_SAFETY_GATES = frozenset(
+    {
+        "plate-directions",
+        "demand-coverage",
+        "minimum-zone-width",
+        "anchorage",
+        "step-multiple",
+        "postprocessing-conflicts",
+        "a101-allowed-positions",
+    }
+)
+
+
+def build_plate_solution_revit_export(
+    problem: PlateProblem,
+    solution: PlateSolution,
+    *,
+    candidate_id: str | None = None,
+) -> dict[str, Any]:
+    """Собрать выбранный кандидат без SVG, фронта и остальных web-данных.
+
+    Пока каталог разрешённых позиций А101 не подключён, контракт остаётся доступным
+    как инженерный черновик, но ``export_eligible`` честно равен ``False``.
+    """
+
+    assessment = assess_plate_gates(problem, solution)
+    safety_items = tuple(
+        item for item in assessment.items if item.id in _EXPORT_SAFETY_GATES
+    )
+    blocking_items = tuple(item for item in safety_items if item.status != "pass")
+    blocking_check_ids = [item.id for item in blocking_items]
+    if not solution.valid:
+        blocking_check_ids.append("plate-solution-validity")
+    export_eligible = solution.valid and not blocking_items
+
+    directions = []
+    for direction_problem in problem.direction_problems:
+        direction = direction_problem.demand.direction
+        direction_solution = solution.solution(direction)
+        rows_by_zone_id = {
+            row.zone_id: row for row in build_zone_schedule(direction, direction_solution)
+        }
+        zones = []
+        for zone in direction_solution.zones:
+            row = rows_by_zone_id[zone.id]
+            zones.append(
+                {
+                    "mark": row.mark,
+                    "callout": row.callout,
+                    "source_zone_id": zone.id,
+                    "bbox_mm": list(zone.bbox),
+                    "demand_bbox_mm": list(zone.demand_bbox),
+                    "level_index": zone.level_index,
+                    "diameter_mm": zone.rebar.diameter,
+                    "step_mm": zone.rebar.step,
+                    "bar_count": zone.bar_count,
+                    "first_bar_coordinate_mm": zone.first_bar_coordinate_mm,
+                    "required_length_mm": zone.required_length_mm,
+                    "anchored_length_mm": zone.anchored_length_mm,
+                    "installed_length_mm": zone.installed_length_mm,
+                    "width_mm": zone.width_mm,
+                    "mass_kg": zone.mass_kg,
+                }
+            )
+        directions.append(
+            {
+                "layer": direction.layer.value,
+                "axis": direction.axis.value,
+                "algorithm": direction_solution.algorithm,
+                "status": direction_solution.status.value,
+                "zones": zones,
+            }
+        )
+
+    return {
+        "schema_version": REVIT_EXPORT_SCHEMA,
+        "contract_status": "draft",
+        "units": "mm",
+        "case_id": problem.case_id,
+        "candidate": {
+            "id": candidate_id,
+            "status": solution.status.value,
+            "algorithm_by_direction": to_jsonable(
+                solution.meta.get("algorithm_by_direction", {})
+            ),
+        },
+        "checks": {
+            "direction_count": solution.metrics.direction_count,
+            "under_reinforced_cell_count": (
+                solution.metrics.under_reinforced_cell_count
+            ),
+            "export_eligible": export_eligible,
+            "blocking_check_ids": blocking_check_ids,
+            "diagnostics": list(solution.diagnostics),
+        },
+        "metrics": to_jsonable(solution.metrics),
+        "directions": directions,
+    }

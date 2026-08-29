@@ -30,6 +30,7 @@ from .genetic_benchmark import (
     GeneticRunResult,
     run_genetic_benchmark,
 )
+from .revit_export import REVIT_EXPORT_SCHEMA, build_plate_solution_revit_export
 
 __all__ = [
     "DEFAULT_ALGORITHMS",
@@ -42,6 +43,7 @@ __all__ = [
     "GeneticRunResult",
     "PlateAnalysis",
     "PlateDirectionSource",
+    "REVIT_EXPORT_SCHEMA",
     "analyze_direction",
     "analyze_plate",
     "assess_layout_gates",
@@ -49,6 +51,7 @@ __all__ = [
     "available_cutting_profile_ids",
     "available_demo_cases",
     "available_mapping_ids",
+    "build_plate_solution_revit_export",
     "get_demo_case",
     "run_genetic_benchmark",
     "write_demo_dxf",

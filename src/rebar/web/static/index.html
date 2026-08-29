@@ -255,7 +255,12 @@
               <p id="result-kicker" class="panel-kicker">Активный файл</p>
               <h2 id="result-filename"></h2>
             </div>
-            <button id="new-analysis" class="secondary-button" type="button">К параметрам</button>
+            <div class="result-actions">
+              <button id="download-solution" class="secondary-button" type="button" hidden>
+                Скачать JSON
+              </button>
+              <button id="new-analysis" class="secondary-button" type="button">К параметрам</button>
+            </div>
           </div>
           <div id="source-facts" class="source-facts"></div>
           <div id="solution-tabs" class="solution-tabs" role="tablist" aria-label="Алгоритмы"></div>
@@ -305,7 +310,7 @@
             <summary><span>Параметры прямоугольных зон</span><i aria-hidden="true">+</i></summary>
             <div class="table-wrap">
               <table>
-                <thead><tr><th>ID</th><th>Уровень</th><th>⌀ / шаг</th><th>Ширина</th><th>40d минимум</th><th>Отрезок</th><th>Стержней</th><th>Масса</th></tr></thead>
+                <thead><tr><th>Марка</th><th>Выноска</th><th>Уровень</th><th>Ширина</th><th>40d минимум</th><th>Отрезок</th><th>Масса</th></tr></thead>
                 <tbody id="zones-body"></tbody>
               </table>
             </div>
@@ -319,6 +324,6 @@
       <span>Внутренние единицы: мм</span>
       <span>Qmonitoring × A101</span>
     </footer>
-    <script src="/static/app.js?v=web-mvp-8" defer></script>
+    <script src="/static/app.js?v=web-mvp-9" defer></script>
   </body>
 </html>

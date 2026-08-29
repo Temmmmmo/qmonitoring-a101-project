@@ -25,6 +25,7 @@ from rebar.application import (
     available_cutting_profile_ids,
     available_demo_cases,
     available_mapping_ids,
+    build_plate_solution_revit_export,
     get_demo_case,
     write_demo_dxf,
 )
@@ -38,6 +39,7 @@ from rebar.optimization import (
 )
 from rebar.reporting.serialization import to_jsonable
 from rebar.reporting.svg import render_solution_svg
+from rebar.reporting.zone_schedule import build_zone_schedule
 
 STATIC_DIR = Path(__file__).with_name("static")
 MAX_UPLOAD_BYTES = 30 * 1024 * 1024
@@ -249,6 +251,9 @@ def _analysis_payload(
 def _layout_solution_payload(problem, solution) -> dict:
     payload = to_jsonable(solution)
     payload["physical_bar_count"] = solution.metrics.physical_bar_count
+    payload["zone_schedule"] = to_jsonable(
+        build_zone_schedule(problem.demand.direction, solution)
+    )
     payload["svg"] = render_solution_svg(problem, solution)
     payload["gate_assessment"] = _gate_assessment_payload(
         assess_layout_gates(problem, solution)
@@ -319,6 +324,11 @@ def _plate_analysis_payload(
             ),
             "direction_solutions": [],
         }
+        payload["revit_export"] = build_plate_solution_revit_export(
+            analysis.problem,
+            plate_solution,
+            candidate_id=candidate_id,
+        )
         for direction_solution in plate_solution.direction_solutions:
             direction = direction_solution.direction
             direction_analysis = direction_analyses[direction]

@@ -64,7 +64,7 @@ flowchart LR
         Solution["LayoutSolution<br/>LayoutZone[] + зоны, стержни, масса"]
         JSON["solutions.json"]
         HTML["автономный HTML + inline SVG"]
-        Revit["будущий JSON для Revit"]
+        Revit["draft JSON выбранного кандидата<br/>plate-solution-revit/v1"]
     end
 
     DXF --> Reader

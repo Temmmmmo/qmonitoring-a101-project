@@ -25,6 +25,7 @@ const workbenchTitle = document.querySelector("#workbench-title");
 const appStatus = document.querySelector("#app-status");
 const scopeLabel = document.querySelector("#scope-label");
 const panelCode = document.querySelector("#panel-code");
+const downloadSolution = document.querySelector("#download-solution");
 
 let options = null;
 let analysis = null;
@@ -32,7 +33,7 @@ let activeSolution = 0;
 let activeDirection = 0;
 let showDetailing = false;
 
-const OPTIONS_SCHEMA_VERSION = 1;
+const OPTIONS_SCHEMA_VERSION = 2;
 
 const number = (value, digits = 0) => new Intl.NumberFormat("ru-RU", {
   maximumFractionDigits: digits,
@@ -517,6 +518,16 @@ function renderActiveSolution() {
   };
   status.textContent = invalid ? "требует внимания" : (statusLabels[selected.status] ?? selected.status);
   status.classList.toggle("bad", invalid);
+  const revitExport = plateMode ? selected.revit_export : null;
+  downloadSolution.hidden = !revitExport;
+  if (revitExport) {
+    const eligible = Boolean(revitExport.checks?.export_eligible);
+    downloadSolution.textContent = eligible ? "Скачать JSON для Revit" : "Скачать черновик JSON";
+    const blockers = revitExport.checks?.blocking_check_ids ?? [];
+    downloadSolution.title = eligible
+      ? "Проверки экспортного профиля пройдены"
+      : `Перед применением устраните: ${blockers.join(", ")}`;
+  }
   const drawing = document.querySelector("#drawing");
   drawing.innerHTML = layoutSolution.svg;
   drawing.classList.toggle("show-detailing", showDetailing);
@@ -549,13 +560,13 @@ function renderActiveSolution() {
   }
   document.querySelector("#diagnostics-list").innerHTML = diagnostics
     .map((message) => `<li>${escapeHtml(message)}</li>`).join("");
-  document.querySelector("#zones-body").innerHTML = layoutSolution.zones.map((zone) => `
+  document.querySelector("#zones-body").innerHTML = layoutSolution.zone_schedule.map((zone) => `
     <tr>
-      <td>${escapeHtml(zone.id)}</td><td>${number(zone.level_index)}</td>
-      <td>⌀${number(zone.rebar.diameter)} / ${number(zone.rebar.step)}</td>
+      <td title="${escapeHtml(zone.zone_id)}">${escapeHtml(zone.mark)}</td>
+      <td>${escapeHtml(zone.callout)}</td><td>${number(zone.level_index)}</td>
       <td>${number(zone.width_mm)} мм</td><td>${number(zone.anchored_length_mm)} мм</td>
       <td>${number(zone.installed_length_mm)} мм</td>
-      <td>${number(zone.bar_count)}</td><td>${number(zone.mass_kg, 1)} кг</td>
+      <td>${number(zone.mass_kg, 1)} кг</td>
     </tr>
   `).join("");
 }
@@ -684,6 +695,21 @@ document.querySelector("#new-analysis").addEventListener("click", () => {
   workbenchTitle.textContent = "Просмотр раскладки";
   setWorkspaceState("Параметры готовы", "ready");
   form.scrollIntoView({ behavior: "smooth", block: "start" });
+});
+
+downloadSolution.addEventListener("click", () => {
+  const selected = analysis?.kind === "plate" ? analysis.solutions[activeSolution] : null;
+  if (!selected?.revit_export) return;
+  const blob = new Blob(
+    [JSON.stringify(selected.revit_export, null, 2)],
+    { type: "application/json;charset=utf-8" },
+  );
+  const link = document.createElement("a");
+  const caseId = analysis.plate.case_id || "plate-solution";
+  link.href = URL.createObjectURL(blob);
+  link.download = `${caseId.replaceAll(/[^a-zA-Zа-яА-ЯёЁ0-9_-]+/g, "-")}.revit.json`;
+  link.click();
+  URL.revokeObjectURL(link.href);
 });
 
 loadOptions();

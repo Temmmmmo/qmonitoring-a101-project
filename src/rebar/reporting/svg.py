@@ -9,6 +9,8 @@ from ezdxf.colors import aci2rgb
 from rebar.optimization import LayoutProblem, LayoutSolution
 from rebar.optimization.services import bar_segments
 
+from .zone_schedule import build_zone_schedule
+
 ZONE_COLORS = ("#0066ff", "#d7263d", "#6a4c93", "#00875a", "#b35c00")
 
 
@@ -68,6 +70,12 @@ def render_solution_svg(problem: LayoutProblem, solution: LayoutSolution) -> str
     zones: list[str] = []
     installed_envelopes: list[str] = []
     bars: list[str] = []
+    labels: list[str] = []
+    schedule_by_zone_id = {
+        row.zone_id: row
+        for row in build_zone_schedule(problem.demand.direction, solution)
+    }
+    label_size = max(min(width, height) * 0.025, 1.0)
     for index, zone in enumerate(solution.zones):
         zxmin, zymin, zxmax, zymax = zone.bbox
         dxmin, dymin, dxmax, dymax = zone.demand_bbox
@@ -89,6 +97,16 @@ def render_solution_svg(problem: LayoutProblem, solution: LayoutSolution) -> str
             f'уровень {zone.level_index} · ⌀{zone.rebar.diameter}/{zone.rebar.step} · '
             f'{zone.mass_kg:.1f} кг'
             "</title></rect>"
+        )
+        schedule_row = schedule_by_zone_id[zone.id]
+        labels.append(
+            f'<text x="{dxmin - xmin + label_size * 0.3:.3f}" '
+            f'y="{ymax - dymax + label_size:.3f}" font-size="{label_size:.3f}" '
+            'font-family="Arial, sans-serif" font-weight="700" fill="#17212b" '
+            'stroke="#ffffff" stroke-width="3" paint-order="stroke" '
+            'vector-effect="non-scaling-stroke">'
+            f'{html.escape(schedule_row.mark)}<title>{html.escape(schedule_row.callout)}'
+            "</title></text>"
         )
         for bar_index, segment in enumerate(
             bar_segments(problem.demand.direction.axis, zone),
@@ -119,5 +137,6 @@ def render_solution_svg(problem: LayoutProblem, solution: LayoutSolution) -> str
         f'<g class="partition-atoms">{"".join(partition_atoms)}</g>'
         f'<g class="installed-envelopes">{"".join(installed_envelopes)}</g>'
         f'<g class="zone-shapes">{"".join(zones)}</g>'
-        f'<g class="bar-axes">{"".join(bars)}</g></svg>'
+        f'<g class="bar-axes">{"".join(bars)}</g>'
+        f'<g class="zone-labels">{"".join(labels)}</g></svg>'
     )
