@@ -164,6 +164,7 @@ def test_demo_runs_real_dxf_pipeline_without_upload():
     assert payload["source"]["zone_count_bounds"] == {"minimum": 1, "maximum": 96}
     assert payload["source"]["single_cell_preprocessing"]["policy"].endswith("-v1")
     assert payload["source"]["mapping_id"] == "plate-zero-d12-v1"
+    assert payload["source"]["a101_profile_id"] == "a101-2.4.4-ats3-zero-t240-v1"
     assert payload["solutions"][0]["algorithm"] == "bbox"
     assert payload["solutions"][0]["metrics"]["under_reinforced_cell_count"] == 0
     assert "#9F7FFF" in payload["solutions"][0]["svg"]

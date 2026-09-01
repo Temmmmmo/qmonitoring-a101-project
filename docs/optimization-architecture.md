@@ -105,7 +105,7 @@ application.analyze_direction
        ↓
 DXF ingest -> mapping? -> LayoutProblem -> OptimizerRegistry -> LayoutSolution[]
                                                                ↓
-                                                reporting SVG + JSON response
+                                      standards validation -> reporting / export
 ```
 
 `src/rebar/application/` оркестрирует один use case, но не содержит геометрических
@@ -119,6 +119,12 @@ DXF ingest -> mapping? -> LayoutProblem -> OptimizerRegistry -> LayoutSolution[]
 выбранный и проверенный `PlateSolution`, добавляет ведомость марок и создаёт компактный
 `plate-solution-revit/v1` без web-SVG и остальных кандидатов. Пока safety-гейты не
 закрыты, контракт остаётся `draft` и не выдаёт решение за готовое к применению.
+
+`src/rebar/standards/` хранит версионированную транскрипцию таблиц А101 отдельно от
+mapping и алгоритмов. Mapping выбирает профиль и переносит его ID в `DemandMap.meta`;
+общий `evaluate_layout()` запрещает явно красные позиции после генерации кандидата.
+Application-слой тем же валидатором формирует гейт `pass/fail/not_checked`, поэтому
+эвристика не может обойти каталог собственной оценкой допустимости.
 
 `src/rebar/learning/preference.py` расположен после Pareto/hard-validation. Он принимает
 только метрики допустимых `PlateCandidate`, учит один вес ранжирования и не может

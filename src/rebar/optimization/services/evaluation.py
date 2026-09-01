@@ -5,6 +5,12 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 
+from rebar.standards import (
+    A101PositionOutcome,
+    a101_profile_id_from_metadata,
+    validate_a101_positions,
+)
+
 from ..contracts import (
     AlgorithmRequest,
     LayoutEvaluation,
@@ -310,6 +316,24 @@ def evaluate_layout(
             diagnostics.append(
                 f"ERROR: зона {zone.id}: overcovered_cell_ids не совпадает с геометрией"
             )
+
+    a101_profile_id = a101_profile_id_from_metadata(problem.demand.meta)
+    try:
+        a101_validation = validate_a101_positions(
+            a101_profile_id,
+            ((zone.id, zone.rebar) for zone in zones),
+        )
+    except KeyError as error:
+        diagnostics.append(f"ERROR: не удалось проверить позиции А101: {error}")
+    else:
+        for check in a101_validation.checks:
+            if check.outcome is A101PositionOutcome.PROHIBITED:
+                diagnostics.append(
+                    f"ERROR: зона {check.zone_id}: позиция "
+                    f"⌀{check.rebar.diameter}/{check.rebar.step} запрещена "
+                    f"профилем {a101_validation.profile_id} "
+                    f"таблицы {a101_validation.table_id}"
+                )
 
     covered = {
         cell.id

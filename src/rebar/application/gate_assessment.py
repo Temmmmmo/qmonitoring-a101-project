@@ -19,6 +19,11 @@ from rebar.optimization import (
 )
 from rebar.optimization.services import prepare_detailing
 from rebar.optimization.services.geometry import GEOMETRY_TOLERANCE_MM
+from rebar.standards import (
+    A101PositionOutcome,
+    a101_profile_id_from_metadata,
+    validate_a101_positions,
+)
 
 
 @dataclass(frozen=True)
@@ -209,15 +214,83 @@ def _postprocessing_item(
     )
 
 
-def _a101_catalog_item() -> GateDeviation:
+def _a101_catalog_item(
+    problem_solutions: tuple[tuple[LayoutProblem, LayoutSolution], ...],
+) -> GateDeviation:
+    profile_ids = {
+        profile_id
+        for problem, _ in problem_solutions
+        if (profile_id := a101_profile_id_from_metadata(problem.demand.meta)) is not None
+    }
+    if not profile_ids:
+        return _deviation(
+            id="a101-allowed-positions",
+            title="Допустимые позиции А101 2.4.2–2.4.4",
+            status="not_checked",
+            unit="% зон",
+            target=None,
+            actual=None,
+            note="Для входных данных не выбран профиль таблицы А101.",
+        )
+
+    checks = []
+    table_ids: set[str] = set()
+    unknown_profiles: set[str] = set()
+    for problem, solution in problem_solutions:
+        profile_id = a101_profile_id_from_metadata(problem.demand.meta)
+        if profile_id is None:
+            unknown_profiles.add("не выбран")
+            continue
+        try:
+            validation = validate_a101_positions(
+                profile_id,
+                ((zone.id, zone.rebar) for zone in solution.zones),
+            )
+        except KeyError:
+            unknown_profiles.add(profile_id)
+            continue
+        checks.extend(validation.checks)
+        if validation.table_id is not None:
+            table_ids.add(validation.table_id)
+
+    allowed = sum(check.outcome is A101PositionOutcome.ALLOWED for check in checks)
+    prohibited = sum(
+        check.outcome is A101PositionOutcome.PROHIBITED for check in checks
+    )
+    unknown = sum(check.outcome is A101PositionOutcome.UNKNOWN for check in checks)
+    total = len(checks)
+    actual = 100.0 if total == 0 else allowed / total * 100.0
+    if prohibited or unknown_profiles:
+        status = "fail"
+    elif unknown:
+        status = "not_checked"
+    else:
+        status = "pass"
+
+    notes = [
+        f"Проверено зон: {total}; разрешено: {allowed}; "
+        f"запрещено красными строками: {prohibited}; нет в таблице: {unknown}."
+    ]
+    if table_ids:
+        notes.append(f"Таблицы: {', '.join(sorted(table_ids))}.")
+    if unknown_profiles:
+        notes.append(
+            "Не удалось применить профиль: "
+            f"{', '.join(sorted(unknown_profiles))}."
+        )
+    if unknown:
+        notes.append(
+            "Отсутствующая в рекомендательной таблице позиция не считается "
+            "автоматически запрещённой и требует проверки конструктора."
+        )
     return _deviation(
         id="a101-allowed-positions",
-        title="Допустимые позиции А101 2.4.2–2.4.7",
-        status="not_checked",
-        unit="",
-        target=None,
-        actual=None,
-        note="Каталог заказчика ещё не оцифрован; интерфейс не скрывает этот пробел.",
+        title="Допустимые позиции А101 2.4.2–2.4.4",
+        status=status,
+        unit="% зон",
+        target=100.0,
+        actual=actual,
+        note=" ".join(notes),
     )
 
 
@@ -239,7 +312,7 @@ def assess_layout_gates(
             _anchorage_item(pairs),
             _step_multiple_item(pairs),
             _postprocessing_item(pairs),
-            _a101_catalog_item(),
+            _a101_catalog_item(pairs),
         )
     )
 
@@ -275,7 +348,7 @@ def assess_plate_gates(
         _anchorage_item(pairs),
         _step_multiple_item(pairs),
         _postprocessing_item(pairs),
-        _a101_catalog_item(),
+        _a101_catalog_item(pairs),
     ]
     if reference is not None:
         items.extend(

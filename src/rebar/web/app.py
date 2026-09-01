@@ -165,6 +165,7 @@ def _source_payload(
         "level_count": len(analysis.problem.demand.levels),
         "legend_source": "mapping" if mapping else "shk",
         "mapping_id": mapping.get("id"),
+        "a101_profile_id": mapping.get("a101_profile_id"),
         "zone_count_bounds": {
             "minimum": minimum_zones,
             "maximum": maximum_zones,

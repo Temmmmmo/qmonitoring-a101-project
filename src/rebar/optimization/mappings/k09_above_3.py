@@ -1,6 +1,7 @@
 """Явная таблица плиты корпуса 2.9 над третьим этажом."""
 
 from rebar.models import Rebar
+from rebar.standards import A101_244_ATS3_TYPICAL_T200
 
 from .contracts import RebarBandMapping, RebarMapping
 
@@ -14,6 +15,7 @@ K09_ABOVE_3_D10 = RebarMapping(
         "плита над 3 этажом; одинаковый порядок интервалов проверен в четырёх DXF"
     ),
     status="mvp_assumption",
+    a101_profile_id=A101_244_ATS3_TYPICAL_T200.id,
     expected_scale_bounds_as=(1.6, 2.6, 5.2, 7.8, 10.0, 14.0, 16.0, 23.0),
     bands=(
         RebarBandMapping(

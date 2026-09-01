@@ -1,6 +1,7 @@
 """Явная MVP-таблица плиты нуля корпуса 2.9."""
 
 from rebar.models import Rebar
+from rebar.standards import A101_244_ATS3_ZERO_T240
 
 from .contracts import RebarBandMapping, RebarMapping
 
@@ -14,6 +15,7 @@ PLATE_ZERO_D12 = RebarMapping(
         "проверен в четырёх DXF"
     ),
     status="mvp_assumption",
+    a101_profile_id=A101_244_ATS3_ZERO_T240.id,
     # Числа ниже записаны в ATTRIB четырёх DXF. Они округлены сильнее, чем
     # подписи границ на PNG: например, 3.8 вместо 3.77 и 35.0 вместо 35.2.
     expected_scale_bounds_as=(1.9, 3.8, 7.5, 11.0, 17.0, 24.0, 35.0),

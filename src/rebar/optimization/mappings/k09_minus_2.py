@@ -1,6 +1,7 @@
 """Явная таблица плиты корпуса 2.9 над минус вторым этажом."""
 
 from rebar.models import Rebar
+from rebar.standards import A101_242_PARKING_SLAB_T200_220
 
 from .contracts import RebarBandMapping, RebarMapping
 
@@ -14,6 +15,7 @@ K09_MINUS_2_D12 = RebarMapping(
         "одинаковый порядок интервалов проверен в четырёх DXF"
     ),
     status="mvp_assumption",
+    a101_profile_id=A101_242_PARKING_SLAB_T200_220.id,
     expected_scale_bounds_as=(1.6, 3.8, 7.5, 11.0, 17.0, 24.0, 35.0),
     bands=(
         RebarBandMapping(

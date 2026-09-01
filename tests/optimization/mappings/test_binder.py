@@ -56,6 +56,7 @@ def test_apply_rebar_mapping_returns_enriched_copy_and_builds_problem():
     assert mapped.cells[0].band is mapped.legend[0]
     assert mapped.cells[1].band is mapped.legend[5]
     assert mapped.meta["rebar_mapping"] == {
+        "a101_profile_id": "a101-2.4.4-ats3-zero-t240-v1",
         "id": "plate-zero-d12-v1",
         "source": PLATE_ZERO_D12.source,
         "status": "mvp_assumption",

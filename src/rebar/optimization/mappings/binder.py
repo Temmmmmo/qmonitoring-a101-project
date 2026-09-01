@@ -95,6 +95,7 @@ def _validate_compatibility(
 
 def _mapping_meta(mapping: RebarMapping, intervals: tuple[_ScaleInterval, ...]) -> dict[str, Any]:
     return {
+        "a101_profile_id": mapping.a101_profile_id,
         "id": mapping.id,
         "source": mapping.source,
         "status": mapping.status,

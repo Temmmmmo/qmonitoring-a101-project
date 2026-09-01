@@ -53,6 +53,8 @@
 - `optimization/mappings/` — явные проверяемые таблицы для DXF без `.shk`:
   `plate-zero-d12-v1`, `k09-minus-2-d12-v1` и узкая `k09-above-3-d10-v1`;
   восьмиполосные верхние направления 9-го этажа последняя таблица явно отклоняет;
+- `standards/` — 14 профилей таблиц А101 2.4.2–2.4.4 и схемы шагов 2.4.7;
+  красные позиции дают hard-error, отсутствующая строка остаётся `not_checked`;
 - `optimization/services/` — общие формулы и независимая проверка;
 - `optimization/algorithms/` — отдельный модуль на каждый алгоритм (`bbox`, `bsp`,
   `greedy`, `greedy-priority`, `agglomerative`, `row-run-greedy`,

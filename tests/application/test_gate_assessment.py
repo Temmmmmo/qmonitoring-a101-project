@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from dataclasses import replace
 
+from rebar import Rebar
 from rebar.application import assess_layout_gates, assess_plate_gates
 from rebar.golden import PLATE_ZERO_K09
 from rebar.optimization import (
@@ -16,6 +17,10 @@ from rebar.optimization import (
     build_plate_problem,
     build_plate_solution,
     built_in_optimizer_registry,
+)
+from rebar.standards import (
+    A101_242_FOUNDATION_PARKING_T450_550,
+    A101_244_ATS3_ZERO_T240,
 )
 
 
@@ -29,6 +34,24 @@ def _direction_solution(mosaic, direction):
         AlgorithmRequest(max_details=1),
     )
     return problem, solution
+
+
+def _with_profile(direction_mosaic, *, additional, profile_id):
+    weak, original_strong = direction_mosaic.legend
+    strong = replace(
+        original_strong,
+        label=f"s300d18+s{additional.step}d{additional.diameter}",
+        additional=additional,
+    )
+    return replace(
+        direction_mosaic,
+        cells=[
+            replace(direction_mosaic.cells[0], band=weak),
+            replace(direction_mosaic.cells[1], band=strong),
+        ],
+        legend=[weak, strong],
+        meta={**direction_mosaic.meta, "a101_profile_id": profile_id},
+    )
 
 
 def test_layout_gate_assessment_separates_checked_and_missing_catalog(direction_mosaic):
@@ -90,3 +113,57 @@ def test_plate_gate_assessment_reports_absolute_and_relative_golden_deviation(
         mass.absolute_deviation / mass.target * 100.0,
     )
     assert assessment.reference_id == "plate-zero-k09"
+
+
+def test_catalog_gate_passes_position_listed_in_selected_profile(direction_mosaic):
+    mosaic = _with_profile(
+        direction_mosaic,
+        additional=Rebar(step=100, diameter=16),
+        profile_id=A101_244_ATS3_ZERO_T240.id,
+    )
+    problem, solution = _direction_solution(mosaic, mosaic.direction)
+
+    assessment = assess_layout_gates(problem, solution)
+    item = next(item for item in assessment.items if item.id == "a101-allowed-positions")
+
+    assert solution.status.value == "feasible"
+    assert item.status == "pass"
+    assert item.actual == 100.0
+    assert "разрешено: 1" in item.note
+
+
+def test_catalog_gate_keeps_unlisted_recommendation_explicitly_unchecked(
+    direction_mosaic,
+):
+    mosaic = _with_profile(
+        direction_mosaic,
+        additional=Rebar(step=100, diameter=20),
+        profile_id=A101_244_ATS3_ZERO_T240.id,
+    )
+    problem, solution = _direction_solution(mosaic, mosaic.direction)
+
+    assessment = assess_layout_gates(problem, solution)
+    item = next(item for item in assessment.items if item.id == "a101-allowed-positions")
+
+    assert solution.status.value == "feasible"
+    assert item.status == "not_checked"
+    assert item.actual == 0.0
+    assert "нет в таблице: 1" in item.note
+
+
+def test_explicit_red_a101_position_is_a_hard_error(direction_mosaic):
+    mosaic = _with_profile(
+        direction_mosaic,
+        additional=Rebar(step=100, diameter=32),
+        profile_id=A101_242_FOUNDATION_PARKING_T450_550.id,
+    )
+    problem, solution = _direction_solution(mosaic, mosaic.direction)
+
+    assessment = assess_layout_gates(problem, solution)
+    item = next(item for item in assessment.items if item.id == "a101-allowed-positions")
+
+    assert solution.status.value == "error"
+    assert any("⌀32/100 запрещена" in message for message in solution.diagnostics)
+    assert item.status == "fail"
+    assert item.actual == 0.0
+    assert "запрещено красными строками: 1" in item.note

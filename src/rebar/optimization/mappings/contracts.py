@@ -31,6 +31,7 @@ class RebarMapping:
     status: str
     expected_scale_bounds_as: tuple[float, ...]
     bands: tuple[RebarBandMapping, ...]
+    a101_profile_id: str | None = None
     scale_tolerance_as: float = 0.05
 
     def __post_init__(self) -> None:
@@ -38,6 +39,8 @@ class RebarMapping:
             raise ValueError("идентификатор таблицы армирования не может быть пустым")
         if not self.source.strip():
             raise ValueError("источник таблицы армирования не может быть пустым")
+        if self.a101_profile_id is not None and not self.a101_profile_id.strip():
+            raise ValueError("идентификатор профиля А101 не может быть пустым")
         if len(self.expected_scale_bounds_as) != len(self.bands) + 1:
             raise ValueError("число границ шкалы должно быть на один больше числа полос")
         if self.scale_tolerance_as < 0:
