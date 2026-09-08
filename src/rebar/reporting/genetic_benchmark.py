@@ -5,8 +5,10 @@ from __future__ import annotations
 import base64
 import csv
 import html
+import hashlib
 import json
 from dataclasses import asdict
+from collections.abc import Iterable
 from pathlib import Path
 from statistics import median
 
@@ -21,6 +23,8 @@ from rebar.golden import (
 )
 from rebar.optimization.services import rebar_mass_kg
 from rebar.reporting.svg import render_solution_svg
+from rebar.reporting.serialization import to_jsonable
+from rebar.standards import a101_profile_id_from_metadata
 
 MASS_GATE_MAX_DELTA_PCT = 15.0
 BenchmarkReference = GoldenCaseDefinition | PlateMetricReference
@@ -306,6 +310,13 @@ def _hypervolume_bounds(
         for front in (result.analysis.front,)
         for candidate in front.candidates
     ]
+    return point_hypervolume_bounds(points)
+
+
+def point_hypervolume_bounds(points: Iterable[tuple[float, float]]) -> tuple[float, float, float, float] | None:
+    """Общие границы для сравнения фронтов, включая сохранённые серии разных итераций."""
+
+    points = tuple(points)
     if not points:
         return None
     minimum_complexity = min(point[0] for point in points)
@@ -331,7 +342,6 @@ def _normalized_hypervolume(
     front = result.analysis.front
     if front is None or not front.candidates or bounds is None:
         return 0.0
-    ideal_complexity, ideal_mass, reference_complexity, reference_mass = bounds
     points = sorted(
         {
             (
@@ -341,9 +351,21 @@ def _normalized_hypervolume(
             for candidate in front.candidates
         }
     )
+    return normalized_point_hypervolume(points, bounds)
+
+
+def normalized_point_hypervolume(
+    points: Iterable[tuple[float, float]],
+    bounds: tuple[float, float, float, float] | None,
+) -> float:
+    """Тот же 2D-HV для сохранённых точек; нормализация не зависит от одного запуска."""
+
+    if bounds is None:
+        return 0.0
+    ideal_complexity, ideal_mass, reference_complexity, reference_mass = bounds
     area = 0.0
     previous_mass = reference_mass
-    for complexity, mass in points:
+    for complexity, mass in sorted(set(points)):
         if mass >= previous_mass:
             continue
         area += max(0.0, reference_complexity - complexity) * (
@@ -396,6 +418,64 @@ def _operator_learning_summary(result: GeneticRunResult) -> dict[str, object]:
     }
 
 
+def _search_effort_summary(result: GeneticRunResult) -> dict[str, int | float]:
+    """Общий бюджет направления хранится в каждой точке; суммировать его только раз."""
+
+    totals = {
+        "local_candidate_checks": 0, "local_moves": 0, "local_improved_genomes": 0,
+        "archive_checked": 0, "archive_rejected": 0, "maximum_mass_error_kg": 0.0,
+        "instrumented_directions": 0,
+        "candidate_pool_size": 0, "coverage_atom_count": 0,
+        "pool_polish_solves": 0, "pool_polish_proposals": 0, "pool_polish_runtime_ms": 0.0,
+    }
+    for analysis in result.analysis.direction_analyses:
+        solutions = analysis.candidate_solutions or analysis.solutions
+        if not solutions:
+            continue
+        meta = solutions[0].meta
+        for key in ("candidate_pool_size", "coverage_atom_count"):
+            totals[key] += int(meta.get(key, 0))
+        local = meta.get("local_search_totals", {})
+        polish = meta.get("pool_polish", {})
+        totals["pool_polish_solves"] += len(polish.get("solves", ()))
+        totals["pool_polish_proposals"] += int(polish.get("proposal_count", 0))
+        totals["pool_polish_runtime_ms"] += float(polish.get("runtime_ms", 0.0))
+        for source, target in (
+            ("candidate_checks", "local_candidate_checks"),
+            ("moves", "local_moves"), ("improved_genomes", "local_improved_genomes"),
+        ):
+            totals[target] += int(local.get(source, 0))
+        validation = meta.get("archive_validation", {})
+        totals["instrumented_directions"] += int("archive_validation" in meta)
+        for key in ("checked", "rejected"):
+            totals[f"archive_{key}"] += int(validation.get(key, 0))
+        totals["maximum_mass_error_kg"] = max(
+            totals["maximum_mass_error_kg"], validation.get("maximum_mass_error_kg", 0.0),
+        )
+    return totals
+
+
+def normalized_input_fingerprint(result: GeneticRunResult) -> str:
+    """Зафиксировать числовой спрос, ограничения и профиль; не имя папки/эксперимента."""
+
+    snapshot = []
+    for analysis in sorted(result.analysis.direction_analyses, key=lambda item: str(item.problem.demand.direction)):
+        problem = analysis.problem
+        # Сохраняем fingerprint старой ОДНОКОМПОНЕНТНОЙ числовой модели. Новое поле
+        # recipe не участвует в этом GA, а составной LayoutProblem явно запрещён.
+        # Для будущего composite-GA понадобится отдельная версия fingerprint.
+        levels = tuple({name: getattr(level, name) for name in (
+            "index", "aci", "lower_as", "upper_as", "label", "additional", "requires_extra",
+        )} for level in problem.demand.levels)
+        snapshot.append((
+            problem.demand.direction, levels, problem.demand.cells,
+            problem.demand.bbox, problem.constraints,
+            a101_profile_id_from_metadata(problem.demand.meta),
+        ))
+    raw = json.dumps(to_jsonable(snapshot), sort_keys=True, ensure_ascii=False, allow_nan=False)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
 def _run_rows(
     results: tuple[GeneticRunResult, ...],
     reference: BenchmarkReference | None,
@@ -437,6 +517,7 @@ def _run_rows(
         rows.append(
             {
                 "run_id": result.config.id,
+                "normalized_input_sha256": normalized_input_fingerprint(result),
                 **{
                     key: (
                         value.value
@@ -514,6 +595,7 @@ def _run_rows(
                     hypervolume_bounds,
                 ),
                 "operator_learning": _operator_learning_summary(result),
+                "search_effort": _search_effort_summary(result),
                 "runtime_ms": sum(
                     max(
                         solution.runtime_ms
@@ -555,6 +637,14 @@ def _configuration_summary_rows(run_rows: list[dict]) -> list[dict]:
         "operator_policy",
         "ucb_exploration",
         "baseline_seed_algorithms",
+        "candidate_expansion",
+        "maximum_layer_variants",
+        "local_search_passes",
+        "coverage_atoms",
+        "pool_polish",
+        "pool_polish_solves",
+        "pool_polish_time_s",
+        "recombination_variants",
     )
     grouped: dict[tuple, list[dict]] = {}
     for row in run_rows:
@@ -591,7 +681,12 @@ def _configuration_summary_rows(run_rows: list[dict]) -> list[dict]:
                     f"b{parameters['layer_bridge_span']}-"
                     f"r{parameters['maximum_merge_reduction']}-"
                     f"{parameters['complexity_axis']}-"
-                    f"{parameters['operator_policy']}"
+                    f"{parameters['operator_policy']}-"
+                    f"{parameters['candidate_expansion']}{parameters['maximum_layer_variants']}-"
+                    f"ls{parameters['local_search_passes']}"
+                    f"-{parameters['coverage_atoms']}"
+                    f"-{parameters['pool_polish']}{parameters['pool_polish_solves']}x{parameters['pool_polish_time_s']:g}s"
+                    f"-recombine{parameters['recombination_variants']}"
                 ),
                 **parameters,
                 "seed_count": len(rows),
@@ -837,6 +932,13 @@ def generate_genetic_benchmark_report(
         "runs": run_rows,
         "configuration_summaries": configuration_summaries,
         "candidates": candidate_rows,
+        "pool_polish_runs": [
+            {"run_id": result.config.id, "direction": str(analysis.problem.demand.direction),
+             **(analysis.candidate_solutions or analysis.solutions)[0].meta["pool_polish"]}
+            for result in results for analysis in result.analysis.direction_analyses
+            if (analysis.candidate_solutions or analysis.solutions)
+            and (analysis.candidate_solutions or analysis.solutions)[0].meta.get("pool_polish")
+        ],
         "comparison": comparison,
     }
     (out_dir / "benchmark.json").write_text(
@@ -872,6 +974,17 @@ def generate_genetic_benchmark_report(
         f"<td>{row['median_normalized_hypervolume']:.4f}</td>"
         "</tr>"
         for row in configuration_summaries
+    )
+    audit_rows = "".join(
+        "<tr>"
+        f"<td>{html.escape(row['run_id'])}</td>"
+        f"<td>{row['direction_rejected_candidate_count']}</td>"
+        f"<td>{row['search_effort']['archive_rejected']} / {row['search_effort']['archive_checked']}</td>"
+        f"<td>{row['search_effort']['instrumented_directions']} / 4</td>"
+        f"<td>{row['search_effort']['local_candidate_checks']}</td>"
+        f"<td>{row['search_effort']['local_moves']}</td>"
+        "</tr>"
+        for row in run_rows
     )
     comparison_html = (
         ""
@@ -958,6 +1071,17 @@ figure img,.svg-frame,.visual-placeholder{{height:auto;min-height:360px}}}}
 <table><thead><tr><th>Конфигурация</th><th>Seed</th><th>Лучшее Δ массы</th>
 <th>Медиана</th><th>Худшее</th><th>Разброс</th><th>Гейт пройден</th>
 <th>Медиана Δ стержней</th><th>Медиана hypervolume</th></tr></thead><tbody>{configuration_rows}</tbody></table>
+</section>
+<section class="benchmark-table"><span class="eyebrow">Проверка поиска</span>
+<h2>Внутренняя отбраковка и дополнительный бюджет</h2>
+<p>Внешние отбраковки считаются после GA. Ноль внешних ошибок не доказывает, что
+внутри GA не было отклонённых вариантов. Внутренний счётчик относится к финальному
+архиву перед выдачей; число инструментированных направлений показывает полноту замера.
+Local search использует дополнительные проверки кандидатов сверх заданных поколений.</p>
+<table><thead><tr><th>Запуск</th><th>Внешние отбраковки</th>
+<th>Архив: отклонено / проверено</th><th>Измерено направлений</th>
+<th>Проверок local search</th><th>Локальных замен</th></tr></thead>
+<tbody>{audit_rows}</tbody></table>
 </section></main></body></html>"""
     report_path = out_dir / "index.html"
     report_path.write_text(page, encoding="utf-8")

@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from rebar.optimization import PlateProblem, PlateSolution
+from rebar.optimization.services.bar_geometry import axis_envelope_to_body_bbox
 from rebar.reporting.serialization import to_jsonable
 from rebar.reporting.zone_schedule import build_zone_schedule
 
@@ -33,8 +34,9 @@ def build_plate_solution_revit_export(
 ) -> dict[str, Any]:
     """Собрать выбранный кандидат без SVG, фронта и остальных web-данных.
 
-    Пока каталог разрешённых позиций А101 не подключён, контракт остаётся доступным
-    как инженерный черновик, но ``export_eligible`` честно равен ``False``.
+    Доступность проверяется по существующим safety-гейтам модели зон. Контракт
+    остаётся draft: габарит тел стержней не является контуром AreaReinforcement
+    и не подтверждает проверку границ/проёмов/защитного слоя реального Revit-host.
     """
 
     assessment = assess_plate_gates(problem, solution)
@@ -63,10 +65,20 @@ def build_plate_solution_revit_export(
                     "callout": row.callout,
                     "source_zone_id": zone.id,
                     "bbox_mm": list(zone.bbox),
+                    "bbox_semantics": "bar_axis_envelope",
+                    "straight_bar_body_bbox_mm": list(axis_envelope_to_body_bbox(
+                        direction.axis, zone.bbox, zone.rebar.diameter,
+                    )),
                     "demand_bbox_mm": list(zone.demand_bbox),
                     "level_index": zone.level_index,
                     "diameter_mm": zone.rebar.diameter,
                     "step_mm": zone.rebar.step,
+                    "nominal_step_mm": zone.rebar.step,
+                    "axis_pattern": {
+                        "period_mm": zone.rebar.step, "offsets_mm": [0.0],
+                        "origin_mm": zone.first_bar_coordinate_mm,
+                        "source": "legacy_uniform_layout_zone",
+                    },
                     "bar_count": zone.bar_count,
                     "first_bar_coordinate_mm": zone.first_bar_coordinate_mm,
                     "required_length_mm": zone.required_length_mm,

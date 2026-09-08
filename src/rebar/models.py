@@ -41,12 +41,37 @@ class Rebar:
     diameter: int  # диаметр, мм (напр. 18, 20, 25)
 
 
+class UnsupportedReinforcementRecipeError(ValueError):
+    """Составную схему нельзя безопасно представить старым одиночным набором."""
+
+
+@dataclass(frozen=True)
+class ReinforcementRecipe:
+    """Фон и ВСЕ локальные добавки; шаги здесь условные, не координаты осей.
+
+    Слагаемые сохраняют порядок и не дедуплицируются, даже если спецификации равны.
+    """
+
+    background: Rebar
+    additions: tuple[Rebar, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.additions, tuple):
+            raise ValueError("additions должен быть неизменяемым tuple")
+        for spec in (self.background, *self.additions):
+            if (not isinstance(spec.step, int) or isinstance(spec.step, bool) or spec.step <= 0
+                    or not isinstance(spec.diameter, int) or isinstance(spec.diameter, bool)
+                    or spec.diameter <= 0):
+                raise ValueError("схема требует положительные целые шаги и диаметры")
+
+
 @dataclass
 class Band:
     """Одна полоса цветовой шкалы (легенды).
 
-    background — фоновое армирование (есть всегда), additional — добавка, которую
-    мы раскладываем (None для самой нижней полосы, где добавки нет).
+    background — фоновое армирование. additional — совместимое поле ОДНОЙ добавки;
+    None может означать как отсутствие добавок, так и составную recipe. Наличие
+    спроса проверять по reinforcement_recipe.additions, а не по одному additional.
     """
     index: int                       # позиция в шкале (0 = низ/фон)
     aci: int | None                  # ACI-цвет полосы (None если неизвестен из источника)
@@ -54,6 +79,24 @@ class Band:
     threshold_as: float              # порог As, см²/м (из .shk)
     background: Rebar                # фоновое армирование (левая часть подписи)
     additional: Rebar | None         # дополнительное (правая часть после '+'), или None
+    # Для нескольких добавок additional=None, а ВСЕ наборы находятся в recipe.
+    recipe: ReinforcementRecipe | None = None
+
+    def __post_init__(self) -> None:
+        if self.recipe is None:
+            if len(self.label.split("+")) > 2:
+                raise UnsupportedReinforcementRecipeError("составная подпись требует явного Band.recipe")
+            return
+        single = self.recipe.additions[0] if len(self.recipe.additions) == 1 else None
+        if self.background != self.recipe.background or self.additional != single:
+            raise ValueError("поля Band не согласованы с recipe")
+
+    @property
+    def reinforcement_recipe(self) -> ReinforcementRecipe:
+        """Совместимое представление старого конструктора Band с одной добавкой."""
+        return self.recipe or ReinforcementRecipe(
+            self.background, () if self.additional is None else (self.additional,),
+        )
 
 
 @dataclass
@@ -67,7 +110,7 @@ class Cell:
     @property
     def needs_extra(self) -> bool:
         """Требуется ли дополнительное армирование в этом КЭ."""
-        return self.band is not None and self.band.additional is not None
+        return self.band is not None and bool(self.band.reinforcement_recipe.additions)
 
 
 @dataclass

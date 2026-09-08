@@ -90,8 +90,10 @@ def test_algorithms_share_contract_and_independent_metrics(splittable_mosaic):
         assert evaluate_layout(problem, solution.zones, request).valid
 
 
+@pytest.mark.parametrize("operator_policy", ["uniform", "ucb1"])
+@pytest.mark.parametrize("complexity_axis", ["zone_count", "physical_bar_count"])
 def test_genetic_optimizer_returns_reproducible_valid_pareto_candidates(
-    splittable_mosaic,
+    splittable_mosaic, operator_policy, complexity_axis,
 ):
     problem = build_layout_problem(
         splittable_mosaic,
@@ -104,6 +106,8 @@ def test_genetic_optimizer_returns_reproducible_valid_pareto_candidates(
             "generations": 5,
             "random_seed": 17,
             "candidate_trajectories": 3,
+            "operator_policy": operator_policy,
+            "complexity_axis": complexity_axis,
         },
     )
 
@@ -111,11 +115,21 @@ def test_genetic_optimizer_returns_reproducible_valid_pareto_candidates(
     second = GeneticParetoOptimizer().solve_many(problem, request)
 
     first_points = [
-        (solution.metrics.detail_count, solution.metrics.total_mass_kg)
+        (
+            solution.metrics.detail_count
+            if complexity_axis == "zone_count"
+            else solution.metrics.physical_bar_count,
+            solution.metrics.total_mass_kg,
+        )
         for solution in first
     ]
     assert first_points == [
-        (solution.metrics.detail_count, solution.metrics.total_mass_kg)
+        (
+            solution.metrics.detail_count
+            if complexity_axis == "zone_count"
+            else solution.metrics.physical_bar_count,
+            solution.metrics.total_mass_kg,
+        )
         for solution in second
     ]
     assert first_points
@@ -129,9 +143,13 @@ def test_genetic_optimizer_returns_reproducible_valid_pareto_candidates(
     )
     assert all(solution.meta["baseline_seed_count"] >= 1 for solution in first)
     assert all(
-        solution.meta["operator_learning"]["name"] == "ucb1"
+        solution.meta["operator_learning"]["name"] == operator_policy
         for solution in first
     )
+    for solution, (complexity, mass) in zip(first, first_points):
+        assert solution.meta["approximate_mass_kg"] == pytest.approx(mass, abs=1e-6)
+        assert solution.meta["approximate_complexity"] == complexity
+        assert solution.meta["approximate_zone_count"] == solution.metrics.detail_count
     assert all(
         not (
             first_mass <= second_mass
@@ -373,6 +391,10 @@ def test_c1_genetic_search_builds_valid_multi_point_front(c1_top_y_dxf, shk_full
     assert max(count for count, _mass in points) <= 32
     assert all(solution.status is SolutionStatus.FEASIBLE for solution in solutions)
     assert all(solution.metrics.under_reinforced_cell_count == 0 for solution in solutions)
+    for solution in solutions:
+        assert solution.meta["approximate_mass_kg"] == pytest.approx(
+            solution.metrics.total_mass_kg, abs=1e-6,
+        )
 
 
 def test_spatial_partition_does_not_merge_through_missing_fe_tile():

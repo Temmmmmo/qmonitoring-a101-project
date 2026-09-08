@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from rebar.models import Direction, Point, Rebar
+from rebar.models import Direction, Point, Rebar, ReinforcementRecipe, UnsupportedReinforcementRecipeError
 
 BBox = tuple[float, float, float, float]
 
@@ -21,6 +21,16 @@ class DemandLevel:
     label: str | None
     additional: Rebar | None
     requires_extra: bool | None
+    recipe: ReinforcementRecipe | None = None
+
+    def __post_init__(self) -> None:
+        if self.recipe is None and self.label is not None and len(self.label.split("+")) > 2:
+            raise UnsupportedReinforcementRecipeError("составная подпись требует явного DemandLevel.recipe")
+        if self.recipe is not None:
+            additions = self.recipe.additions
+            single = additions[0] if len(additions) == 1 else None
+            if self.additional != single or self.requires_extra is not bool(additions):
+                raise ValueError("DemandLevel не согласован с recipe")
 
 
 @dataclass(frozen=True)
@@ -91,9 +101,20 @@ class LayoutConstraints:
 
 @dataclass(frozen=True)
 class LayoutProblem:
-    """Единый вход BSP, Greedy, CP-SAT/MILP и будущих алгоритмов."""
+    """Однокомпонентный вход встроенных оптимизаторов; составные схемы отклоняются."""
 
     demand: DemandMap
     constraints: LayoutConstraints = field(default_factory=LayoutConstraints)
     case_id: str = ""
     meta: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        composite = [level.index for level in self.demand.levels
+                     if level.recipe is not None and len(level.recipe.additions) > 1]
+        if composite:
+            raise UnsupportedReinforcementRecipeError(
+                f"уровни {composite} содержат несколько дополнительных наборов; "
+                "однокомпонентный LayoutProblem/GA их пока не поддерживает. "
+                "Все наборы сохранены в DemandMap.levels[].recipe; нужны составная детализация "
+                "и явно согласованные фазы, а не выбор последнего слагаемого."
+            )

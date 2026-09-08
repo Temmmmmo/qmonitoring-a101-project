@@ -16,6 +16,7 @@ from rebar.optimization import (
 )
 from rebar.optimization.services import (
     bboxes_overlap,
+    build_zone_from_bbox,
     resolve_zone_phases,
     transverse_axis_gap,
     zones_conflict,
@@ -132,6 +133,83 @@ def test_phase_resolver_separates_touching_same_step_groups():
     assert transverse_axis_gap(Axis.X, lower, upper) == pytest.approx(100.0)
     assert zones_conflict(problem, lower, upper) is False
     assert evaluate_layout(problem, (lower, upper)).valid is True
+
+
+@pytest.mark.parametrize("axis", [Axis.X, Axis.Y])
+@pytest.mark.parametrize("collect_coverage", [False, True])
+@pytest.mark.parametrize("cut_lengths", [(), (1600.0, 2200.0)])
+@pytest.mark.parametrize("seed_cell_ids", [(0,), ()])
+def test_phase_resolver_preserves_spatial_partition(
+    axis, collect_coverage, cut_lengths, seed_cell_ids,
+):
+    background = Rebar(step=300, diameter=12)
+    base = Band(0, 181, "s300d12", 3.77, background, None)
+    extra = Band(1, 2, "s300d12+s100d12", 15.08, background, Rebar(100, 12))
+    cells = [
+        Cell([(0, 0), (1000, 0), (1000, 1000), (0, 1000)], (500, 500), 2, extra),
+        Cell(
+            [(1000, 0), (2000, 0), (2000, 1000), (1000, 1000)],
+            (1500, 500), 181, base,
+        ),
+    ]
+    boxes = [(0, 0, 500, 1000), (500, 0, 1000, 1000)]
+    mosaic_bbox = (0, 0, 2000, 1000)
+    if axis is Axis.Y:
+        cells = [
+            replace(cell, poly=[(y, x) for x, y in cell.poly], centroid=cell.centroid[::-1])
+            for cell in cells
+        ]
+        boxes = [(ymin, xmin, ymax, xmax) for xmin, ymin, xmax, ymax in boxes]
+        mosaic_bbox = (0, 0, 1000, 2000)
+    problem = build_layout_problem(
+        Mosaic(Direction(Layer.BOTTOM, axis), cells, [base, extra], mosaic_bbox),
+        LayoutConstraints(
+            min_width_cells=1,
+            allow_overlaps=False,
+            allowed_cut_lengths_mm=cut_lengths,
+        ),
+    )
+    # Two rectangles cover parts of the same FE. Seed IDs describe provenance,
+    # not the rectangle boundaries chosen by the optimizer.
+    raw = [
+        build_zone_from_bbox(
+            problem, box, 1, f"part-{index}",
+            seed_cell_ids=seed_cell_ids,
+        )
+        for index, box in enumerate(boxes)
+    ][::-1]  # The phase solver must also preserve the caller's ordering.
+    before = evaluate_layout(problem, raw)
+
+    resolved = resolve_zone_phases(problem, raw, collect_coverage=collect_coverage)
+
+    for original, zone in zip(raw, resolved):
+        assert zone.id == original.id
+        assert zone.demand_bbox == original.demand_bbox
+        assert zone.level_index == original.level_index
+        assert zone.rebar == original.rebar
+        assert zone.required_length_mm == original.required_length_mm
+        assert zone.anchored_length_mm == original.anchored_length_mm
+        assert zone.installed_length_mm == original.installed_length_mm
+        assert zone.width_mm == original.width_mm
+        assert zone.bar_count == original.bar_count
+        assert zone.mass_kg == original.mass_kg
+        assert zone.meta == original.meta
+        assert zone.covered_cell_ids == ((0,) if collect_coverage else ())
+    assert any(
+        zone.first_bar_coordinate_mm != original.first_bar_coordinate_mm
+        for original, zone in zip(raw, resolved)
+    )
+    # Fast-path zones intentionally omit cached coverage. Collect it before
+    # independent validation, as the optimizers do for their final candidates.
+    final = resolve_zone_phases(problem, resolved)
+    after = evaluate_layout(problem, final)
+    assert before.valid and after.valid
+    assert after.metrics.under_reinforced_cell_count == 0
+    assert after.metrics.total_mass_kg == pytest.approx(before.metrics.total_mass_kg)
+    assert after.metrics.physical_bar_count == before.metrics.physical_bar_count
+    assert resolve_zone_phases(
+        problem, resolved, collect_coverage=collect_coverage,
+    ) == resolved
 
 
 @pytest.mark.parametrize("axis", [Axis.X, Axis.Y])

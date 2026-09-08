@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 from rebar.models import Axis
 
-from ..contracts import DemandCell, LayoutProblem, LayoutZone
+from ..contracts import DemandCell, DemandMap, LayoutProblem, LayoutZone
 from .anchorage import FixedDiameterAnchoragePolicy
 from .bar_geometry import coverage_bbox
 from .cutting import select_installed_length_mm
@@ -18,6 +18,7 @@ from .geometry import (
     cell_bbox,
     polygon_bbox_intersection_area,
 )
+from .spatial_index import CellSpatialIndex
 
 STEEL_KG_PER_M_PER_MM2 = 0.006165
 
@@ -28,6 +29,7 @@ class DetailingContext:
 
     cells_by_id: dict[int, DemandCell]
     typical_transverse_cell_size_mm: float
+    spatial_index: CellSpatialIndex | None = None
 
 
 def demanded_cells(problem: LayoutProblem) -> tuple[DemandCell, ...]:
@@ -40,10 +42,11 @@ def demanded_cells(problem: LayoutProblem) -> tuple[DemandCell, ...]:
     )
 
 
-def _typical_transverse_cell_size(problem: LayoutProblem) -> float:
-    axis = problem.demand.direction.axis
+def typical_transverse_cell_size_mm(demand: DemandMap) -> float:
+    """Общий перевод минимальной ширины в КЭ в миллиметры, включая составные схемы."""
+    axis = demand.direction.axis
     spans: list[float] = []
-    for cell in problem.demand.cells:
+    for cell in demand.cells:
         xmin, ymin, xmax, ymax = cell_bbox(cell)
         span = ymax - ymin if axis is Axis.X else xmax - xmin
         if span > GEOMETRY_TOLERANCE_MM:
@@ -58,7 +61,8 @@ def prepare_detailing(problem: LayoutProblem) -> DetailingContext:
 
     return DetailingContext(
         cells_by_id={cell.id: cell for cell in problem.demand.cells},
-        typical_transverse_cell_size_mm=_typical_transverse_cell_size(problem),
+        typical_transverse_cell_size_mm=typical_transverse_cell_size_mm(problem.demand),
+        spatial_index=CellSpatialIndex.build(problem.demand.cells),
     )
 
 
@@ -73,8 +77,8 @@ def rebar_mass_kg(
         raise ValueError("диаметр арматуры должен быть положительным")
     if installed_length_mm <= 0:
         raise ValueError("установленная длина должна быть положительной")
-    if bar_count < 2:
-        raise ValueError("в прямоугольной зоне должно быть не меньше двух стержней")
+    if bar_count < 1:
+        raise ValueError("набор должен содержать хотя бы один стержень")
     return (
         STEEL_KG_PER_M_PER_MM2
         * diameter_mm**2
@@ -224,7 +228,11 @@ def build_zone_from_bbox(
     overcovered: list[int] = []
     if collect_coverage:
         service_bbox = coverage_bbox(axis, bbox, level.additional.step)
-        for cell in problem.demand.cells:
+        query_bbox = (min(service_bbox[0], demand_bbox[0]), min(service_bbox[1], demand_bbox[1]),
+                      max(service_bbox[2], demand_bbox[2]), max(service_bbox[3], demand_bbox[3]))
+        cells = (problem.demand.cells if context.spatial_index is None
+                 else context.spatial_index.query(query_bbox))
+        for cell in cells:
             demand_intersection_area = polygon_bbox_intersection_area(
                 cell.poly,
                 demand_bbox,

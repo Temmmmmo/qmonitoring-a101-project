@@ -13,6 +13,8 @@ from .models import (
     Mosaic,
     Point,
     Rebar,
+    ReinforcementRecipe,
+    UnsupportedReinforcementRecipeError,
 )
 
 __all__ = [
@@ -24,4 +26,6 @@ __all__ = [
     "Mosaic",
     "Point",
     "Rebar",
+    "ReinforcementRecipe",
+    "UnsupportedReinforcementRecipeError",
 ]

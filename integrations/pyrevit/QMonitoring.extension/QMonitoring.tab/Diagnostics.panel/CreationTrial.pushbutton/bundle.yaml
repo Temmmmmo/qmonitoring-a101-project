@@ -1,0 +1,4 @@
+title: Creation Trial
+tooltip: Create and read one temporary reference Rebar set, then ALWAYS roll back. Test COPY only. No RVT save.
+author: QMonitoring
+context: doc-project

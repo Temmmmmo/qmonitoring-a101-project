@@ -56,6 +56,16 @@ def main() -> None:
     )
     parser.add_argument("--maximum-pool-merges", type=int, default=5_000)
     parser.add_argument(
+        "--candidate-expansions", nargs="+", choices=("none", "layered"), default=["none"],
+    )
+    parser.add_argument("--maximum-layer-variants", type=int, default=256)
+    parser.add_argument("--local-search-passes", nargs="+", type=int, default=[4])
+    parser.add_argument("--coverage-atoms", choices=("whole_tiles", "demand_fragments"), default="demand_fragments")
+    parser.add_argument("--pool-polish", nargs="+", choices=("none", "milp"), default=["none"])
+    parser.add_argument("--pool-polish-solves", type=int, default=6)
+    parser.add_argument("--pool-polish-time-s", type=float, default=10)
+    parser.add_argument("--recombination-variants", nargs="+", type=int, default=[0])
+    parser.add_argument(
         "--operator-policies",
         nargs="+",
         choices=("uniform", "ucb1"),
@@ -104,6 +114,10 @@ def main() -> None:
             args.maximum_merge_reductions,
             args.operator_policies,
             args.ucb_explorations,
+            args.candidate_expansions,
+            args.local_search_passes,
+            args.pool_polish,
+            args.recombination_variants,
         )
     )
     if len(combinations) > 100:
@@ -127,6 +141,14 @@ def main() -> None:
             operator_policy=operator_policy,
             ucb_exploration=ucb_exploration,
             baseline_seed_algorithms=tuple(args.baseline_seed_algorithms),
+            candidate_expansion=candidate_expansion,
+            maximum_layer_variants=args.maximum_layer_variants,
+            local_search_passes=local_search_passes,
+            coverage_atoms=args.coverage_atoms,
+            pool_polish=pool_polish,
+            pool_polish_solves=args.pool_polish_solves,
+            pool_polish_time_s=args.pool_polish_time_s,
+            recombination_variants=recombination_variants,
         )
         for (
             population,
@@ -140,6 +162,10 @@ def main() -> None:
             merge_reduction,
             operator_policy,
             ucb_exploration,
+            candidate_expansion,
+            local_search_passes,
+            pool_polish,
+            recombination_variants,
         ) in combinations
     )
     sources = tuple(
@@ -150,13 +176,15 @@ def main() -> None:
         )
         for path in args.dxf
     )
-    results = run_genetic_benchmark(
-        sources,
-        configs,
-        min_width_cells=args.min_width_cells,
-        cutting_profile=args.cutting_profile,
-        case_id=args.case_id,
-    )
+    completed = []
+    for index, config in enumerate(configs, 1):
+        result, = run_genetic_benchmark(
+            sources, (config,), min_width_cells=args.min_width_cells,
+            cutting_profile=args.cutting_profile, case_id=args.case_id,
+        )
+        completed.append(result)
+        print(f"[{index}/{len(configs)}] {config.id}", flush=True)
+    results = tuple(completed)
     reference = (
         plate_metric_reference_from_engineer(
             get_engineer_reference_case(args.engineer_reference_id)

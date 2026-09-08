@@ -15,6 +15,13 @@ from .algorithms import (
     StrongestBBoxOptimizer,
 )
 from .contracts import (
+    AxisPlacement,
+    CompositeLayoutZone,
+    CompositeZoneEvaluation,
+    PatternedRebarSet,
+    PeriodicAxisPattern,
+    RecipePlacement,
+    UniformBarRun,
     AlgorithmRequest,
     CandidateRejection,
     ComplexityAxis,
@@ -50,6 +57,8 @@ from .mappings import (
     apply_rebar_mapping,
 )
 from .registry import OptimizerRegistry, built_in_optimizer_registry
+from .services.axis_patterns import a101_247_slab_recipe_placement, pattern_coordinates, pattern_runs
+from .services.composite_detailing import build_composite_zone, evaluate_composite_zone
 from .services import (
     PLATE_11700_CATALOG,
     PLATE_11700_CUT_LENGTHS_MM,
@@ -74,6 +83,18 @@ from .services import (
 )
 
 __all__ = [
+    "AxisPlacement",
+    "CompositeLayoutZone",
+    "CompositeZoneEvaluation",
+    "PatternedRebarSet",
+    "PeriodicAxisPattern",
+    "RecipePlacement",
+    "UniformBarRun",
+    "a101_247_slab_recipe_placement",
+    "pattern_coordinates",
+    "pattern_runs",
+    "build_composite_zone",
+    "evaluate_composite_zone",
     "K09_ABOVE_3_D10",
     "K09_MINUS_2_D12",
     "PLATE_ZERO_D12",

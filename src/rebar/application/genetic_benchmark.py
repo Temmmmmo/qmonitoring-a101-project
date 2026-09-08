@@ -32,6 +32,14 @@ class GeneticRunConfig:
         "bsp",
         "greedy-priority",
     )
+    candidate_expansion: str = "none"
+    maximum_layer_variants: int = 256
+    local_search_passes: int = 4
+    coverage_atoms: str = "demand_fragments"
+    pool_polish: str = "none"
+    pool_polish_solves: int = 6
+    pool_polish_time_s: float = 10.0
+    recombination_variants: int = 0
 
     def __post_init__(self) -> None:
         if self.population_size < 4:
@@ -62,12 +70,27 @@ class GeneticRunConfig:
             self.baseline_seed_algorithms
         ):
             raise ValueError("baseline_seed_algorithms не должны повторяться")
+        if self.candidate_expansion not in {"none", "layered"}:
+            raise ValueError("candidate_expansion должен быть 'none' или 'layered'")
+        if self.maximum_layer_variants < 1:
+            raise ValueError("maximum_layer_variants должен быть не меньше 1")
+        if self.local_search_passes < 0:
+            raise ValueError("local_search_passes должен быть неотрицательным")
+        if self.coverage_atoms not in {"whole_tiles", "demand_fragments"}:
+            raise ValueError("coverage_atoms должен быть 'whole_tiles' или 'demand_fragments'")
+        if self.pool_polish not in {"none", "milp"}:
+            raise ValueError("pool_polish должен быть 'none' или 'milp'")
+        if (self.pool_polish_solves < 3 or not math.isfinite(self.pool_polish_time_s)
+                or self.pool_polish_time_s <= 0):
+            raise ValueError("pool_polish требует >= 3 solves и конечный положительный time_s")
+        if self.recombination_variants < 0 or (self.recombination_variants and self.coverage_atoms != "demand_fragments"):
+            raise ValueError("recombination_variants >= 0 требует demand_fragments")
 
     @property
     def id(self) -> str:
         """Вернуть короткий стабильный идентификатор запуска."""
 
-        return (
+        identifier = (
             f"p{self.population_size}-g{self.generations}-s{self.random_seed}-"
             f"cx{self.crossover_rate:g}-mut{self.mutation_rate:g}-"
             f"w{self.candidate_window}-t{self.candidate_trajectories}-"
@@ -75,6 +98,17 @@ class GeneticRunConfig:
             f"r{self.maximum_merge_reduction}-m{self.maximum_pool_merges}-"
             f"{self.complexity_axis.value}-{self.operator_policy}"
         )
+        if self.candidate_expansion != "none":
+            identifier += f"-{self.candidate_expansion}{self.maximum_layer_variants}"
+        if self.local_search_passes:
+            identifier += f"-ls{self.local_search_passes}"
+        if self.coverage_atoms != "whole_tiles":
+            identifier += "-fragments"
+        if self.pool_polish != "none":
+            identifier += f"-{self.pool_polish}{self.pool_polish_solves}x{self.pool_polish_time_s:g}s"
+        if self.recombination_variants:
+            identifier += f"-recombine{self.recombination_variants}"
+        return identifier
 
     def algorithm_params(
         self,
@@ -96,6 +130,14 @@ class GeneticRunConfig:
             "operator_policy": self.operator_policy,
             "ucb_exploration": self.ucb_exploration,
             "baseline_seed_algorithms": self.baseline_seed_algorithms,
+            "candidate_expansion": self.candidate_expansion,
+            "maximum_layer_variants": self.maximum_layer_variants,
+            "local_search_passes": self.local_search_passes,
+            "coverage_atoms": self.coverage_atoms,
+            "pool_polish": self.pool_polish,
+            "pool_polish_solves": self.pool_polish_solves,
+            "pool_polish_time_s": self.pool_polish_time_s,
+            "recombination_variants": self.recombination_variants,
         }
 
 

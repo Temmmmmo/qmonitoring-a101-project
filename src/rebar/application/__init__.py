@@ -31,8 +31,11 @@ from .genetic_benchmark import (
     run_genetic_benchmark,
 )
 from .revit_export import REVIT_EXPORT_SCHEMA, build_plate_solution_revit_export
+from .composite_revit_export import COMPOSITE_REVIT_EXPORT_SCHEMA, build_composite_zone_revit_export
 
 __all__ = [
+    "COMPOSITE_REVIT_EXPORT_SCHEMA",
+    "build_composite_zone_revit_export",
     "DEFAULT_ALGORITHMS",
     "IRREGULAR_PLATE_DEMO",
     "DemoCase",

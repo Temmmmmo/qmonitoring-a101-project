@@ -8,6 +8,9 @@ version = "0.1.0"
 description = "Auto-layout of additional rebar from LIRA-SAPR mosaics (Qmonitoring × A101)"
 requires-python = ">=3.10"
 
+[project.optional-dependencies]
+solver = ["scipy>=1.11"]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

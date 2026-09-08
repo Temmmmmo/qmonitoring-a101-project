@@ -94,6 +94,16 @@ def shk_full() -> Path:
 
 
 @pytest.fixture
+def two_background_top_x_sources() -> tuple[Path, Path]:
+    folder = MOSAIC_DIR / "2 фона"
+    dxf = folder / "Верхнее армирование вдоль ОСИ Х.dxf"
+    shk = folder / "К09_фп_2 фона_Вх.shk"
+    if not dxf.exists() or not shk.exists():
+        pytest.skip(f"нет парного DXF/SHK в {folder}")
+    return dxf, shk
+
+
+@pytest.fixture
 def c1_top_y_dxf() -> Path:
     """Проблемный C1: верхняя арматура по оси Y из инженерного комплекта."""
 

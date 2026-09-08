@@ -1,0 +1,21 @@
+{
+  "schema_version": "qmonitoring-single-zone-trial/v1",
+  "units": "mm",
+  "mode": "commit-readback-rollback",
+  "placement_eligible": false,
+  "zone": {
+    "host_id": 407801,
+    "bar_type_id": 165163,
+    "direction": "top-X",
+    "layout_rule": "NumberWithSpacing",
+    "diameter_mm": 25,
+    "bar_count": 9,
+    "length_mm": 3900,
+    "spacing_mm": 96.875,
+    "first_axis_offset_x_mm": 1000,
+    "first_axis_offset_y_mm": 1012.5,
+    "coordinate_system": "host-bbox-min-xy-revit-internal-axes",
+    "z_policy": "host-top-cover-model-radius",
+    "anchorage_added_mm": 0
+  }
+}

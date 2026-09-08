@@ -32,6 +32,24 @@ def transverse_interval(axis: Axis, bbox: BBox) -> tuple[float, float]:
     return (bbox[1], bbox[3]) if axis is Axis.X else (bbox[0], bbox[2])
 
 
+def axis_envelope_to_body_bbox(axis: Axis, bbox: BBox, diameter_mm: float) -> BBox:
+    """Габарит тел прямых стержней, НЕ контур AreaReinforcement/host.
+
+    Поперёк крайних осей добавляется радиус с каждой стороны. Вдоль стержня
+    сохраняется фактическая длина: прямые стержни имеют плоские торцы, не полусферы.
+    """
+    if not math.isfinite(diameter_mm) or diameter_mm <= 0:
+        raise ValueError("диаметр должен быть положительным и конечным")
+    if len(bbox) != 4 or not all(math.isfinite(x) for x in bbox) or bbox[2] < bbox[0] or bbox[3] < bbox[1]:
+        raise ValueError("невалидный envelope осей")
+    radius = diameter_mm / 2
+    if axis is Axis.X:
+        return bbox[0], bbox[1] - radius, bbox[2], bbox[3] + radius
+    if axis is Axis.Y:
+        return bbox[0] - radius, bbox[1], bbox[2] + radius, bbox[3]
+    raise ValueError("неизвестное направление стержней")
+
+
 def coverage_bbox(axis: Axis, bbox: BBox, step_mm: float) -> BBox:
     """Расширить envelope осей до области обслуживания на полшага с краёв."""
 

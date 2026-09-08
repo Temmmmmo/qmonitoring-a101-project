@@ -18,9 +18,11 @@ from rebar.models import Axis
 
 from ..contracts import (
     AlgorithmRequest,
+    BBox,
     ComplexityAxis,
     LayoutProblem,
     LayoutSolution,
+    LayoutZone,
     SolutionStatus,
 )
 from ..services import (
@@ -41,6 +43,11 @@ from .genetic import (
     mutate_genome,
 )
 from .genetic.operators import available_operators
+from .genetic.candidates import layered_geometry_variants
+from .genetic.local_search import improve_genome
+from .genetic.pool_solver import polish_candidate_pool
+from .genetic.recombination import expand_recombined_space
+from .genetic.coverage import CoverageAtom as _AtomicLeaf, demand_fragments
 from .greedy_priority import PriorityGreedyOptimizer
 from .spatial_partition_greedy import (
     _Grid,
@@ -71,18 +78,6 @@ class _PoolCandidate:
 
 
 @dataclass(frozen=True)
-class _AtomicLeaf:
-    """Одна требуемая плитка сетки — минимальная единица repair-покрытия."""
-
-    row_start: int
-    row_end: int
-    column_start: int
-    column_end: int
-    level_index: int
-    source_cell_ids: tuple[int, ...]
-
-
-@dataclass(frozen=True)
 class _SearchSpace:
     grid: _Grid
     candidates: tuple[_PoolCandidate, ...]
@@ -95,6 +90,7 @@ class _SearchSpace:
     trajectory_count: int
     trajectory_state_count: int
     stopped_by_time_limit: bool
+    leaves: tuple[_AtomicLeaf, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -131,6 +127,7 @@ def _atomic_leaves(grid: _Grid) -> tuple[_AtomicLeaf, ...]:
             column_end=column + 1,
             level_index=level,
             source_cell_ids=grid.source_cell_ids[row][column],
+            bbox=grid.bbox(row, row + 1, column, column + 1),
         )
         for row, levels in enumerate(grid.levels)
         for column, level in enumerate(levels)
@@ -152,6 +149,18 @@ def _leaf_ids_for_rectangle(
         leaf_id
         for leaf_id, leaf in enumerate(leaves)
         if leaf.level_index <= rectangle.level_index and _contains(hull, leaf)
+        and _bbox_contains(rectangle.zone.demand_bbox, leaf.bbox)
+    )
+
+
+def _bbox_contains(outer: BBox, inner: BBox) -> bool:
+    """Индексы соседства могут округляться наружу; покрытие — только реальная геометрия."""
+
+    return (
+        outer[0] <= inner[0] + GEOMETRY_TOLERANCE_MM
+        and outer[1] <= inner[1] + GEOMETRY_TOLERANCE_MM
+        and outer[2] >= inner[2] - GEOMETRY_TOLERANCE_MM
+        and outer[3] >= inner[3] - GEOMETRY_TOLERANCE_MM
     )
 
 
@@ -221,7 +230,6 @@ def _baseline_seed_rectangles(
             continue
 
         seed_rectangles: list[tuple[_Rectangle, frozenset[int]]] = []
-        covered: set[int] = set()
         for zone in solution.zones:
             column_start, column_end = _covering_grid_range(
                 grid.x_edges,
@@ -238,18 +246,11 @@ def _baseline_seed_rectangles(
                 leaf_id
                 for leaf_id, leaf in enumerate(leaves)
                 if leaf.level_index <= zone.level_index and _contains(hull, leaf)
+                and _bbox_contains(zone.demand_bbox, leaf.bbox)
             )
-            if not leaf_ids:
-                continue
-            source_ids = tuple(
-                sorted(
-                    {
-                        cell_id
-                        for leaf_id in leaf_ids
-                        for cell_id in leaves[leaf_id].source_cell_ids
-                    }
-                )
-            )
+            # Частичная ячейка не засчитывается repair как полная. При этом все зоны
+            # проверенного baseline, даже без целых атомов, сохраняются в его seed.
+            source_ids = tuple(zone.meta.get("seed_cell_ids", zone.covered_cell_ids))
             # Индексы сетки нужны операторам соседства, но физическую геометрию и
             # стоимость seed сохраняем в точности как у проверенного baseline.
             rectangle = _Rectangle(
@@ -263,10 +264,7 @@ def _baseline_seed_rectangles(
                 zone=zone,
             )
             seed_rectangles.append((rectangle, leaf_ids))
-            covered.update(leaf_ids)
             next_key += 1
-        if len(covered) != len(leaves):
-            continue
         result.append(
             (
                 algorithm_name,
@@ -380,6 +378,9 @@ def _build_search_space(
     baseline_seed_algorithms: tuple[str, ...],
     random_seed: int,
     deadline: float | None,
+    candidate_expansion: str = "none",
+    maximum_layer_variants: int = 256,
+    coverage_atoms: str = "demand_fragments",
 ) -> _SearchSpace:
     """Собрать CandidateSet по нескольким воспроизводимым merge-траекториям."""
 
@@ -394,6 +395,20 @@ def _build_search_space(
     if request.max_details is not None and request.max_details < len(initial):
         initial = _initial_rectangles(problem, grid, context)
     leaves = _atomic_leaves(grid)
+    baseline_seeds = _baseline_seed_rectangles(
+        problem, request, grid, context, leaves, baseline_seed_algorithms, deadline=deadline,
+    )
+    if coverage_atoms == "demand_fragments":
+        leaves = demand_fragments(problem, grid, tuple(
+            rectangle.zone.demand_bbox
+            for _name, rectangles, _metrics in baseline_seeds
+            for rectangle, _ids in rectangles
+        ))
+        baseline_seeds = tuple(
+            (name, tuple((rectangle, _leaf_ids_for_rectangle(rectangle, leaves))
+                         for rectangle, _ids in rectangles), metrics)
+            for name, rectangles, metrics in baseline_seeds
+        )
 
     pool_rectangles: dict[tuple[int, int, int, int, int], _Rectangle] = {}
     pool_leaves: dict[tuple[int, int, int, int, int], set[int]] = {}
@@ -429,15 +444,6 @@ def _build_search_space(
             "layer-bridge",
         )
 
-    baseline_seeds = _baseline_seed_rectangles(
-        problem,
-        request,
-        grid,
-        context,
-        leaves,
-        baseline_seed_algorithms,
-        deadline=deadline,
-    )
     baseline_metrics = [metrics for _name, _rectangles, metrics in baseline_seeds]
 
     pool_rng = random.Random(random_seed ^ 0xA101)
@@ -646,6 +652,18 @@ def _build_search_space(
             )
         baseline_genomes_list.append(frozenset(candidate_indexes))
 
+    if candidate_expansion == "layered":
+        for rectangle in layered_geometry_variants(
+            problem, grid, context, tuple(candidate.rectangle for candidate in pool),
+            maximum_variants=maximum_layer_variants,
+        ):
+            pool.append(_PoolCandidate(
+                rectangle=rectangle,
+                leaf_ids=_leaf_ids_for_rectangle(rectangle, leaves),
+                source_cell_ids=rectangle.source_cell_ids,
+                origins=frozenset(("layered-envelope",)),
+            ))
+
     trajectory_genomes = tuple(
         dict.fromkeys(
             frozenset(index_by_signature[signature] for signature in state)
@@ -694,6 +712,7 @@ def _build_search_space(
         trajectory_count=completed_trajectories,
         trajectory_state_count=len(trajectory_states),
         stopped_by_time_limit=stopped_by_time_limit,
+        leaves=leaves,
     )
 
 
@@ -1196,6 +1215,45 @@ def _evolve(
     )
 
 
+def _materialize_genome(
+    problem: LayoutProblem,
+    space: _SearchSpace,
+    genome: frozenset[int],
+    context: DetailingContext,
+) -> tuple[tuple[LayoutZone, ...], str | None]:
+    """Общая детализация выбранного подмножества для GA и exact-oracle."""
+
+    if genome in space.baseline_seed_genomes:
+        return tuple(
+            space.candidates[index].rectangle.zone for index in sorted(genome)
+        ), None
+    raw_zones = tuple(
+        build_zone_from_bbox(
+            problem,
+            space.candidates[candidate_index].rectangle.zone.demand_bbox,
+            space.candidates[candidate_index].rectangle.level_index,
+            f"genetic-{index + 1}",
+            seed_cell_ids=space.candidates[candidate_index].source_cell_ids,
+            collect_coverage=False,
+            context=context,
+        )
+        for index, candidate_index in enumerate(sorted(genome))
+    )
+    try:
+        return tuple(resolve_zone_phases(problem, raw_zones, context=context)), None
+    except ValueError as error:
+        # Индивидуальные зоны всё равно проходят независимый hard-валидатор.
+        checked_zones = tuple(build_zone_from_bbox(
+            problem, zone.demand_bbox, zone.level_index, zone.id,
+            seed_cell_ids=zone.meta["seed_cell_ids"], context=context,
+            first_bar_coordinate_mm=zone.first_bar_coordinate_mm,
+        ) for zone in raw_zones)
+        return checked_zones, (
+            "WARNING: repair поперечных фаз не нашёл совместный вариант: "
+            f"{error}"
+        )
+
+
 class GeneticParetoOptimizer:
     """Искать приближённый фронт по массе и явно выбранной оси сложности."""
 
@@ -1221,6 +1279,14 @@ class GeneticParetoOptimizer:
             params.get("maximum_detail_reduction_per_merge", 12)
         )
         maximum_pool_merges = int(params.get("maximum_pool_merges", 5_000))
+        candidate_expansion = str(params.get("candidate_expansion", "none"))
+        maximum_layer_variants = int(params.get("maximum_layer_variants", 256))
+        local_search_passes = int(params.get("local_search_passes", 4))
+        coverage_atoms = str(params.get("coverage_atoms", "demand_fragments"))
+        pool_polish = str(params.get("pool_polish", "none"))
+        pool_polish_solves = int(params.get("pool_polish_solves", 6))
+        pool_polish_time_s = float(params.get("pool_polish_time_s", 10.0))
+        recombination_variants = int(params.get("recombination_variants", 0))
         operator_policy_name = str(params.get("operator_policy", "ucb1"))
         ucb_exploration = float(params.get("ucb_exploration", math.sqrt(2.0)))
         raw_baseline_seed_algorithms = params.get(
@@ -1271,6 +1337,20 @@ class GeneticParetoOptimizer:
             )
         if maximum_pool_merges < 1:
             raise ValueError("maximum_pool_merges должен быть не меньше 1")
+        if candidate_expansion not in {"none", "layered"}:
+            raise ValueError("candidate_expansion должен быть 'none' или 'layered'")
+        if maximum_layer_variants < 1:
+            raise ValueError("maximum_layer_variants должен быть не меньше 1")
+        if local_search_passes < 0:
+            raise ValueError("local_search_passes должен быть неотрицательным")
+        if coverage_atoms not in {"whole_tiles", "demand_fragments"}:
+            raise ValueError("coverage_atoms должен быть 'whole_tiles' или 'demand_fragments'")
+        if pool_polish not in {"none", "milp"}:
+            raise ValueError("pool_polish должен быть 'none' или 'milp'")
+        if pool_polish_solves < 3 or not math.isfinite(pool_polish_time_s) or pool_polish_time_s <= 0:
+            raise ValueError("pool_polish требует >= 3 solves и конечный положительный time_s")
+        if recombination_variants < 0 or (recombination_variants and coverage_atoms != "demand_fragments"):
+            raise ValueError("recombination_variants >= 0 требует coverage_atoms='demand_fragments'")
         unknown_baselines = tuple(
             name
             for name in baseline_seed_algorithms
@@ -1326,7 +1406,14 @@ class GeneticParetoOptimizer:
             baseline_seed_algorithms=baseline_seed_algorithms,
             random_seed=random_seed,
             deadline=deadline,
+            candidate_expansion=candidate_expansion,
+            maximum_layer_variants=maximum_layer_variants,
+            coverage_atoms=coverage_atoms,
         )
+        if recombination_variants:
+            space = expand_recombined_space(
+                problem, space, maximum_variants=recombination_variants, deadline=deadline,
+            )
         population, history, evolution_timed_out, operator_learning = _evolve(
             space,
             detail_limit=detail_limit,
@@ -1339,60 +1426,57 @@ class GeneticParetoOptimizer:
             rng=rng,
             deadline=deadline,
         )
-        approximate_front = tuple(
-            sorted(
-                population,
-                key=lambda item: (
-                    item.complexity,
-                    item.zone_count,
-                    -item.mass_kg,
-                    tuple(sorted(item.genome)),
-                ),
+        local_search_log: dict[frozenset[int], dict[str, object]] = {}
+        local_totals = {"candidate_checks": 0, "moves": 0, "improved_genomes": 0}
+        if local_search_passes:
+            improved = []
+            for parent in population:
+                result = improve_genome(
+                    space, parent.genome, complexity_axis=complexity_axis,
+                    maximum_passes=local_search_passes, deadline=deadline,
+                )
+                local_totals["candidate_checks"] += result.candidate_checks
+                local_totals["moves"] += result.moves
+                evolution_timed_out = evolution_timed_out or result.stopped_by_time_limit
+                if result.genome != parent.genome:
+                    improved.append(_individual(space, result.genome, complexity_axis))
+                    local_totals["improved_genomes"] += 1
+                    local_search_log.setdefault(result.genome, {
+                        "parent_genome": tuple(sorted(parent.genome)),
+                        "moves": result.moves, "candidate_checks": result.candidate_checks,
+                    })
+            # Не отсекать родителей до hard-validation улучшенных предложений.
+            population = _unique_individuals([*population, *improved])
+        pool_polish_telemetry: dict[str, object] = {}
+        if pool_polish == "milp":
+            polished = polish_candidate_pool(
+                space, complexity_axis=complexity_axis, maximum_zones=detail_limit,
+                maximum_solves=pool_polish_solves, time_limit_s=pool_polish_time_s, deadline=deadline,
             )
-        )
+            pool_polish_telemetry = polished.telemetry
+            evolution_timed_out = evolution_timed_out or polished.stopped_by_time_limit
+            # Родители и предложения объединяются без отсечения до hard-validation.
+            population = _unique_individuals((*population, *tuple(
+                _individual(space, genome, complexity_axis) for genome in polished.genomes
+            )))
+        approximate_front = tuple(sorted(population, key=lambda item: (
+            item.complexity, item.zone_count, -item.mass_kg, tuple(sorted(item.genome)),
+        )))
         context = prepare_detailing(problem)
         solutions: list[LayoutSolution] = []
+        archive_validation = {"checked": 0, "rejected": 0, "maximum_mass_error_kg": 0.0}
         for candidate_number, individual in enumerate(approximate_front, 1):
             exact_baseline_seed = individual.genome in space.baseline_seed_genomes
-            if exact_baseline_seed:
-                raw_zones = tuple(
-                    space.candidates[candidate_index].rectangle.zone
-                    for candidate_index in sorted(individual.genome)
-                )
-            else:
-                raw_zones = tuple(
-                    build_zone_from_bbox(
-                        problem,
-                        space.candidates[candidate_index].rectangle.zone.demand_bbox,
-                        space.candidates[candidate_index].rectangle.level_index,
-                        f"genetic-{index + 1}",
-                        seed_cell_ids=space.candidates[candidate_index].source_cell_ids,
-                        collect_coverage=True,
-                        context=context,
-                    )
-                    for index, candidate_index in enumerate(sorted(individual.genome))
-                )
-            phase_diagnostic: str | None = None
-            if exact_baseline_seed:
-                zones = raw_zones
-            else:
-                try:
-                    zones = tuple(
-                        resolve_zone_phases(
-                            problem,
-                            raw_zones,
-                            context=context,
-                        )
-                    )
-                except ValueError as error:
-                    # Индивидуально построенные зоны остаются геометрически допустимыми;
-                    # общий валидатор ниже независимо проверит их оси и коллизии.
-                    zones = raw_zones
-                    phase_diagnostic = (
-                        "WARNING: repair поперечных фаз не нашёл совместный вариант: "
-                        f"{error}"
-                    )
+            zones, phase_diagnostic = _materialize_genome(
+                problem, space, individual.genome, context,
+            )
             evaluation = evaluate_layout(problem, zones, request)
+            archive_validation["checked"] += 1
+            archive_validation["rejected"] += int(not evaluation.valid)
+            archive_validation["maximum_mass_error_kg"] = max(
+                archive_validation["maximum_mass_error_kg"],
+                abs(evaluation.metrics.total_mass_kg - individual.mass_kg),
+            )
             timed_out = space.stopped_by_time_limit or evolution_timed_out
             diagnostics = evaluation.diagnostics
             if phase_diagnostic is not None:
@@ -1425,6 +1509,16 @@ class GeneticParetoOptimizer:
                         "generations_requested": generations,
                         "generations_completed": len(history),
                         "candidate_pool_size": len(space.candidates),
+                        "candidate_expansion": candidate_expansion,
+                        "maximum_layer_variants": maximum_layer_variants,
+                        "local_search_passes": local_search_passes,
+                        "coverage_atoms": coverage_atoms,
+                        "coverage_atom_count": space.leaf_count,
+                        "pool_polish": pool_polish_telemetry,
+                        "recombination_variants": recombination_variants,
+                        "local_search_totals": local_totals,
+                        "local_search": local_search_log.get(individual.genome),
+                        "archive_validation": archive_validation,
                         "candidate_pool_origin_counts": {
                             origin: sum(
                                 origin in candidate.origins

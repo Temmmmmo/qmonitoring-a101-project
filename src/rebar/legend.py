@@ -7,7 +7,7 @@
 
 Результат — list[Band] (см. models.Band), упорядоченный от фона к максимуму.
 
-parse_label реализован (семантика фиксирована). parse_shk / build_legend — TODO для Codex.
+parse_recipe сохраняет все слагаемые; parse_label — совместимый интерфейс одной добавки.
 См. docs/context.md §2.2, §3 и docs/stage-a-parser-spec.md.
 """
 
@@ -19,7 +19,7 @@ import struct
 from itertools import pairwise
 from pathlib import Path
 
-from .models import Band, Rebar
+from .models import Band, Rebar, ReinforcementRecipe, UnsupportedReinforcementRecipeError
 
 _SPEC_RE = re.compile(r"s(\d+)d(\d+)", re.IGNORECASE)
 
@@ -38,15 +38,22 @@ def parse_label(label: str) -> tuple[Rebar, Rebar | None]:
     's300d18'            -> (background=s300d18, additional=None)   # только фон
     's300d18+s150d20'    -> (background=s300d18, additional=s150d20)# фон + добавка
 
-    Раскладываем ТОЛЬКО additional. Если частей больше двух — берём первую как фон,
-    последнюю как добавку (уточнить на реальных данных, если встретится).
+    Для трёх и более слагаемых нужен parse_recipe: терять средние добавки запрещено.
     """
-    parts = [p for p in label.replace(" ", "").split("+") if p]
-    if not parts:
+    recipe = parse_recipe(label)
+    if len(recipe.additions) > 1:
+        raise UnsupportedReinforcementRecipeError(
+            "подпись содержит несколько дополнительных наборов; используйте parse_recipe"
+        )
+    return recipe.background, recipe.additions[0] if recipe.additions else None
+
+
+def parse_recipe(label: str) -> ReinforcementRecipe:
+    """Разобрать все слагаемые без назначения неизвестных фаз и порядка по высоте."""
+    if not label.strip():
         raise ValueError(f"пустая подпись: {label!r}")
-    background = parse_spec(parts[0])
-    additional = parse_spec(parts[-1]) if len(parts) > 1 else None
-    return background, additional
+    specs = tuple(parse_spec(part) for part in label.replace(" ", "").split("+"))
+    return ReinforcementRecipe(specs[0], specs[1:])
 
 
 def parse_shk(path: str) -> list[tuple[float, str]]:
@@ -144,15 +151,17 @@ def build_legend(shk_path: str, aci_order: list[int] | None = None) -> list[Band
 
     bands: list[Band] = []
     for index, (threshold_as, label) in enumerate(parsed):
-        background, additional = parse_label(label)
+        recipe = parse_recipe(label)
+        additional = recipe.additions[0] if len(recipe.additions) == 1 else None
         bands.append(
             Band(
                 index=index,
                 aci=aci_order[index] if aci_order is not None else None,
                 label=label,
                 threshold_as=threshold_as,
-                background=background,
+                background=recipe.background,
                 additional=additional,
+                recipe=recipe,
             )
         )
     return bands

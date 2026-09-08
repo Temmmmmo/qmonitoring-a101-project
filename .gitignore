@@ -21,6 +21,8 @@ Thumbs.db
 # Organizers' source data — keep locally, don't commit (см. docs/context.md → Data).
 # The directory contains large and potentially non-public DXF/DWG/PDF/PNG/PCP/LIR files.
 /Дополнительные материалы/
+/revit_info/
+/economic_info/
 
 # Heavy input binaries outside the data directory. Track via LFS only if explicitly needed.
 *.dwg

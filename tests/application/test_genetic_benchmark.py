@@ -207,3 +207,78 @@ def test_benchmark_report_accepts_verified_plate_level_engineer_metrics(
     assert "Проверенная спецификация инженера ↔" in report_html
     assert "Покомпонентное сравнение и схемы" not in report_html
     assert "51 позиций в PDF" in report_html
+
+
+def test_search_effort_is_counted_once_per_direction_not_per_front_point(tmp_path, direction_mosaic):
+    analysis = _plate_analysis(direction_mosaic)
+    instrumented = []
+    for direction in analysis.direction_analyses:
+        solution = replace(direction.solutions[0], meta={
+            "local_search_totals": {"candidate_checks": 17, "moves": 2, "improved_genomes": 1},
+            "archive_validation": {"checked": 11, "rejected": 3, "maximum_mass_error_kg": 0.25},
+            "pool_polish": {"solves": [{"status": 0}], "proposal_count": 1, "runtime_ms": 2.5},
+        })
+        instrumented.append(replace(direction, candidate_solutions=(solution, solution, solution)))
+    analysis = replace(analysis, direction_analyses=tuple(instrumented))
+    report = generate_genetic_benchmark_report(
+        (GeneticRunResult(GeneticRunConfig(4, 1, 7, local_search_passes=4), analysis),), tmp_path,
+    )
+    payload = json.loads((tmp_path / "benchmark.json").read_text())
+    assert payload["runs"][0]["search_effort"] == {
+        "local_candidate_checks": 68, "local_moves": 8, "local_improved_genomes": 4,
+        "archive_checked": 44, "archive_rejected": 12, "maximum_mass_error_kg": 0.25,
+        "instrumented_directions": 4,
+        "candidate_pool_size": 0, "coverage_atom_count": 0,
+        "pool_polish_solves": 4, "pool_polish_proposals": 4, "pool_polish_runtime_ms": 10.0,
+    }
+    assert "Архив: отклонено / проверено" in report.read_text()
+
+
+def test_hypervolume_of_saved_points_is_order_independent_and_uses_common_bounds():
+    from rebar.reporting.genetic_benchmark import normalized_point_hypervolume, point_hypervolume_bounds
+
+    points = [(1, 4.0), (2, 2.0)]
+    assert normalized_point_hypervolume(points, (0, 0, 5, 5)) == pytest.approx(10 / 25)
+    assert normalized_point_hypervolume([*reversed(points), (2, 3.0), (2, 2.0)], (0, 0, 5, 5)) == pytest.approx(10 / 25)
+    assert point_hypervolume_bounds([]) is None
+    assert normalized_point_hypervolume([], None) == 0
+
+
+def test_normalized_fingerprint_ignores_case_label_but_detects_constraint_change(direction_mosaic):
+    from rebar.reporting.genetic_benchmark import normalized_input_fingerprint
+
+    analysis = _plate_analysis(direction_mosaic)
+    result = GeneticRunResult(GeneticRunConfig(4, 1, 7), analysis)
+    renamed = replace(analysis, direction_analyses=tuple(
+        replace(direction, problem=replace(direction.problem, case_id="another-label"))
+        for direction in analysis.direction_analyses
+    ))
+    assert normalized_input_fingerprint(result) == normalized_input_fingerprint(replace(result, analysis=renamed))
+    changed = replace(analysis, direction_analyses=tuple(
+        replace(direction, problem=replace(direction.problem, constraints=replace(direction.problem.constraints, anchorage_diameters=50)))
+        for direction in analysis.direction_analyses
+    ))
+    assert normalized_input_fingerprint(result) != normalized_input_fingerprint(replace(result, analysis=changed))
+
+
+def test_single_component_fingerprint_is_compatible_with_pre_recipe_serialization(direction_mosaic):
+    import hashlib
+
+    from rebar.reporting.genetic_benchmark import normalized_input_fingerprint
+    from rebar.reporting.serialization import to_jsonable
+    from rebar.standards import a101_profile_id_from_metadata
+
+    analysis = _plate_analysis(direction_mosaic)
+    result = GeneticRunResult(GeneticRunConfig(4, 1, 7), analysis)
+    old_snapshot = []
+    for direction in sorted(analysis.direction_analyses, key=lambda x: str(x.problem.demand.direction)):
+        problem = direction.problem
+        old_levels = to_jsonable(problem.demand.levels)
+        for level in old_levels:
+            level.pop("recipe")
+        old_snapshot.append((problem.demand.direction, old_levels, problem.demand.cells,
+                             problem.demand.bbox, problem.constraints,
+                             a101_profile_id_from_metadata(problem.demand.meta)))
+    old_hash = hashlib.sha256(json.dumps(to_jsonable(old_snapshot), sort_keys=True,
+                                        ensure_ascii=False, allow_nan=False).encode()).hexdigest()
+    assert normalized_input_fingerprint(result) == old_hash

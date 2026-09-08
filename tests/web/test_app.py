@@ -172,6 +172,18 @@ def test_demo_runs_real_dxf_pipeline_without_upload():
     assert "ACI 181" in payload["solutions"][0]["svg"]
 
 
+def test_composite_upload_returns_explicit_422_before_running_legacy_ga(two_background_top_x_sources):
+    dxf, shk = two_background_top_x_sources
+    with dxf.open("rb") as geometry, shk.open("rb") as scale:
+        response = client.post("/api/analyze", files={
+            "dxf": (dxf.name, geometry, "application/dxf"),
+            "shk": (shk.name, scale, "application/octet-stream"),
+        })
+    assert response.status_code == 422
+    assert "несколько дополнительных наборов" in response.json()["detail"]
+    assert "recipe" in response.json()["detail"]
+
+
 def test_demo_rejects_unknown_case():
     response = client.post("/api/demo", data={"demo_id": "not-a-demo"})
 
@@ -345,6 +357,15 @@ def test_analyze_plate_returns_aggregate_metrics_and_four_svgs(
     assert revit_export["checks"]["export_eligible"] is False
     assert "a101-allowed-positions" in revit_export["checks"]["blocking_check_ids"]
     assert len(revit_export["directions"]) == 4
+    for direction in revit_export["directions"]:
+        for zone in direction["zones"]:
+            assert zone["bbox_semantics"] == "bar_axis_envelope"
+            assert zone["nominal_step_mm"] == zone["step_mm"]
+            assert zone["axis_pattern"]["period_mm"] == zone["step_mm"]
+            index = 1 if direction["axis"] == "X" else 0
+            axes, body = zone["bbox_mm"], zone["straight_bar_body_bbox_mm"]
+            assert body[index] == axes[index] - zone["diameter_mm"] / 2
+            assert body[index + 2] == axes[index + 2] + zone["diameter_mm"] / 2
     assert all(
         zone["mark"] and zone["callout"]
         for direction in revit_export["directions"]

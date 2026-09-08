@@ -9,6 +9,15 @@ from .front import (
     PlateCandidate,
     PlateParetoFront,
 )
+from .placement import (
+    AxisPlacement,
+    CompositeLayoutZone,
+    CompositeZoneEvaluation,
+    PatternedRebarSet,
+    PeriodicAxisPattern,
+    RecipePlacement,
+    UniformBarRun,
+)
 from .problem import (
     BBox,
     DemandCell,
@@ -35,6 +44,13 @@ from .result import (
 )
 
 __all__ = [
+    "AxisPlacement",
+    "CompositeLayoutZone",
+    "CompositeZoneEvaluation",
+    "PatternedRebarSet",
+    "PeriodicAxisPattern",
+    "RecipePlacement",
+    "UniformBarRun",
     "AlgorithmRequest",
     "BBox",
     "CandidateRejection",

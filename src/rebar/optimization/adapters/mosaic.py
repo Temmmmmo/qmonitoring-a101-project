@@ -37,7 +37,8 @@ def _levels_from_legend(mosaic: Mosaic) -> tuple[DemandLevel, ...]:
             upper_as=intervals.get(band.index, {}).get("upper_as", band.threshold_as),
             label=band.label,
             additional=band.additional,
-            requires_extra=band.additional is not None,
+            requires_extra=bool(band.reinforcement_recipe.additions),
+            recipe=band.reinforcement_recipe,
         )
         for band in ordered
     )

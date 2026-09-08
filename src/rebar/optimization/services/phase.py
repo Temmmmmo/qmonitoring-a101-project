@@ -10,7 +10,7 @@ from .bar_geometry import (
     transverse_axis_gap,
     transverse_interval,
 )
-from .detailing import DetailingContext, build_zone, prepare_detailing
+from .detailing import DetailingContext, build_zone_from_bbox, prepare_detailing
 
 
 def feasible_first_bar_coordinates(
@@ -44,13 +44,16 @@ def _rebuild_at_phase(
     collect_coverage: bool,
 ) -> LayoutZone:
     seed_ids = zone.meta.get("seed_cell_ids")
-    if not isinstance(seed_ids, tuple) or not seed_ids:
+    if not isinstance(seed_ids, tuple):
         raise ValueError(f"зона {zone.id} не хранит seed_cell_ids для подбора фазы")
-    return build_zone(
+    # Seed IDs describe provenance: a spatial zone may cover only part of a FE.
+    # Rebuilding its bounding box from those IDs would change the partition and mass.
+    return build_zone_from_bbox(
         problem,
-        seed_ids,
+        zone.demand_bbox,
         zone.level_index,
         zone.id,
+        seed_cell_ids=seed_ids,
         collect_coverage=collect_coverage,
         context=context,
         first_bar_coordinate_mm=first_bar_coordinate_mm,
@@ -69,7 +72,9 @@ def resolve_zone_phases(
     Метод является детерминированным baseline, а не глобальным phase-solver. Он сначала
     прижимает оси к нижней поперечной границе допустимого диапазона, затем пробует
     характерные положения внутри диапазона. Конфликты детализации используются только
-    для best-effort выбора фазы и не меняют прямоугольное разбиение.
+    для best-effort выбора фазы и не меняют прямоугольное разбиение. При неизменных
+    политиках детализации сохраняются длины, ширина, количество стержней и масса;
+    seed_cell_ids не определяют границы уже построенной пространственной зоны.
     """
 
     if not zones:
