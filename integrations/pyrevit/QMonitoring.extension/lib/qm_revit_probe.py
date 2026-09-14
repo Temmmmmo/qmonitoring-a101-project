@@ -17,7 +17,7 @@ try:
 except NameError:
     text_type = str
 
-PROBE_VERSION = "0.3.0"
+PROBE_VERSION = "0.5.1"
 MAX_BAR_POSITIONS = 10000
 
 

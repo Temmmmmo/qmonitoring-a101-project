@@ -46,6 +46,7 @@ def built_in_optimizer_registry() -> OptimizerRegistry:
         AgglomerativeOptimizer,
         BspOptimizer,
         GeneticParetoOptimizer,
+        GeneticSourceRecoveryOptimizer,
         GreedyStripOptimizer,
         PriorityGreedyOptimizer,
         RowRunGreedyOptimizer,
@@ -59,6 +60,7 @@ def built_in_optimizer_registry() -> OptimizerRegistry:
     registry.register(StrongestBBoxOptimizer.name, StrongestBBoxOptimizer)
     registry.register(BspOptimizer.name, BspOptimizer)
     registry.register(GeneticParetoOptimizer.name, GeneticParetoOptimizer)
+    registry.register(GeneticSourceRecoveryOptimizer.name, GeneticSourceRecoveryOptimizer)
     registry.register(GreedyStripOptimizer.name, GreedyStripOptimizer)
     registry.register(PriorityGreedyOptimizer.name, PriorityGreedyOptimizer)
     registry.register(RowRunGreedyOptimizer.name, RowRunGreedyOptimizer)

@@ -154,6 +154,7 @@ function renderOptions(payload) {
   document.querySelector("#genetic-operator-policy").value = options.defaults.genetic_operator_policy;
   document.querySelector("#genetic-ucb-exploration").value = options.defaults.genetic_ucb_exploration;
   cuttingProfileSelect.value = options.defaults.cutting_profile;
+  document.querySelector("#complexity-axis").value = options.defaults.complexity_axis ?? "position_count";
   demoSelect.value = options.defaults.demo_id;
   if (!demoSelect.value) demoSelect.selectedIndex = 0;
   const defaultMode = options.defaults.source_mode ?? "demo";
@@ -401,9 +402,9 @@ function renderTrajectory(solution) {
         <title>${number(point.complexity)} сложности · ${number(point.total_mass_kg, 1)} кг</title>
       </circle>`;
     }).join("");
-    const axisLabel = front.complexity_axis === "physical_bar_count"
-      ? "стержней"
-      : "зон";
+    const axisLabel = { position_count: "позиций", physical_bar_count: "стержней", zone_count: "зон" }[
+      front.complexity_axis
+    ] ?? "ед.";
     const scopeTitle = analysis.kind === "plate" ? "плиты" : "направления";
     chart.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Парето-фронт ${scopeTitle}">
       <line class="trajectory-axis" x1="${padding}" y1="${height - padding}" x2="${width - padding}" y2="${height - padding}"></line>
@@ -535,6 +536,7 @@ function renderActiveSolution() {
     metricCard(`${number(metrics.total_mass_kg, 1)} кг`, "общая масса четырёх направлений"),
     metricCard(number(metrics.zone_count), "прямоугольных зон суммарно"),
     metricCard(number(metrics.physical_bar_count), "физических стержней суммарно"),
+    metricCard(number(selected.constructability?.position_count), "позиций прямых стержней"),
     metricCard(number(metrics.direction_count), "направлений в комплекте"),
     metricCard(number(metrics.under_reinforced_cell_count), "недоармированных КЭ", invalid),
     metricCard(`${number(selected.runtime_ms, 1)} мс`, "сумма времени алгоритмов"),
@@ -544,12 +546,25 @@ function renderActiveSolution() {
     metricCard(`${number(metrics.total_mass_kg, 1)} кг`, "масса дополнительной арматуры"),
     metricCard(number(metrics.detail_count), "прямоугольных зон"),
     metricCard(number(layoutSolution.physical_bar_count), "физических стержней"),
+    metricCard(number(layoutSolution.constructability?.position_count), "позиций прямых стержней"),
     metricCard(number(metrics.overcovered_cell_count), "КЭ с перерасходом"),
     metricCard(number(metrics.under_reinforced_cell_count), "недоармированных КЭ", invalid),
     metricCard(`${number(layoutSolution.runtime_ms, 1)} мс`, "время алгоритма"),
   ].join("");
   renderGateAssessment(plateMode ? selected.gate_assessment : layoutSolution.gate_assessment);
   renderTrajectory(layoutSolution);
+  const schedule = (plateMode ? selected : layoutSolution).bar_schedule ?? [];
+  const classKnown = schedule.length > 0 && schedule.every((row) => row.steel_class);
+  document.querySelector("#schedule-scope").textContent =
+    `${plateMode ? "Вся плита" : "Выбранное направление"}: одинаковые стержни объединены независимо от шага и зоны. `
+    + (classKnown ? "Группировка учитывает указанный класс стали. "
+      : "Класс стали входа не задан: подсчёт условный, для единого класса. ")
+    + "Это расчётная ведомость, не оформленный лист КЖ.";
+  document.querySelector("#positions-body").innerHTML = schedule.map((row) => `
+    <tr><td>${escapeHtml(row.mark)}</td><td>${escapeHtml(row.steel_class || "не задан")}</td>
+      <td>${number(row.diameter_mm)}</td><td>${number(row.length_mm, 3)}</td>
+      <td>${number(row.physical_bar_count)}</td><td>${number(row.total_mass_kg, 2)}</td></tr>
+  `).join("");
 
   const allDiagnostics = selected.diagnostics.length
     ? selected.diagnostics
@@ -657,6 +672,7 @@ form.addEventListener("submit", async (event) => {
   body.append("min_width_cells", document.querySelector("#min-width").value);
   body.append("detail_penalty_kg", document.querySelector("#detail-penalty").value);
   body.append("cutting_profile", cuttingProfileSelect.value);
+  body.append("complexity_axis", document.querySelector("#complexity-axis").value);
   body.append("genetic_population_size", document.querySelector("#genetic-population").value);
   body.append("genetic_generations", document.querySelector("#genetic-generations").value);
   body.append("genetic_seed", document.querySelector("#genetic-seed").value);

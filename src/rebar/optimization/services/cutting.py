@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 from .geometry import GEOMETRY_TOLERANCE_MM
 
@@ -24,6 +25,15 @@ PLATE_11700_CUT_LENGTHS_MM = (
     9750.0,
     11700.0,
 )
+PLATE_11700_BATCH_PROFILE = "plate-11700-batch"
+
+
+class CutLengthInfeasibleError(ValueError):
+    """Корректная минимальная длина не помещается в явный каталог.
+
+    Необязательный кандидат можно отклонить по этому типу, не скрывая ошибки
+    геометрии, исходных данных или остальных инженерных правил.
+    """
 
 
 @dataclass(frozen=True)
@@ -41,20 +51,22 @@ class CutLengthCatalog:
             raise ValueError("каталог длин не может быть пустым")
         if tuple(sorted(set(self.lengths_mm))) != self.lengths_mm:
             raise ValueError("длины каталога должны быть уникальными и возрастать")
-        if any(length <= 0 for length in self.lengths_mm):
-            raise ValueError("длины каталога должны быть положительными")
-        if self.stock_length_mm is not None and self.stock_length_mm <= 0:
+        if any(not math.isfinite(length) or length <= 0 for length in self.lengths_mm):
+            raise ValueError("длины каталога должны быть конечными и положительными")
+        if self.stock_length_mm is not None and (
+            not math.isfinite(self.stock_length_mm) or self.stock_length_mm <= 0
+        ):
             raise ValueError("длина товарного прутка должна быть положительной")
 
     def select_length_mm(self, minimum_length_mm: float) -> float:
         """Округлить минимальную длину вверх до доступного отрезка."""
 
-        if minimum_length_mm <= 0:
-            raise ValueError("минимальная длина отрезка должна быть положительной")
+        if not math.isfinite(minimum_length_mm) or minimum_length_mm <= 0:
+            raise ValueError("минимальная длина отрезка должна быть конечной и положительной")
         for length in self.lengths_mm:
             if length + GEOMETRY_TOLERANCE_MM >= minimum_length_mm:
                 return length
-        raise ValueError(
+        raise CutLengthInfeasibleError(
             f"длина {minimum_length_mm:.3f} мм превышает максимум каталога "
             f"{self.id!r}: {self.lengths_mm[-1]:.3f} мм"
         )
@@ -73,11 +85,10 @@ def select_installed_length_mm(
 ) -> float:
     """Оставить непрерывную длину или округлить её по явному каталогу."""
 
-    if minimum_length_mm <= 0:
-        raise ValueError("минимальная длина отрезка должна быть положительной")
+    if not math.isfinite(minimum_length_mm) or minimum_length_mm <= 0:
+        raise ValueError("минимальная длина отрезка должна быть конечной и положительной")
     if not allowed_lengths_mm:
         return minimum_length_mm
     return CutLengthCatalog("constraints", allowed_lengths_mm).select_length_mm(
         minimum_length_mm
     )
-

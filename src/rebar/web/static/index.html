@@ -17,6 +17,7 @@
         </span>
       </a>
       <div class="header-context" aria-label="Контекст приложения">
+        <a href="/revit">Интеграция с Revit</a>
         <span id="scope-label">Одно направление</span>
         <span class="environment-badge"><i aria-hidden="true"></i> Web MVP</span>
       </div>
@@ -43,7 +44,9 @@
             <span class="section-index">01</span>
             <div>
               <h2 id="source-heading">Исходные данные</h2>
-              <p>Один DXF для отладки или комплект четырёх направлений плиты.</p>
+            <p>Один DXF для отладки или комплект четырёх направлений плиты.</p>
+              <p><a href="/composite">Составной комплект: все добавки, четыре шкалы и позиции спецификации →</a></p>
+              <p><a href="/composite?demo=1">Посмотреть пример всей плиты без загрузки файлов →</a></p>
             </div>
           </div>
 
@@ -166,6 +169,14 @@
               <input id="max-details" name="max_details" type="number" min="1"
                 placeholder="Авто: число входных КЭ">
               <small>Пусто — полный диапазон от 1 до общего числа КЭ мозаики.</small>
+            </label>
+            <label class="field"><span>Ось выбора вариантов</span>
+              <select id="complexity-axis" name="complexity_axis">
+                <option value="position_count">Позиции стержней</option>
+                <option value="zone_count">Прямоугольные зоны</option>
+                <option value="physical_bar_count">Физические стержни</option>
+              </select>
+              <small>Позиция — одинаковые форма, класс, диаметр и длина. Лимит зон задаётся отдельно.</small>
             </label>
             <label class="field"><span>Минимум КЭ по ширине</span>
               <input id="min-width" name="min_width_cells" type="number" min="1" max="10" value="2">
@@ -306,6 +317,16 @@
             </aside>
           </article>
 
+          <details class="zone-details">
+            <summary><span>Позиции прямых стержней</span><i aria-hidden="true">+</i></summary>
+            <p id="schedule-scope" class="gate-disclaimer"></p>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Позиция</th><th>Класс</th><th>Диаметр, мм</th><th>Длина, мм</th><th>Стержни, шт.</th><th>Масса, кг</th></tr></thead>
+                <tbody id="positions-body"></tbody>
+              </table>
+            </div>
+          </details>
           <details class="zone-details">
             <summary><span>Параметры прямоугольных зон</span><i aria-hidden="true">+</i></summary>
             <div class="table-wrap">

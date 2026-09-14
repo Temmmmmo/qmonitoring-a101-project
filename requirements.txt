@@ -1,8 +1,11 @@
 # Core
 ezdxf>=1.1          # DXF parsing (3DFACE, blocks, ACI colors -> RGB)
+openpyxl>=3.1.5,<4  # read-only LIRA numeric XLSX import
+defusedxml>=0.7.1,<1 # protect XML parsing in uploaded XLSX files
 fastapi>=0.115       # local MVP web API and static frontend
 httpx>=0.28          # FastAPI TestClient
 numpy>=1.26
+scipy>=1.11        # composite coverage and batch cutting MILP
 python-multipart>=0.0.20  # multipart DXF/.shk uploads
 shapely>=2.0        # geometry (zones, rectangles) — used from stage B onward
 uvicorn>=0.34        # local ASGI server

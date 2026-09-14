@@ -28,6 +28,7 @@ from .constructability import (
 )
 from .evaluation import evaluate_layout
 from .plate import build_plate_solution
+from .position_combinations import combine_position_candidates
 
 _MASS_TOLERANCE_KG = 1e-6
 
@@ -173,6 +174,9 @@ def build_direction_pareto_front(
         dominated_candidate_count=len(candidates) - len(front) - equivalent_count,
         equivalent_candidate_count=equivalent_count,
         rejections=rejections,
+        combination_candidates=(
+            candidates if complexity_axis is ComplexityAxis.POSITION_COUNT else ()
+        ),
     )
 
 
@@ -260,11 +264,17 @@ def combine_direction_pareto_fronts(
     for direction in PLATE_DIRECTIONS:
         problem.problem(direction)
 
-    candidate_groups = tuple(front.candidates for front in canonical_fronts)
+    candidate_groups = tuple(
+        (front.combination_candidates or front.candidates)
+        if complexity_axis is ComplexityAxis.POSITION_COUNT else front.candidates
+        for front in canonical_fronts
+    )
     combination_count = prod(len(group) for group in candidate_groups)
 
     partial_combinations: tuple[tuple[DirectionCandidate, ...], ...] = ((),)
-    for group in candidate_groups:
+    if complexity_axis is ComplexityAxis.POSITION_COUNT:
+        partial_combinations = combine_position_candidates(candidate_groups)
+    for group in (() if complexity_axis is ComplexityAxis.POSITION_COUNT else candidate_groups):
         expanded = tuple(
             (*partial, candidate)
             for partial in partial_combinations

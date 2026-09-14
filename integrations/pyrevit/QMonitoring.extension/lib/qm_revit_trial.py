@@ -11,6 +11,7 @@ import traceback
 from qm_revit_probe import PROBE_VERSION, Probe, element_id, identity, text_type
 from qm_trial_geometry import close, compare_trial, make_trial_plan, validate_prism
 from qm_trial_input import validate_trial_input
+from qm_core_trial import compare_core_trial, make_core_plan, validate_core_input
 
 
 def solid_report(probe, floor):
@@ -165,14 +166,19 @@ def create_trial_rebar(probe, floor, bar_type, plan, curve_list_factory):
     rebar = DB.Structure.Rebar.CreateFromCurves(
         probe.doc, DB.Structure.RebarStyle.Standard, bar_type, None, None, floor,
         DB.XYZ(*plan["normal"]), curves, DB.Structure.RebarHookOrientation.Right,
-        DB.Structure.RebarHookOrientation.Left, True, True)
+        DB.Structure.RebarHookOrientation.Left, True, plan.get("allow_new_shape", True))
     if rebar is None:
+        if plan.get("allow_new_shape") is False:
+            raise ValueError("Live-local trial requires an existing compatible straight RebarShape; use a detached copy to create a new shape")
         raise ValueError("Revit returned no Rebar; no substitute geometry was created")
     accessor = rebar.GetShapeDrivenAccessor()
     try:
-        accessor.SetLayoutAsNumberWithSpacing(
-            plan["bar_count"], DB.UnitUtils.ConvertToInternalUnits(
-                plan["spacing_mm"], DB.UnitTypeId.Millimeters), True, True, True)
+        if plan.get("layout_rule") == "Single" and plan["bar_count"] == 1:
+            accessor.SetLayoutAsSingle()
+        else:
+            accessor.SetLayoutAsNumberWithSpacing(
+                plan["bar_count"], DB.UnitUtils.ConvertToInternalUnits(
+                    plan["spacing_mm"], DB.UnitTypeId.Millimeters), True, True, True)
     finally:
         accessor.Dispose()
     return rebar
@@ -248,8 +254,20 @@ def rollback_scope(scope, DB, allow_committed=False):
     return ended, result
 
 
-def run_trial(document, DB, curve_list_factory, copy_confirmed=False, runtime=None, trial_input=None):
-    commit_mode = trial_input is not None
+def read_core_sets(probe, ids):
+    sets = []
+    for number in ids:
+        rebar = probe.doc.GetElement(probe.DB.ElementId(number))
+        if not isinstance(rebar, probe.DB.Structure.Rebar):
+            raise ValueError("Created core run is missing or replaced")
+        sets.append(read_trial_rebar(probe, rebar))
+    return {"sets": sets}
+
+
+def run_trial(document, DB, curve_list_factory, copy_confirmed=False, runtime=None, trial_input=None,
+              core_trial_input=None):
+    core_mode = core_trial_input is not None
+    commit_mode = trial_input is not None or core_mode
     report = {"schema_version": "revit-creation-trial/v1", "probe_version": PROBE_VERSION,
               "created_utc": datetime.datetime.utcnow().isoformat() + "Z", "runtime": runtime or {},
               "units": "mm", "coordinate_system": "revit-internal-origin-and-axes",
@@ -263,6 +281,8 @@ def run_trial(document, DB, curve_list_factory, copy_confirmed=False, runtime=No
         report.update({"schema_version": "revit-json-creation-trial/v1",
                        "mode": "commit-readback-rollback", "commit": {"status": "not_attempted"},
                        "commit_failures": [], "group_rollback": {"status": "not_started"}})
+    if core_mode:
+        report["schema_version"] = "revit-core-creation-trial/v1"
     report["reference_issues"] = probe.issues
     stage = "preflight"
     transaction = None
@@ -272,7 +292,11 @@ def run_trial(document, DB, curve_list_factory, copy_confirmed=False, runtime=No
     try:
         if not copy_confirmed:
             raise ValueError("Explicit confirmation of a test COPY is required")
-        if commit_mode:
+        if core_mode:
+            if trial_input is not None:
+                raise ValueError("Choose exactly one trial input schema")
+            report["input"] = validate_core_input(core_trial_input)
+        elif commit_mode:
             report["input"] = validate_trial_input(trial_input)
         if document is None or document.IsFamilyDocument or document.IsWorkshared:
             raise ValueError("Open the non-workshared project copy, not a family or shared model")
@@ -291,10 +315,12 @@ def run_trial(document, DB, curve_list_factory, copy_confirmed=False, runtime=No
         solid = solid_report(probe, floor)
         report["host_solid"] = solid
         report["host_check"] = validate_prism(before["floor"], solid)
-        bar_type = document.GetElement(DB.ElementId(165163))
+        bar_type_id = 165160 if core_mode else 165163
+        bar_type = document.GetElement(DB.ElementId(bar_type_id))
         if not isinstance(bar_type, DB.Structure.RebarBarType):
-            raise ValueError("Reference type 165163 is not a RebarBarType")
-        plan = make_trial_plan(before["floor"], probe.bar_type(bar_type), trial_input)
+            raise ValueError("Requested reference type is not a RebarBarType")
+        plan = (make_core_plan(before["floor"], probe.bar_type(bar_type), core_trial_input) if core_mode
+                else make_trial_plan(before["floor"], probe.bar_type(bar_type), trial_input))
         report["plan"] = plan
         report["obstacle_check"] = {}
         report["obstacles"] = find_obstacles(probe, plan, report["obstacle_check"])
@@ -319,13 +345,21 @@ def run_trial(document, DB, curve_list_factory, copy_confirmed=False, runtime=No
             options = options.SetForcedModalHandling(True).SetFailuresPreprocessor(recorder)
         transaction.SetFailureHandlingOptions(options)
         stage = "create"
-        rebar = create_trial_rebar(probe, floor, bar_type, plan, curve_list_factory)
-        report["temporary_element_id"] = element_id(rebar.Id)
+        if core_mode:
+            report["temporary_element_ids"] = []
+            for run in plan["runs"]:
+                rebar = create_trial_rebar(probe, floor, bar_type, run, curve_list_factory)
+                report["temporary_element_ids"].append(element_id(rebar.Id))
+        else:
+            rebar = create_trial_rebar(probe, floor, bar_type, plan, curve_list_factory)
+            report["temporary_element_id"] = element_id(rebar.Id)
         stage = "regenerate"
         document.Regenerate()
         stage = "readback"
-        report["readback"] = read_trial_rebar(probe, rebar)
-        report["comparison"] = compare_trial(plan, report["readback"])
+        report["readback"] = (read_core_sets(probe, report["temporary_element_ids"]) if core_mode
+                              else read_trial_rebar(probe, rebar))
+        compare = compare_core_trial if core_mode else compare_trial
+        report["comparison"] = compare(plan, report["readback"])
         if commit_mode:
             if report["comparison"]["status"] != "matches":
                 raise ValueError("Pre-commit axes differ; Commit was not attempted")
@@ -342,11 +376,14 @@ def run_trial(document, DB, curve_list_factory, copy_confirmed=False, runtime=No
                 raise ValueError("Commit posted failures; the test is not accepted")
             stage = "post_commit_readback"
             # Reacquire by ID: do not substitute pre-Commit curves for real post-Commit readback.
-            committed_rebar = document.GetElement(DB.ElementId(report["temporary_element_id"]))
-            if not isinstance(committed_rebar, DB.Structure.Rebar):
-                raise ValueError("Committed test Rebar is missing")
-            report["post_commit_readback"] = read_trial_rebar(probe, committed_rebar)
-            report["post_commit_comparison"] = compare_trial(plan, report["post_commit_readback"])
+            if core_mode:
+                report["post_commit_readback"] = read_core_sets(probe, report["temporary_element_ids"])
+            else:
+                committed_rebar = document.GetElement(DB.ElementId(report["temporary_element_id"]))
+                if not isinstance(committed_rebar, DB.Structure.Rebar):
+                    raise ValueError("Committed test Rebar is missing")
+                report["post_commit_readback"] = read_trial_rebar(probe, committed_rebar)
+            report["post_commit_comparison"] = compare(plan, report["post_commit_readback"])
             report["post_commit_comparison"]["scope"] = "after inner Commit, before mandatory group rollback"
             report["not_checked"].remove("commit-time-validation")
         # These are persistent document warnings, not all pending commit-time failures.

@@ -68,15 +68,22 @@ def test_oracle_matches_unpruned_brute_force(case_index, axis):
     space = _native_space(problem, request)
     context = prepare_detailing(problem)
     points = set()
+
+    def independent_complexity(zones):
+        if axis is ComplexityAxis.ZONE_COUNT:
+            return len(zones)
+        if axis is ComplexityAxis.PHYSICAL_BAR_COUNT:
+            return sum(zone.bar_count for zone in zones)
+        # Independent grouping: do not call the optimizer's objective helper.
+        return len({(zone.rebar.diameter, round(zone.installed_length_mm, 6)) for zone in zones})
+
     # No coverage masks, objective pruning, GA repair or oracle dominance routine here.
     for count in range(request.max_details + 1):
         for indexes in itertools.combinations(range(len(space.candidates)), count):
             zones, _diagnostic = _materialize_genome(problem, space, frozenset(indexes), context)
             evaluation = evaluate_layout(problem, zones, request)
             if evaluation.valid:
-                complexity = count if axis is ComplexityAxis.ZONE_COUNT else sum(
-                    zone.bar_count for zone in zones
-                )
+                complexity = independent_complexity(zones)
                 points.add((complexity, evaluation.metrics.total_mass_kg))
     expected = sorted(
         point for point in points
@@ -91,8 +98,7 @@ def test_oracle_matches_unpruned_brute_force(case_index, axis):
 
     actual = [
         (
-            solution.metrics.detail_count if axis is ComplexityAxis.ZONE_COUNT
-            else solution.metrics.physical_bar_count,
+            independent_complexity(solution.zones),
             solution.metrics.total_mass_kg,
         )
         for solution in result.solutions

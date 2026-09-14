@@ -10,6 +10,7 @@ from rebar.models import Axis
 
 from ...contracts import BBox, LayoutProblem
 from ...services import build_zone_from_bbox, polygon_bbox_intersection_area, prepare_detailing
+from ...services.cutting import CutLengthInfeasibleError
 from ...services.geometry import GEOMETRY_TOLERANCE_MM, bboxes_distance, cell_bbox
 from .coverage import demand_fragments
 
@@ -90,7 +91,7 @@ def expand_recombined_space(
             zone = build_zone_from_bbox(problem, tight, level, "recombined-proposal",
                                         seed_cell_ids=(c.id for c, _ in eligible),
                                         collect_coverage=False, context=context)
-        except ValueError:
+        except CutLengthInfeasibleError:
             continue
         source_ids = tuple(c.id for c, _ in eligible)
         rectangle = _Rectangle(6_000_000 + len(ranked), *rows, *columns, level, source_ids, zone)

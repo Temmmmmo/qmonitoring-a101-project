@@ -102,6 +102,17 @@ def _algorithm_names(names: tuple[str, ...]) -> tuple[str, ...]:
     return normalized
 
 
+def load_direction_mosaic(
+    dxf_path: str | Path, *, shk_path: str | Path | None = None, mapping_id: str = "auto",
+) -> Mosaic:
+    """Одна входная граница для старого GA и составного полного комплекта."""
+    selected_mapping = _mapping(mapping_id)
+    if selected_mapping is not None and shk_path is not None:
+        raise ValueError("нельзя одновременно передать .shk и ручную таблицу армирования")
+    mosaic = read_mosaic(str(dxf_path), shk_path=str(shk_path) if shk_path is not None else None)
+    return apply_rebar_mapping(mosaic, selected_mapping) if selected_mapping is not None else mosaic
+
+
 def _algorithm_requests(
     names: tuple[str, ...],
     *,
@@ -123,7 +134,7 @@ def _algorithm_requests(
     requests: dict[str, AlgorithmRequest] = {}
     for name in names:
         params = dict(normalized_params.get(name, {}))
-        if name == "genetic-pareto":
+        if name in {"genetic-pareto", "genetic-source-recovery"}:
             params.setdefault("complexity_axis", complexity_axis.value)
         requests[name] = AlgorithmRequest(
             objective=ObjectiveWeights(detail_penalty_kg=detail_penalty_kg),
@@ -133,7 +144,8 @@ def _algorithm_requests(
     return requests
 
 
-def _representative(candidates: tuple[LayoutSolution, ...]) -> LayoutSolution:
+def _representative(candidates: tuple[LayoutSolution, ...],
+                    complexity_axis: ComplexityAxis = ComplexityAxis.ZONE_COUNT) -> LayoutSolution:
     """Выбрать стабильный центральный вариант, не называя его «Точкой 3»."""
 
     usable = tuple(
@@ -146,7 +158,9 @@ def _representative(candidates: tuple[LayoutSolution, ...]) -> LayoutSolution:
         return usable[0]
 
     masses = [solution.metrics.total_mass_kg for solution in usable]
-    counts = [solution.metrics.detail_count for solution in usable]
+    from rebar.optimization.services.constructability import measure_constructability
+
+    counts = [measure_constructability(solution).value(complexity_axis) for solution in usable]
     mass_span = max(masses) - min(masses)
     count_span = max(counts) - min(counts)
 
@@ -157,7 +171,7 @@ def _representative(candidates: tuple[LayoutSolution, ...]) -> LayoutSolution:
             else 0.0
         )
         normalized_count = (
-            (solution.metrics.detail_count - min(counts)) / count_span
+            (measure_constructability(solution).value(complexity_axis) - min(counts)) / count_span
             if count_span > 0
             else 0.0
         )
@@ -182,21 +196,13 @@ def analyze_direction(
     cutting_profile: str = "continuous",
     complexity_axis: ComplexityAxis = ComplexityAxis.ZONE_COUNT,
     algorithm_params: Mapping[str, Mapping[str, Any]] | None = None,
+    single_cell_policy: str = "preserve",
 ) -> DirectionAnalysis:
     """Разобрать один DXF и выполнить выбранные взаимозаменяемые оптимизаторы."""
 
-    selected_mapping = _mapping(mapping_id)
-    if selected_mapping is not None and shk_path is not None:
-        raise ValueError("нельзя одновременно передать .shk и ручную таблицу армирования")
-
     selected_algorithms = _algorithm_names(algorithm_names)
     allowed_cut_lengths = _cutting_lengths(cutting_profile)
-    mosaic = read_mosaic(
-        str(dxf_path),
-        shk_path=str(shk_path) if shk_path is not None else None,
-    )
-    if selected_mapping is not None:
-        mosaic = apply_rebar_mapping(mosaic, selected_mapping)
+    mosaic = load_direction_mosaic(dxf_path, shk_path=shk_path, mapping_id=mapping_id)
 
     problem = apply_single_cell_rule(
         build_layout_problem(
@@ -206,7 +212,7 @@ def analyze_direction(
                 allowed_cut_lengths_mm=allowed_cut_lengths,
                 cutting_profile=cutting_profile.strip().casefold(),
             ),
-        )
+        ), policy=single_cell_policy,
     )
     effective_max_details = resolve_zone_count_limit(problem, max_details)
     requests = _algorithm_requests(
@@ -230,7 +236,7 @@ def analyze_direction(
         if not generated:
             raise RuntimeError(f"алгоритм {name!r} не вернул ни одного решения")
         candidate_solutions.extend(generated)
-        solutions.append(_representative(generated))
+        solutions.append(_representative(generated, complexity_axis))
     front = build_direction_pareto_front(
         problem,
         candidate_solutions,

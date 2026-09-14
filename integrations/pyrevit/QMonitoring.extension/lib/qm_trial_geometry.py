@@ -71,20 +71,29 @@ def make_trial_plan(floor, bar_type, trial_input=None):
     from qm_trial_input import validate_trial_input
 
     zone = validate_trial_input(trial_input)["zone"] if trial_input is not None else {}
-    if not close(bar_type["nominal_diameter_mm"], 25) or not close(bar_type["model_diameter_mm"], 25):
-        raise ValueError("The selected type must have nominal AND model diameter 25 mm")
+    plan = make_run_plan(floor, bar_type, 25, zone.get("bar_count", 9), zone.get("length_mm", 3900),
+                         zone.get("spacing_mm", 96.875), zone.get("first_axis_offset_x_mm", 1000),
+                         zone.get("first_axis_offset_y_mm", 1012.5))
+    plan["source"] = ("explicit test-only JSON zone" if trial_input is not None else
+                      "confirmed manual geometry translated to an isolated test window")
+    return plan
+
+
+def make_run_plan(floor, bar_type, diameter, count, length, spacing, offset_x, offset_y):
+    """A validated test run: actual installed length only, never append anchorage."""
+    if not close(bar_type["nominal_diameter_mm"], diameter) or not close(bar_type["model_diameter_mm"], diameter):
+        raise ValueError("Both nominal and model diameter must match the requested test type")
     lo, hi = floor["bbox_mm"]["min_mm"], floor["bbox_mm"]["max_mm"]
     top = floor["top_faces"][0]["plane"]["origin_mm"][2]
-    z = top - floor["covers"]["top"]["distance_mm"] - 12.5
-    x = lo[0] + zone.get("first_axis_offset_x_mm", 1000)
-    y = lo[1] + zone.get("first_axis_offset_y_mm", 1012.5)
-    count, spacing, length = zone.get("bar_count", 9), zone.get("spacing_mm", 96.875), zone.get("length_mm", 3900)
+    radius = diameter / 2.0
+    z = top - floor["covers"]["top"]["distance_mm"] - radius
+    x, y = lo[0] + offset_x, lo[1] + offset_y
     axes = [{"start_mm": [x, y + i * spacing, z],
              "end_mm": [x + length, y + i * spacing, z]} for i in range(count)]
     box = bounds([p for axis in axes for p in (axis["start_mm"], axis["end_mm"])])
     # A conservative body envelope (also expands the straight cut ends by radius).
-    body = {"min_mm": [v - 12.5 for v in box["min_mm"]],
-            "max_mm": [v + 12.5 for v in box["max_mm"]]}
+    body = {"min_mm": [v - radius for v in box["min_mm"]],
+            "max_mm": [v + radius for v in box["max_mm"]]}
     margins = [("other", body["min_mm"][0] - lo[0]), ("other", hi[0] - body["max_mm"][0]),
                ("other", body["min_mm"][1] - lo[1]), ("other", hi[1] - body["max_mm"][1]),
                ("bottom", body["min_mm"][2] - lo[2]), ("top", hi[2] - body["max_mm"][2])]
@@ -94,11 +103,10 @@ def make_trial_plan(floor, bar_type, trial_input=None):
     reservation = {"min_mm": [body["min_mm"][0] - 100, body["min_mm"][1] - 100, lo[2] - 100],
                    "max_mm": [body["max_mm"][0] + 100, body["max_mm"][1] + 100, hi[2] + 100]}
     return {"host_id": floor["element_id"], "bar_type_id": bar_type["element_id"],
-            "bar_count": count, "diameter_mm": 25.0, "length_mm": length, "spacing_mm": spacing,
+            "bar_count": count, "diameter_mm": float(diameter), "length_mm": length, "spacing_mm": spacing,
             "layout_rule": "NumberWithSpacing", "normal": [0, 1, 0], "axes": axes,
             "body_envelope_mm": body, "reservation_mm": reservation,
-            "source": ("explicit test-only JSON zone" if trial_input is not None else
-                       "confirmed manual geometry translated to an isolated test window"),
+            "source": "core-installed-length-and-explicit-axis-run",
             "z_source": "host top face minus top cover minus model radius",
             "anchorage_added_mm": 0, "placement_eligible": False}
 

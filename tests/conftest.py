@@ -12,6 +12,30 @@ DATA_DIR = REPO_ROOT / "Дополнительные материалы"
 MOSAIC_DIR = DATA_DIR / "Изополя(мозаики) армирования"
 
 
+@pytest.fixture
+def composite_plate_sources(tmp_path):
+    """Четыре синтетических DXF, реальные parser/SHK; исходников заказчика нет."""
+    import struct
+
+    from rebar.application.demo import IRREGULAR_PLATE_DEMO, write_demo_dxf
+    from rebar.application.analyze_plate import PlateDirectionSource
+    from rebar.optimization.contracts.plate import PLATE_DIRECTIONS
+
+    origin = tmp_path / IRREGULAR_PLATE_DEMO.filename
+    write_demo_dxf(IRREGULAR_PLATE_DEMO.id, origin)
+    content = origin.read_bytes()
+    shk = tmp_path / "explicit.shk"
+    labels = [b"s300d18"] + [f"s300d18+s150d18+s300d{d}".encode() for d in (20, 22, 25, 28, 32)]
+    shk.write_bytes(b"".join(struct.pack("<ffHB", i + 1, i + 2, i, len(label)) + label for i, label in enumerate(labels)))
+    sources = []
+    for direction in PLATE_DIRECTIONS:
+        name = ("Нижнее" if direction.layer is Layer.BOTTOM else "Верхнее") + f" армирование {direction.axis.value}.dxf"
+        path = tmp_path / name
+        path.write_bytes(content)
+        sources.append(PlateDirectionSource(path, shk))
+    return tuple(sources)
+
+
 def _normalised(text: str) -> str:
     return unicodedata.normalize("NFC", text)
 
@@ -28,6 +52,23 @@ def _find_data_dir(name: str) -> Path:
 
 VERIFY_DIR = _find_data_dir("Для верификации изополей")
 VERIFY_2_DIR = _find_data_dir("Для верификации изополей 2")
+
+
+@pytest.fixture(scope="session")
+def lira_excel_sources() -> tuple[Path, Path, Path]:
+    """Новый пакет в корне отличается от старой одноимённой папки внутри данных."""
+    folders = [p for p in REPO_ROOT.iterdir()
+               if p.is_dir() and _normalised(p.name) == "Для верификации изополей 2"]
+    if len(folders) != 1:
+        pytest.skip("нет нового пакета Excel после встречи")
+    matches = [p for p in folders[0].iterdir()
+               if p.is_dir() and _normalised(p.name) == "Оцифровка изополей_фундамент"]
+    if len(matches) != 1:
+        pytest.skip("нет каталога числовой выгрузки фундамента")
+    files = tuple(matches[0] / name for name in ("Узлы.xlsx", "Элементы.xlsx", "Арматура в пластинах.xlsx"))
+    if not all(p.is_file() for p in files):
+        pytest.skip("комплект трёх XLSX отсутствует")
+    return files
 
 
 @pytest.fixture

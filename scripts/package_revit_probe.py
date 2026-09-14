@@ -11,6 +11,8 @@ EXTENSION = "QMonitoring.extension"
 BUTTON = f"{EXTENSION}/QMonitoring.tab/Diagnostics.panel/ReferenceProbe.pushbutton"
 TRIAL_BUTTON = f"{EXTENSION}/QMonitoring.tab/Diagnostics.panel/CreationTrial.pushbutton"
 JSON_BUTTON = f"{EXTENSION}/QMonitoring.tab/Diagnostics.panel/JsonTrial.pushbutton"
+CORE_BUTTON = f"{EXTENSION}/QMonitoring.tab/Diagnostics.panel/CoreTrial.pushbutton"
+CAD_BUTTON = f"{EXTENSION}/QMonitoring.tab/Diagnostics.panel/CadProbe.pushbutton"
 FILES = (
     "README.md",
     f"{EXTENSION}/lib/qm_probe_geometry.py",
@@ -25,6 +27,14 @@ FILES = (
     f"{JSON_BUTTON}/bundle.yaml",
     f"{JSON_BUTTON}/script.py",
     "samples/single-zone-trial.json",
+    f"{EXTENSION}/lib/qm_core_trial.py",
+    f"{CORE_BUTTON}/bundle.yaml",
+    f"{CORE_BUTTON}/script.py",
+    "samples/core-axis-trial.json",
+    f"{EXTENSION}/lib/qm_revit_cad.py",
+    f"{EXTENSION}/lib/qm_cad_diagnostics.py",
+    f"{CAD_BUTTON}/bundle.yaml",
+    f"{CAD_BUTTON}/script.py",
 )
 
 
@@ -40,7 +50,7 @@ def build_package(output: Path) -> Path:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path,
-                        default=ROOT / "artifacts/revit_probe/qmonitoring-revit-probe-0.3.0.zip")
+                        default=ROOT / "artifacts/revit_probe/qmonitoring-revit-probe-0.5.1.zip")
     args = parser.parse_args()
     print(build_package(args.output))
 

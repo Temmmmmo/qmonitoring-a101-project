@@ -1,0 +1,36 @@
+:root { color-scheme: light; font-family: system-ui, sans-serif; color: #203342; background: #f2f5f6; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+header, main { max-width: 1200px; margin: auto; padding: 24px; }
+header { padding-bottom: 0; }
+h1 { font-size: 28px; margin-bottom: 8px; }
+h2 { font-size: 21px; }
+p { line-height: 1.6; color: #4b5c66; }
+section { background: white; border: 1px solid #dce3e7; border-radius: 10px; padding: 24px; margin: 18px 0; }
+label { display: flex; flex-direction: column; gap: 7px; font-size: 14px; }
+input, select, button { font: inherit; border: 1px solid #becbd3; border-radius: 5px; padding: 10px; min-width: 0; }
+input[type=file] { max-width: 100%; }
+button { cursor: pointer; background: #234e63; color: white; }
+button:disabled { cursor: wait; opacity: .6; }
+button[aria-pressed=true] { background: #04765c; }
+.direction-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+fieldset { min-width: 0; border: 1px solid #dce3e7; border-radius: 7px; display: grid; gap: 12px; padding: 15px; }
+legend { font-weight: 650; }
+.fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin-top: 22px; }
+.check { flex-direction: row; align-items: baseline; margin-top: 14px; }
+.notice { border-left: 4px solid #b68121; background: #fff8e7; padding: 14px; }
+#error { color: #9c2121; white-space: pre-wrap; }
+.metrics { display: flex; flex-wrap: wrap; gap: 16px; padding: 16px 0; }
+.metrics div { padding: 15px; background: #eff5f6; border-radius: 7px; }
+.metrics strong { font-size: 22px; display: block; }
+#drawing { margin-top: 16px; border: 1px solid #dce3e7; min-height: 120px; overflow: auto; }
+#drawing svg { display: block; width: 100%; max-height: 650px; padding: 15px; }
+nav, .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+details { margin: 16px 0; }
+summary { cursor: pointer; }
+.quick-start { border-color: #87ada6; background: #f5fbf9; }
+#custom-inputs > summary { padding: 16px; border: 1px solid #becbd3; border-radius: 7px; background: white; font-weight: 650; }
+table { border-collapse: collapse; width: 100%; margin-top: 15px; }
+td, th { text-align: left; border-bottom: 1px solid #dce3e7; padding: 9px; }
+.table-scroll { overflow: auto; }
+@media(max-width: 700px) { .direction-grid, .fields { grid-template-columns: 1fr; } header, main { padding: 14px; } section { padding: 16px; } }

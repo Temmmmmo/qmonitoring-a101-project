@@ -13,6 +13,7 @@ from time import perf_counter
 from typing import TYPE_CHECKING
 
 from ...contracts import ComplexityAxis
+from ...services.bar_schedule import straight_bar_key
 
 if TYPE_CHECKING:
     from ..genetic_pareto import _SearchSpace
@@ -86,13 +87,42 @@ def polish_candidate_pool(
             row_ids.append(row)
             column_ids.append(column)
     count = len(space.candidates)
+    position_groups: dict[tuple, list[int]] = {}
+    if complexity_axis is ComplexityAxis.POSITION_COUNT:
+        for index, candidate in enumerate(space.candidates):
+            zone = candidate.rectangle.zone
+            key = straight_bar_key(zone.rebar.diameter, zone.installed_length_mm)
+            position_groups.setdefault(key, []).append(index)
+    variable_count = count + len(position_groups)
     matrix = coo_matrix((np.ones(len(row_ids)), (row_ids, column_ids)),
-                        shape=(len(patterns), count)).tocsc()
-    mass = np.array([c.mass_kg for c in space.candidates])
-    complexity = np.array([1 if complexity_axis is ComplexityAxis.ZONE_COUNT
-                           else c.rectangle.zone.bar_count for c in space.candidates], dtype=float)
+                        shape=(len(patterns), variable_count)).tocsc()
+    mass = np.array([c.mass_kg for c in space.candidates] + [0.0] * len(position_groups))
+    if complexity_axis is ComplexityAxis.POSITION_COUNT:
+        complexity = np.array([0.0] * count + [1.0] * len(position_groups))
+    else:
+        complexity = np.array([1 if complexity_axis is ComplexityAxis.ZONE_COUNT
+                               else c.rectangle.zone.bar_count for c in space.candidates], dtype=float)
     constraints = [LinearConstraint(matrix, 1, np.inf),
-                   LinearConstraint(np.ones(count), 0, maximum_zones)]
+                   LinearConstraint(np.array([1.0] * count + [0.0] * len(position_groups)),
+                                    0, maximum_zones)]
+    # y_k == OR(x_i): общая позиция оплачивается один раз, даже в нескольких зонах.
+    link_rows, link_columns, link_values = [], [], []
+    link_count = 0
+    for offset, indexes in enumerate(position_groups.values()):
+        position_column = count + offset
+        for index in indexes:
+            link_rows.extend((link_count, link_count))
+            link_columns.extend((index, position_column))
+            link_values.extend((1.0, -1.0))
+            link_count += 1
+        link_rows.extend([link_count] * (len(indexes) + 1))
+        link_columns.extend([position_column, *indexes])
+        link_values.extend([1.0, *([-1.0] * len(indexes))])
+        link_count += 1
+    if link_count:
+        links = coo_matrix((link_values, (link_rows, link_columns)),
+                           shape=(link_count, variable_count)).tocsc()
+        constraints.append(LinearConstraint(links, -np.inf, 0))
     telemetry.update(candidate_count=count, atom_count=space.leaf_count, coverage_rows=len(patterns))
     records = []
     genomes: list[frozenset[int]] = []
@@ -106,7 +136,7 @@ def polish_candidate_pool(
             return None
         bounds = [] if budget is None else [LinearConstraint(complexity, 0, budget)]
         solve_started = perf_counter()
-        result = milp(objective, integrality=np.ones(count), bounds=Bounds(0, 1),
+        result = milp(objective, integrality=np.ones(variable_count), bounds=Bounds(0, 1),
                       constraints=[*constraints, *bounds],
                       options={"time_limit": remaining, "mip_rel_gap": 1e-7})
 
@@ -127,11 +157,20 @@ def polish_candidate_pool(
         if result.x is None or not np.all(np.isfinite(result.x)):
             return None
         rounded = np.rint(result.x)
-        genome = frozenset(np.flatnonzero(rounded).tolist())
-        actual_complexity = sum(int(complexity[index]) for index in genome)
+        genome = frozenset(np.flatnonzero(rounded[:count]).tolist())
+        if position_groups:
+            active_positions = np.array([
+                float(any(index in genome for index in indexes))
+                for indexes in position_groups.values()
+            ])
+            if not np.array_equal(rounded[count:], active_positions):
+                return None
+            actual_complexity = int(sum(active_positions))
+        else:
+            actual_complexity = sum(int(complexity[index]) for index in genome)
         if (np.any(np.abs(result.x - rounded) > 1e-6) or np.any(rounded < 0)
                 or np.any(rounded > 1) or np.any(matrix @ rounded < 1)
-                or sum(rounded) > maximum_zones
+                or len(genome) > maximum_zones
                 or (budget is not None and actual_complexity > budget)):
             return None
         if genome not in genomes:

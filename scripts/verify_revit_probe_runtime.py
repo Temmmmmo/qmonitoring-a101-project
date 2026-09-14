@@ -7,6 +7,7 @@ No dependencies. Temporary synthetic files only; no model or network access.
 from __future__ import print_function, unicode_literals
 
 import argparse
+import copy
 import json
 import math
 import os
@@ -16,6 +17,31 @@ import sys
 import tempfile
 
 
+def check_cad_comparison():
+    """Exercise bounded mesh matching in IronPython, without Autodesk API or private data."""
+    from qm_cad_diagnostics import INSTANCE_METHOD, SYMBOL_METHOD, compare_geometry_reads
+
+    triangle = [[0., 0., 0.], [100., 0., 0.], [0., 100., 0.]]
+    # Unknown layers deliberately stay unknown even when both readings match.
+    first = {"method": SYMBOL_METHOD, "mesh_read_complete": True, "units": "mm",
+             "coordinate_system": "revit-internal-origin-and-axes", "triangles_mm": [],
+             "meshes": [{"layer": None, "triangles_mm": [triangle, copy.deepcopy(triangle)]}]}
+    second = copy.deepcopy(first)
+    second["method"] = INSTANCE_METHOD
+    second["meshes"][0]["triangles_mm"][0].reverse()
+    matched = compare_geometry_reads(first, second)
+    assert matched["status"] == "matches" and matched["matched_triangle_count"] == 2
+    assert not matched["placement_eligible"] and not matched["layer_identity_verified"]
+    second["meshes"][0]["triangles_mm"][0][0][2] += 10
+    assert compare_geometry_reads(first, second)["status"] == "differs"
+    second["mesh_read_complete"] = False
+    assert compare_geometry_reads(first, second)["status"] == "not_checked"
+    second["mesh_read_complete"] = True
+    second["meshes"][0]["triangles_mm"][0][0][2] = float("nan")
+    assert compare_geometry_reads(first, second)["status"] == "not_checked"
+    print("PASS: CAD triangle winding, duplicates, mismatch, incomplete/NaN rejection; layers remain unverified")
+
+
 def check_trial_geometry(lib_dir):
     """Exercise new pure geometry on the real Python engine, without mocking Autodesk."""
     from qm_trial_geometry import compare_trial, make_trial_plan, validate_prism
@@ -23,9 +49,10 @@ def check_trial_geometry(lib_dir):
     extension = os.path.dirname(os.path.abspath(lib_dir))
     # Explicit delivery list: this Linux/.NET bridge can misclassify dirs in os.walk.
     paths = ["lib/" + name + ".py" for name in (
-        "qm_probe_geometry", "qm_revit_probe", "qm_trial_geometry", "qm_revit_trial", "qm_trial_input")]
+        "qm_probe_geometry", "qm_revit_probe", "qm_trial_geometry", "qm_revit_trial", "qm_trial_input", "qm_core_trial",
+        "qm_revit_cad", "qm_cad_diagnostics")]
     paths += ["QMonitoring.tab/Diagnostics.panel/" + name + ".pushbutton/script.py"
-              for name in ("ReferenceProbe", "CreationTrial", "JsonTrial")]
+              for name in ("ReferenceProbe", "CreationTrial", "JsonTrial", "CoreTrial", "CadProbe")]
     for relative in paths:
         path = os.path.join(extension, relative)
         with open(path, "rb") as source:
@@ -91,7 +118,24 @@ def check_trial_geometry(lib_dir):
         raise AssertionError("Boolean accepted as bar count")
     except ValueError:
         pass
-    print("PASS: 6 JSON checks (sample, parameters, duplicate, NaN, Infinity, boolean); 8 Python files compiled")
+    print("PASS: 6 JSON checks (sample, parameters, duplicate, NaN, Infinity, boolean); 13 Python files compiled")
+    from qm_core_trial import compare_core_trial, load_core_input, make_core_plan
+
+    data = load_core_input(os.path.join(os.path.dirname(extension), "samples", "core-axis-trial.json"))
+    type18 = {"element_id": 165160, "nominal_diameter_mm": 18, "model_diameter_mm": 18}
+    plan = make_core_plan(floor, type18, data)
+    assert len(plan["runs"]) == 2 and plan["physical_bar_count"] == 6
+    assert plan["runs"][0]["axes"][0]["start_mm"] == [1280, 1100, -34]
+    sets = []
+    for index, run in enumerate(plan["runs"]):
+        sets.append({"element_id": 100 + index, "host_id": 407801, "quantity": 3,
+                     "number_of_bar_positions": 3, "layout_rule": "NumberWithSpacing", "bar_type": type18,
+                     "hook_type_ids": [-1, -1],
+                     "bars": [{"curves": [line(a["start_mm"], a["end_mm"])]} for a in run["axes"]]})
+    assert compare_core_trial(plan, {"sets": sets})["status"] == "matches"
+    sets[1]["bars"][0]["curves"][0]["start_mm"][1] -= 100
+    assert compare_core_trial(plan, {"sets": sets})["status"] == "differs"
+    print("PASS: core packet, two runs, physical readback and 100/200 mismatch rejection")
 
 
 def main():
@@ -167,6 +211,23 @@ def main():
         except ValueError:
             pass
         checks += 1
+        from qm_revit_cad import hash_local_dxf
+
+        dxf = os.path.join(unicode_directory, "Верхнее Х.dxf")
+        with open(dxf, "wb") as synthetic:
+            synthetic.write(b"synthetic DXF bytes")
+        fingerprint = hash_local_dxf(dxf)
+        assert fingerprint["status"] == "read" and fingerprint["size_bytes"] == 19
+        import hashlib
+
+        assert fingerprint["sha256"] == hashlib.sha256(b"synthetic DXF bytes").hexdigest()
+        for rejected in ("//server/share/file.dxf", "relative.dxf", destination):
+            try:
+                hash_local_dxf(rejected)
+                raise AssertionError("Unsafe CAD fingerprint path accepted")
+            except ValueError:
+                pass
+        print("PASS: CAD module import, Unicode DXF fingerprint and unsafe-path rejection; no Revit API exercised")
     finally:
         # Only our freshly-created synthetic temporary directory, never a project directory.
         # IronPython's .NET Core POSIX stat/rmdir bridge can misclassify directories.
@@ -178,6 +239,7 @@ def main():
             shutil.rmtree(directory)
     print("PASS: {0} serialization/file checks; no Revit API exercised".format(checks))
     check_trial_geometry(args.lib_dir)
+    check_cad_comparison()
 
 
 if __name__ == "__main__":

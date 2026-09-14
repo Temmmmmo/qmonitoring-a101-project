@@ -234,6 +234,7 @@ def test_built_in_registry_switches_real_algorithms(splittable_mosaic):
         "bbox",
         "bsp",
         "genetic-pareto",
+        "genetic-source-recovery",
         "greedy",
         "greedy-priority",
         "row-run-greedy",
@@ -245,6 +246,7 @@ def test_built_in_registry_switches_real_algorithms(splittable_mosaic):
         "bbox",
         "bsp",
         "genetic-pareto",
+        "genetic-source-recovery",
         "greedy",
         "greedy-priority",
         "row-run-greedy",
@@ -306,12 +308,12 @@ def test_real_mosaic_is_accepted_by_every_algorithm(dxf_bottom_x):
     for name in registry.names():
         max_details = (
             32
-            if name in {"genetic-pareto", "spatial-partition-greedy"}
+            if name in {"genetic-pareto", "genetic-source-recovery", "spatial-partition-greedy"}
             else 1
         )
         params = (
             {"population_size": 4, "generations": 1}
-            if name == "genetic-pareto"
+            if name in {"genetic-pareto", "genetic-source-recovery"}
             else {}
         )
         solution = registry.create(name).solve(

@@ -34,6 +34,8 @@ from ..services import (
     resolve_zone_phases,
 )
 from ..services.geometry import GEOMETRY_TOLERANCE_MM
+from ..services.cutting import CutLengthInfeasibleError
+from ..services.bar_schedule import zone_position_keys
 from .agglomerative import AgglomerativeOptimizer
 from .bsp import BspOptimizer
 from .genetic import (
@@ -48,6 +50,13 @@ from .genetic.local_search import improve_genome
 from .genetic.pool_solver import polish_candidate_pool
 from .genetic.recombination import expand_recombined_space
 from .genetic.coverage import CoverageAtom as _AtomicLeaf, demand_fragments
+from .genetic.host_filter import (
+    CandidateGuard,
+    check_materialized_zones,
+    filter_candidate_space,
+    missing_atoms,
+    preserve_atom_boundaries,
+)
 from .greedy_priority import PriorityGreedyOptimizer
 from .spatial_partition_greedy import (
     _Grid,
@@ -222,7 +231,12 @@ def _baseline_seed_rectangles(
         if deadline is not None and perf_counter() >= deadline:
             break
         optimizer_type = _BASELINE_SEED_OPTIMIZERS[algorithm_name]
-        solution = optimizer_type().solve(problem, baseline_request)
+        try:
+            solution = optimizer_type().solve(problem, baseline_request)
+        except CutLengthInfeasibleError:
+            # Frozen-baseline может начать с общего bbox длиннее прутка. Это
+            # необязательный seed: полное пространственное покрытие уже построено.
+            continue
         if (
             solution.status not in {SolutionStatus.FEASIBLE, SolutionStatus.OPTIMAL}
             or solution.metrics.under_reinforced_cell_count != 0
@@ -346,18 +360,21 @@ def _layer_bridge_candidates(
                     }
                 )
             )
-            rectangle = _make_rectangle(
-                problem,
-                grid,
-                context,
-                key=next_key,
-                row_start=hull[0],
-                row_end=hull[1],
-                column_start=hull[2],
-                column_end=hull[3],
-                level_index=first.level_index,
-                source_cell_ids=source_ids,
-            )
+            try:
+                rectangle = _make_rectangle(
+                    problem,
+                    grid,
+                    context,
+                    key=next_key,
+                    row_start=hull[0],
+                    row_end=hull[1],
+                    column_start=hull[2],
+                    column_end=hull[3],
+                    level_index=first.level_index,
+                    source_cell_ids=source_ids,
+                )
+            except CutLengthInfeasibleError:
+                continue
             result.setdefault(
                 _rectangle_signature(rectangle),
                 (rectangle, covered_leaves),
@@ -590,26 +607,29 @@ def _build_search_space(
         minimum_level = max(leaves[leaf_id].level_index for leaf_id in leaf_ids)
         if minimum_level == rectangle.level_index:
             continue
-        variant = _make_rectangle(
-            problem,
-            grid,
-            context,
-            key=3_000_000 + len(pool_rectangles),
-            row_start=rectangle.row_start,
-            row_end=rectangle.row_end,
-            column_start=rectangle.column_start,
-            column_end=rectangle.column_end,
-            level_index=minimum_level,
-            source_cell_ids=tuple(
-                sorted(
-                    {
-                        cell_id
-                        for leaf_id in leaf_ids
-                        for cell_id in leaves[leaf_id].source_cell_ids
-                    }
-                )
-            ),
-        )
+        try:
+            variant = _make_rectangle(
+                problem,
+                grid,
+                context,
+                key=3_000_000 + len(pool_rectangles),
+                row_start=rectangle.row_start,
+                row_end=rectangle.row_end,
+                column_start=rectangle.column_start,
+                column_end=rectangle.column_end,
+                level_index=minimum_level,
+                source_cell_ids=tuple(
+                    sorted(
+                        {
+                            cell_id
+                            for leaf_id in leaf_ids
+                            for cell_id in leaves[leaf_id].source_cell_ids
+                        }
+                    )
+                ),
+            )
+        except CutLengthInfeasibleError:
+            continue
         add_to_pool(variant, leaf_ids, "minimal-level-variant")
 
     ordered_signatures = sorted(pool_rectangles)
@@ -846,6 +866,8 @@ def _individual(
         complexity = sum(
             space.candidates[index].rectangle.zone.bar_count for index in genome
         )
+    elif complexity_axis is ComplexityAxis.POSITION_COUNT:
+        complexity = len(zone_position_keys(space.candidates[index].rectangle.zone for index in genome))
     else:
         raise ValueError(f"неподдерживаемая ось сложности GA: {complexity_axis}")
     return _Individual(
@@ -1259,6 +1281,16 @@ class GeneticParetoOptimizer:
 
     name = "genetic-pareto"
 
+    def __init__(self, *, candidate_guard: CandidateGuard | None = None):
+        """Optional read-only predicate; not a request parameter or global policy.
+
+        The default path stays unchanged. A caller may impose exact host/STO
+        restrictions without altering the original demand, parser or registry.
+        """
+        if candidate_guard is not None and not callable(candidate_guard):
+            raise TypeError("candidate_guard must be callable or None")
+        self._candidate_guard = candidate_guard
+
     def solve_many(
         self,
         problem: LayoutProblem,
@@ -1410,10 +1442,45 @@ class GeneticParetoOptimizer:
             maximum_layer_variants=maximum_layer_variants,
             coverage_atoms=coverage_atoms,
         )
+        guard_stages: list[dict[str, object]] = []
+        guard_coverage: dict[str, object] = {}
+        if self._candidate_guard is not None:
+            space, stage = filter_candidate_space(problem, space, self._candidate_guard, stage="initial_candidate_pool")
+            guard_stages.append(stage)
         if recombination_variants:
+            before_recombination = space
             space = expand_recombined_space(
                 problem, space, maximum_variants=recombination_variants, deadline=deadline,
             )
+            if self._candidate_guard is not None:
+                space = preserve_atom_boundaries(problem, before_recombination, space)
+                space, stage = filter_candidate_space(problem, space, self._candidate_guard,
+                                                     stage="after_geometric_recombination")
+                guard_stages.append(stage)
+        if self._candidate_guard is not None:
+            guard_coverage = missing_atoms(space)
+            if guard_coverage["missing_atom_count"]:
+                evaluation = evaluate_layout(problem, (), request)
+                return (LayoutSolution(
+                    algorithm=self.name, status=SolutionStatus.INFEASIBLE, zones=(),
+                    metrics=evaluation.metrics, request=request, runtime_ms=(perf_counter()-started)*1000,
+                    diagnostics=(*evaluation.diagnostics,
+                        "ERROR: после candidate_guard конечный пул не покрывает "
+                        f"{guard_coverage['missing_atom_count']} исходных атомов спроса; "
+                        "генетический поиск не запущен, исходные КЭ не удалены. "
+                        "Это невозможность покрытия данным пулом, не всеми возможными раскладками."),
+                    meta={"kind": "genetic_spatial_candidate_set", "pareto_population": True,
+                        "random_seed": random_seed, "population_size": population_size,
+                        "generations_requested": generations, "generations_completed": 0,
+                        "candidate_pool_size": len(space.candidates), "coverage_atoms": coverage_atoms,
+                        "coverage_atom_count": space.leaf_count, "operator_learning": operator_policy.snapshot(),
+                        "candidate_guard": {"enabled": True, "stages": guard_stages,
+                            "coverage": guard_coverage, "evolution_started": False,
+                            "source_demand_removed": False, "source_demand_values_changed": False,
+                            "global_infeasibility_claimed": False,
+                            "final_materialization": {"checked_zone_count": 0, "passed": False,
+                                "reason": "no_full_coverage_candidate_pool"}}},
+                ),)
         population, history, evolution_timed_out, operator_learning = _evolve(
             space,
             detail_limit=detail_limit,
@@ -1465,14 +1532,27 @@ class GeneticParetoOptimizer:
         context = prepare_detailing(problem)
         solutions: list[LayoutSolution] = []
         archive_validation = {"checked": 0, "rejected": 0, "maximum_mass_error_kg": 0.0}
+        guard_archive = {"checked_solutions": 0, "rejected_solutions": 0, "rejected_candidates": []}
         for candidate_number, individual in enumerate(approximate_front, 1):
             exact_baseline_seed = individual.genome in space.baseline_seed_genomes
             zones, phase_diagnostic = _materialize_genome(
                 problem, space, individual.genome, context,
             )
+            final_guard = (check_materialized_zones(problem, zones, self._candidate_guard)
+                           if self._candidate_guard is not None else None)
+            guard_passed = final_guard is None or final_guard["passed"]
+            if final_guard is not None:
+                guard_archive["checked_solutions"] += 1
+                if not guard_passed:
+                    guard_archive["rejected_solutions"] += 1
+                    guard_archive["rejected_candidates"].append({
+                        "candidate_number": candidate_number,
+                        "genome_candidate_indexes": sorted(individual.genome),
+                        "final_check": final_guard,
+                    })
             evaluation = evaluate_layout(problem, zones, request)
             archive_validation["checked"] += 1
-            archive_validation["rejected"] += int(not evaluation.valid)
+            archive_validation["rejected"] += int(not evaluation.valid or not guard_passed)
             archive_validation["maximum_mass_error_kg"] = max(
                 archive_validation["maximum_mass_error_kg"],
                 abs(evaluation.metrics.total_mass_kg - individual.mass_kg),
@@ -1481,6 +1561,10 @@ class GeneticParetoOptimizer:
             diagnostics = evaluation.diagnostics
             if phase_diagnostic is not None:
                 diagnostics = (*diagnostics, phase_diagnostic)
+            if not guard_passed:
+                diagnostics = (*diagnostics,
+                    "ERROR: candidate_guard отклонил итоговую геометрию после материализации/фаз: "
+                    + ", ".join(item["zone_id"] for item in final_guard["rejected_zones"]))
             if timed_out:
                 diagnostics = (
                     *diagnostics,
@@ -1492,7 +1576,7 @@ class GeneticParetoOptimizer:
                     algorithm=self.name,
                     status=(
                         SolutionStatus.FEASIBLE
-                        if evaluation.valid
+                        if evaluation.valid and guard_passed
                         else SolutionStatus.ERROR
                     ),
                     zones=zones,
@@ -1549,6 +1633,13 @@ class GeneticParetoOptimizer:
                         "complexity_axis": complexity_axis.value,
                         "mutation_operators": MUTATION_OPERATORS,
                         "operator_learning": operator_learning,
+                        **({"candidate_guard": {"enabled": True, "stages": guard_stages,
+                            "coverage": guard_coverage, "evolution_started": True,
+                            "source_demand_removed": False, "source_demand_values_changed": False,
+                            "global_infeasibility_claimed": False,
+                            "archive_materialization": guard_archive,
+                            "final_materialization": final_guard}}
+                           if self._candidate_guard is not None else {}),
                     },
                 )
             )
@@ -1564,12 +1655,21 @@ class GeneticParetoOptimizer:
         def actual_complexity(solution: LayoutSolution) -> int:
             if complexity_axis is ComplexityAxis.ZONE_COUNT:
                 return solution.metrics.detail_count
+            if complexity_axis is ComplexityAxis.POSITION_COUNT:
+                return len(zone_position_keys(solution.zones))
             return solution.metrics.physical_bar_count
 
         def solution_dominates(
             first: LayoutSolution,
             second: LayoutSolution,
         ) -> bool:
+            if complexity_axis is ComplexityAxis.POSITION_COUNT:
+                # Сохраняем альтернативную номенклатуру для объединения всей плиты.
+                first_keys, second_keys = zone_position_keys(first.zones), zone_position_keys(second.zones)
+                return (first_keys <= second_keys
+                        and first.metrics.total_mass_kg <= second.metrics.total_mass_kg + _MASS_TOLERANCE_KG
+                        and (first_keys < second_keys or first.metrics.total_mass_kg
+                             < second.metrics.total_mass_kg - _MASS_TOLERANCE_KG))
             first_complexity = actual_complexity(first)
             second_complexity = actual_complexity(second)
             return (
@@ -1583,10 +1683,11 @@ class GeneticParetoOptimizer:
                 )
             )
 
-        unique_by_point: dict[tuple[int, float], LayoutSolution] = {}
+        unique_by_point: dict[tuple, LayoutSolution] = {}
         for solution in valid_solutions:
             point = (
-                actual_complexity(solution),
+                tuple(sorted(zone_position_keys(solution.zones)))
+                if complexity_axis is ComplexityAxis.POSITION_COUNT else actual_complexity(solution),
                 round(solution.metrics.total_mass_kg, 6),
             )
             unique_by_point.setdefault(point, solution)

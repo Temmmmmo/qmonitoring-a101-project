@@ -83,3 +83,31 @@ def a101_247_slab_recipe_placement(
         AxisPlacement(PeriodicAxisPattern.uniform(300.0), background_origin_mm), tuple(additions),
         "A101-2.4.7/slab-300-150; Revit specialist clarification 2026-09-07; partial",
     )
+
+
+def a101_sto_279_slab_recipe_placement(
+    recipe: ReinforcementRecipe, *, background_origin_mm: float, contact_side: str,
+) -> RecipePlacement:
+    """СТО 5.5 рев3, стр.65, табл.2.7.9: @100 с касанием соседнего фона.
+
+    Расчётная интерпретация рисунка для осей на ОДНОЙ высоте: две добавочные оси
+    на +100/+200, третья касается фонового стержня слева или справа. Перенос на
+    иную глубину требует повторного расчёта контакта; эта фабрика Z не назначает.
+    Старый профиль 2.4.7 остаётся неизменным и по-прежнему отклоняет @100.
+    """
+    if contact_side not in ("left", "right"):
+        raise ValueError("сторона касания фона должна быть явно left или right")
+    if not any(spec.step == 100 for spec in recipe.additions):
+        return a101_247_slab_recipe_placement(recipe, background_origin_mm=background_origin_mm)
+    if recipe.background.step != 300 or len(recipe.additions) != 1:
+        raise ValueError("схема касания @100 поддержана только для одного добавочного набора и фона @300")
+    spec = recipe.additions[0]
+    delta = (spec.diameter + recipe.background.diameter) / 2
+    if not 0 < delta < 100:
+        raise ValueError("диаметры не помещаются в схему СТО @100")
+    offsets = (100.0, 200.0, 300.0 - delta) if contact_side == "left" else (delta, 100.0, 200.0)
+    return RecipePlacement(
+        AxisPlacement(PeriodicAxisPattern.uniform(300), background_origin_mm),
+        (AxisPlacement(PeriodicAxisPattern(300, offsets), background_origin_mm),),
+        "A101 STO 5.5 rev3 p65 table 2.7.9; coplanar-axis contact " + contact_side + "; Z not verified",
+    )

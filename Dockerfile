@@ -10,8 +10,12 @@ RUN groupadd --system rebar \
 
 WORKDIR /app
 
-COPY pyproject.toml README.md requirements-runtime.txt ./
+COPY pyproject.toml setup.py MANIFEST.in README.md requirements-runtime.txt ./
 COPY src ./src
+COPY integrations/pyrevit/QMonitoring.extension/lib ./integrations/pyrevit/QMonitoring.extension/lib
+COPY integrations/pyrevit/QMonitoring.extension/QMonitoring.tab/Diagnostics.panel/WorkingHostProbe.pushbutton ./integrations/pyrevit/QMonitoring.extension/QMonitoring.tab/Diagnostics.panel/WorkingHostProbe.pushbutton
+COPY integrations/pyrevit/QMonitoring.extension/QMonitoring.tab/Diagnostics.panel/WorkingRebarProbe.pushbutton ./integrations/pyrevit/QMonitoring.extension/QMonitoring.tab/Diagnostics.panel/WorkingRebarProbe.pushbutton
+COPY integrations/pyrevit/QMonitoring.extension/QMonitoring.tab/Diagnostics.panel/PlanPreview.pushbutton ./integrations/pyrevit/QMonitoring.extension/QMonitoring.tab/Diagnostics.panel/PlanPreview.pushbutton
 
 RUN python -m pip install --upgrade pip \
     && python -m pip install -r requirements-runtime.txt \

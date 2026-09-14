@@ -197,18 +197,22 @@ def _postprocessing_item(
         for diagnostic in diagnostics
     )
     gap_check_disabled = any(
+        not problem.constraints.enforce_zone_gap
+        for problem, _ in problem_solutions
+    ) or any(
         "проверка раздвижки зон отключена" in diagnostic
         for diagnostic in diagnostics
     )
     return _deviation(
         id="postprocessing-conflicts",
         title="Коллизии после 40d и раздвижки",
-        status="pass" if conflicts == 0 and not gap_check_disabled else "warning",
+        status=("warning" if conflicts else "not_checked" if gap_check_disabled else "pass"),
         unit="пар",
         target=0.0,
-        actual=float(conflicts),
+        actual=None if gap_check_disabled and not conflicts else float(conflicts),
         note=(
             "Относительное отклонение не определяется для нулевого норматива. "
+            "Отключение проверки в constraints означает not_checked даже без сообщения в diagnostics. "
             "Отключённая проверка или найденные пары требуют решения до экспорта."
         ),
     )
@@ -294,6 +298,22 @@ def _a101_catalog_item(
     )
 
 
+def _source_demand_item(
+    problem_solutions: tuple[tuple[LayoutProblem, LayoutSolution], ...],
+) -> GateDeviation:
+    changed = sum(
+        int((problem.meta.get("single_cell_preprocessing") or {}).get("changed_count", 0))
+        for problem, _ in problem_solutions
+    )
+    return _deviation(
+        id="source-demand-preserved", title="Исходная потребность без осреднения",
+        status="fail" if changed else "pass", unit="КЭ", target=0.0,
+        actual=float(changed),
+        note=("Геометрическое понижение одиночного КЭ не заменяет осреднение по СТО 2.15. "
+              "Покрытие изменённой карты не доказывает покрытие исходной потребности."),
+    )
+
+
 def assess_layout_gates(
     problem: LayoutProblem,
     solution: LayoutSolution,
@@ -304,6 +324,7 @@ def assess_layout_gates(
     pairs = ((problem, solution),)
     return GateAssessment(
         items=(
+            _source_demand_item(pairs),
             _coverage_item(
                 demanded=metrics.demanded_cell_count,
                 covered=metrics.covered_demanded_cell_count,
@@ -331,6 +352,7 @@ def assess_plate_gates(
     )
     metrics = solution.metrics
     items = [
+        _source_demand_item(pairs),
         _deviation(
             id="plate-directions",
             title="Полный комплект направлений",

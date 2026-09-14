@@ -8,7 +8,7 @@ from typing import Annotated
 
 from ezdxf.lldxf.const import DXFError
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
@@ -31,15 +31,30 @@ from rebar.application import (
 )
 from rebar.golden import GOLDEN_CASES, GoldenCaseDefinition, get_golden_case
 from rebar.optimization import (
+    ComplexityAxis,
     MissingRebarSpecificationError,
     RebarMappingError,
     built_in_optimizer_registry,
     measure_plate_constructability,
+    measure_constructability,
     zone_count_bounds,
 )
 from rebar.reporting.serialization import to_jsonable
+from rebar.application.inspect_lira_excel import inspect_lira_excel
 from rebar.reporting.svg import render_solution_svg
 from rebar.reporting.zone_schedule import build_zone_schedule
+from rebar.optimization.services.bar_schedule import build_bar_schedule, layout_schedule_groups
+from rebar.application.analyze_composite_plate import CompositeDirectionSettings, analyze_composite_plate
+from rebar.application.composite_demo import analyze_composite_demo
+from rebar.application.composite_layout_review import load_review_input
+from rebar.application.composite_host_review import HOST_COORDINATE_POLICY
+from rebar.dxf_ingest import direction_from_filename
+from rebar.models import Axis, Direction, Layer
+from rebar.optimization.contracts.plate import PLATE_DIRECTIONS
+from rebar.application.revit_installation import (
+    RevitBundleUnavailableError, revit_tool_catalog, revit_tool_download,
+)
+from rebar.web.revit_inspection import router as revit_inspection_router
 
 STATIC_DIR = Path(__file__).with_name("static")
 MAX_UPLOAD_BYTES = 30 * 1024 * 1024
@@ -64,6 +79,10 @@ ALGORITHM_INFO = {
             "Эволюционно строит серию вариантов; UCB адаптивно выбирает "
             "предметные мутации."
         ),
+    },
+    "genetic-source-recovery": {
+        "title": "GA с восстановлением исходной потребности",
+        "description": "Строит компактные предложения и восстанавливает все исходные КЭ; инженерские замечания сохраняются.",
     },
     "greedy": {
         "title": "Greedy",
@@ -108,6 +127,116 @@ app = FastAPI(
     version="0.1.0",
 )
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+app.include_router(revit_inspection_router)
+
+
+@app.get("/composite")
+async def composite_workspace():
+    return FileResponse(STATIC_DIR / "composite.html")
+
+
+@app.get("/revit")
+async def revit_workspace():
+    return FileResponse(STATIC_DIR / "revit.html")
+
+
+@app.get("/api/revit/tools")
+async def available_revit_tools():
+    try:
+        return await run_in_threadpool(revit_tool_catalog)
+    except RevitBundleUnavailableError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+
+
+@app.get("/api/revit/tools/{tool_id}/{version}/download")
+async def download_revit_tool(tool_id: str, version: str):
+    try:
+        entry, content = await run_in_threadpool(revit_tool_download, tool_id, version)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="Такого инструмента или версии Revit-пакета нет.") from error
+    except RevitBundleUnavailableError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    return Response(content, media_type="application/zip", headers={
+        "Content-Disposition": f'attachment; filename="{entry["filename"]}"',
+        "ETag": '"' + entry["sha256"] + '"', "X-Content-SHA256": entry["sha256"],
+        "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "private, max-age=31536000, immutable",
+    })
+
+
+@app.post("/api/analyze-composite-plate")
+async def analyze_composite_plate_upload(
+    dxf_bottom_x: Annotated[UploadFile, File()], dxf_bottom_y: Annotated[UploadFile, File()],
+    dxf_top_x: Annotated[UploadFile, File()], dxf_top_y: Annotated[UploadFile, File()],
+    shk_bottom_x: Annotated[UploadFile, File()], shk_bottom_y: Annotated[UploadFile, File()],
+    shk_top_x: Annotated[UploadFile, File()], shk_top_y: Annotated[UploadFile, File()],
+    placement_settings: Annotated[str, Form(max_length=10000)],
+    host_reference: Annotated[UploadFile | None, File()] = None,
+    host_xy_confirmed: Annotated[bool, Form()] = False,
+    maximum_zones: Annotated[int, Form(ge=1, le=128)] = 64,
+    maximum_positions: Annotated[int | None, Form(ge=1, le=512)] = None,
+    maximum_candidates: Annotated[int, Form(ge=1, le=1024)] = 384,
+    solver_time_limit_s: Annotated[float, Form(gt=0, le=30)] = 10,
+    min_width_cells: Annotated[int, Form(ge=2, le=3)] = 2,
+    cutting_profile: Annotated[str, Form()] = "plate-11700-batch",
+    maximum_cutting_overhead_pct: Annotated[float, Form(ge=0, le=100)] = 5,
+    case_id: Annotated[str, Form(max_length=200)] = "",
+) -> dict:
+    """Полный составной комплект, отдельная шкала для каждой оси; Excel не требуется."""
+    dxfs = (dxf_bottom_x, dxf_bottom_y, dxf_top_x, dxf_top_y)
+    scales = (shk_bottom_x, shk_bottom_y, shk_top_x, shk_top_y)
+    uploads = (*dxfs, *scales, *((host_reference,) if host_reference is not None else ()))
+    try:
+        data = load_review_input(placement_settings.encode("utf-8"))
+        if set(data) != {"directions"} or not isinstance(data["directions"], list) or len(data["directions"]) != 4:
+            raise ValueError("нужны явные параметры четырёх направлений")
+        settings = []
+        expected = {"layer", "axis", "background_origin_mm", "first_300_offset_mm", "second_offset_mm", "steel_class", "source", "contact_side"}
+        for row in data["directions"]:
+            if not isinstance(row, dict) or set(row) != expected:
+                raise ValueError("неверные поля профиля направления")
+            settings.append(CompositeDirectionSettings(Direction(Layer(row["layer"]), Axis(row["axis"])),
+                row["background_origin_mm"], row["first_300_offset_mm"], row["second_offset_mm"], row["steel_class"], row["source"], row["contact_side"]))
+        if host_xy_confirmed and host_reference is None:
+            raise ValueError("подтверждена привязка, но снимок host не загружен")
+        if host_reference is not None and not host_xy_confirmed:
+            raise ValueError("для host нужна явная проверка совпадения XY-координат")
+        with TemporaryDirectory(prefix="rebar-composite-plate-") as folder:
+            sources = []
+            for index, (direction, dxf, shk) in enumerate(zip(PLATE_DIRECTIONS, dxfs, scales)):
+                dxf_name, shk_name = _safe_name(dxf, "input.dxf"), _safe_name(shk, "scale.shk")
+                if Path(dxf_name).suffix.lower() != ".dxf" or Path(shk_name).suffix.lower() != ".shk":
+                    raise ValueError("для каждого направления нужны DXF и SHK")
+                if direction_from_filename(dxf_name) != direction:
+                    raise ValueError(f"файл {dxf_name!r} загружен не в своё направление {direction}")
+                parent = Path(folder) / str(index)
+                parent.mkdir()
+                dxf_path, shk_path = parent / dxf_name, parent / shk_name
+                await _save_upload(dxf, dxf_path)
+                await _save_upload(shk, shk_path)
+                sources.append(PlateDirectionSource(dxf_path, shk_path))
+            reference = None
+            if host_reference is not None:
+                reference = load_review_input(await host_reference.read(256 * 1024 + 1))
+            return await run_in_threadpool(analyze_composite_plate, tuple(sources), tuple(settings),
+                maximum_zones_per_direction=maximum_zones, maximum_positions=maximum_positions,
+                maximum_candidates=maximum_candidates, solver_time_limit_s=solver_time_limit_s,
+                min_width_cells=min_width_cells, cutting_profile=cutting_profile, case_id=case_id,
+                maximum_cutting_overhead_pct=maximum_cutting_overhead_pct,
+                host_reference=reference, coordinate_policy=HOST_COORDINATE_POLICY if reference is not None else None)
+    except (ValueError, KeyError, DXFError, MissingRebarSpecificationError, RebarMappingError) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except OSError as error:
+        raise HTTPException(status_code=400, detail=f"Не удалось прочитать файл: {error}") from error
+    finally:
+        for upload in uploads:
+            await upload.close()
+
+
+@app.post("/api/composite-demo")
+async def composite_demo():
+    """Публичная синтетическая плита; рабочие файлы и настройки не используются."""
+    return await run_in_threadpool(analyze_composite_demo)
 
 
 @app.middleware("http")
@@ -116,7 +245,10 @@ async def prevent_stale_web_assets(request: Request, call_next):
 
     response = await call_next(request)
     path = request.url.path
-    if path == "/" or path.startswith(("/api/", "/static/")):
+    is_versioned_revit_download = (path.startswith("/api/revit/tools/")
+        and path.endswith("/download") and response.status_code == 200)
+    if not is_versioned_revit_download and (path in ("/", "/composite", "/revit")
+            or path.startswith(("/api/", "/static/"))):
         response.headers["Cache-Control"] = "no-store, max-age=0"
         response.headers["Pragma"] = "no-cache"
     return response
@@ -137,6 +269,35 @@ async def _save_upload(upload: UploadFile, destination: Path) -> None:
             output.write(chunk)
     if written == 0:
         raise HTTPException(status_code=400, detail=f"Файл {destination.name!r} пуст.")
+
+
+@app.post("/api/inspect-lira-excel")
+async def inspect_lira_excel_upload(
+    nodes: Annotated[UploadFile, File()],
+    elements: Annotated[UploadFile, File()],
+    reinforcement: Annotated[UploadFile, File()],
+    include_records: Annotated[bool, Form()] = False,
+) -> dict:
+    """Четыре числовых направления; не выдаёт раскладку/разрешение Revit."""
+    uploads = (("nodes", nodes), ("elements", elements), ("reinforcement", reinforcement))
+    try:
+        with TemporaryDirectory(prefix="rebar-lira-") as folder:
+            paths = []
+            for role, upload in uploads:
+                name = _safe_name(upload, f"{role}.xlsx")
+                if Path(name).suffix.lower() != ".xlsx":
+                    raise HTTPException(status_code=422, detail=f"{role}: нужен .xlsx")
+                parent = Path(folder) / role  # Equal filenames cannot overwrite another role.
+                parent.mkdir()
+                path = parent / name
+                await _save_upload(upload, path)
+                paths.append(path)
+            return await run_in_threadpool(inspect_lira_excel, *paths, include_records=include_records)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    finally:
+        for _, upload in uploads:
+            await upload.close()
 
 
 def _source_payload(
@@ -251,6 +412,10 @@ def _analysis_payload(
 
 def _layout_solution_payload(problem, solution) -> dict:
     payload = to_jsonable(solution)
+    payload["constructability"] = to_jsonable(measure_constructability(solution))
+    payload["bar_schedule"] = to_jsonable(build_bar_schedule(layout_schedule_groups(
+        solution.zones, steel_class=solution.meta.get("steel_class", ""),
+    )))
     payload["physical_bar_count"] = solution.metrics.physical_bar_count
     payload["zone_schedule"] = to_jsonable(
         build_zone_schedule(problem.demand.direction, solution)
@@ -330,6 +495,7 @@ def _plate_analysis_payload(
             plate_solution,
             candidate_id=candidate_id,
         )
+        payload["bar_schedule"] = payload["revit_export"]["bar_schedule"]
         for direction_solution in plate_solution.direction_solutions:
             direction = direction_solution.direction
             direction_analysis = direction_analyses[direction]
@@ -497,6 +663,7 @@ def options() -> dict:
             for reference in GOLDEN_CASES.values()
         ],
         "defaults": {
+            "complexity_axis": ComplexityAxis.POSITION_COUNT.value,
             "source_mode": "demo",
             "demo_id": IRREGULAR_PLATE_DEMO.id,
             "algorithms": list(DEFAULT_ALGORITHMS),
@@ -531,21 +698,24 @@ async def _execute_analysis(
     genetic_seed: int,
     genetic_operator_policy: str,
     genetic_ucb_exploration: float,
+    complexity_axis: ComplexityAxis = ComplexityAxis.POSITION_COUNT,
 ) -> dict:
     """Выполнить общий application-сценарий для upload и встроенного DXF."""
 
     algorithm_names = tuple(name.strip() for name in algorithms.split(",") if name.strip())
     algorithm_params = (
         {
-            "genetic-pareto": {
+            name: {
                 "population_size": genetic_population_size,
                 "generations": genetic_generations,
                 "random_seed": genetic_seed,
                 "operator_policy": genetic_operator_policy,
                 "ucb_exploration": genetic_ucb_exploration,
             }
+            for name in ("genetic-pareto", "genetic-source-recovery")
+            if name in {item.casefold() for item in algorithm_names}
         }
-        if "genetic-pareto" in {name.casefold() for name in algorithm_names}
+        if {"genetic-pareto", "genetic-source-recovery"} & {name.casefold() for name in algorithm_names}
         else None
     )
     try:
@@ -560,6 +730,7 @@ async def _execute_analysis(
             detail_penalty_kg=detail_penalty_kg,
             cutting_profile=cutting_profile,
             algorithm_params=algorithm_params,
+            complexity_axis=complexity_axis,
         )
     except (DXFError, KeyError, MissingRebarSpecificationError, RebarMappingError, ValueError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
@@ -590,21 +761,24 @@ async def _execute_plate_analysis(
     genetic_seed: int,
     genetic_operator_policy: str,
     genetic_ucb_exploration: float,
+    complexity_axis: ComplexityAxis = ComplexityAxis.POSITION_COUNT,
 ) -> dict:
     """Выполнить общеплитный application-сценарий в рабочем потоке."""
 
     algorithm_names = tuple(name.strip() for name in algorithms.split(",") if name.strip())
     algorithm_params = (
         {
-            "genetic-pareto": {
+            name: {
                 "population_size": genetic_population_size,
                 "generations": genetic_generations,
                 "random_seed": genetic_seed,
                 "operator_policy": genetic_operator_policy,
                 "ucb_exploration": genetic_ucb_exploration,
             }
+            for name in ("genetic-pareto", "genetic-source-recovery")
+            if name in {item.casefold() for item in algorithm_names}
         }
-        if "genetic-pareto" in {name.casefold() for name in algorithm_names}
+        if {"genetic-pareto", "genetic-source-recovery"} & {name.casefold() for name in algorithm_names}
         else None
     )
     try:
@@ -618,6 +792,7 @@ async def _execute_plate_analysis(
             cutting_profile=cutting_profile,
             case_id=case_id,
             algorithm_params=algorithm_params,
+            complexity_axis=complexity_axis,
         )
     except (DXFError, KeyError, MissingRebarSpecificationError, RebarMappingError, ValueError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
@@ -642,6 +817,7 @@ async def analyze(
     genetic_seed: Annotated[int, Form(ge=0, le=2_147_483_647)] = 42,
     genetic_operator_policy: Annotated[str, Form()] = "ucb1",
     genetic_ucb_exploration: Annotated[float, Form(ge=0, le=10)] = 2**0.5,
+    complexity_axis: Annotated[ComplexityAxis, Form()] = ComplexityAxis.POSITION_COUNT,
 ) -> dict:
     dxf_name = _safe_name(dxf, "input.dxf")
     if Path(dxf_name).suffix.casefold() != ".dxf":
@@ -684,6 +860,7 @@ async def analyze(
             genetic_seed=genetic_seed,
             genetic_operator_policy=genetic_operator_policy,
             genetic_ucb_exploration=genetic_ucb_exploration,
+            complexity_axis=complexity_axis,
         )
 
 
@@ -708,6 +885,7 @@ async def analyze_plate_upload(
     genetic_seed: Annotated[int, Form(ge=0, le=2_147_483_647)] = 42,
     genetic_operator_policy: Annotated[str, Form()] = "ucb1",
     genetic_ucb_exploration: Annotated[float, Form(ge=0, le=10)] = 2**0.5,
+    complexity_axis: Annotated[ComplexityAxis, Form()] = ComplexityAxis.POSITION_COUNT,
     case_id: Annotated[str, Form(max_length=200)] = "",
     reference_id: Annotated[str, Form(max_length=200)] = "",
 ) -> dict:
@@ -787,6 +965,7 @@ async def analyze_plate_upload(
             genetic_seed=genetic_seed,
             genetic_operator_policy=genetic_operator_policy,
             genetic_ucb_exploration=genetic_ucb_exploration,
+            complexity_axis=complexity_axis,
         )
 
 
@@ -803,6 +982,7 @@ async def analyze_demo(
     genetic_seed: Annotated[int, Form(ge=0, le=2_147_483_647)] = 42,
     genetic_operator_policy: Annotated[str, Form()] = "ucb1",
     genetic_ucb_exploration: Annotated[float, Form(ge=0, le=10)] = 2**0.5,
+    complexity_axis: Annotated[ComplexityAxis, Form()] = ComplexityAxis.POSITION_COUNT,
 ) -> dict:
     """Рассчитать встроенный синтетический DXF тем же production-пайплайном."""
 
@@ -831,4 +1011,5 @@ async def analyze_demo(
             genetic_seed=genetic_seed,
             genetic_operator_policy=genetic_operator_policy,
             genetic_ucb_exploration=genetic_ucb_exploration,
+            complexity_axis=complexity_axis,
         )

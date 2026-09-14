@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from ...contracts import LayoutProblem
 from ...services import DetailingContext
+from ...services.cutting import CutLengthInfeasibleError
 from ..spatial_partition_greedy import _Grid, _make_rectangle, _Rectangle
 
 
@@ -71,7 +72,7 @@ def layered_geometry_variants(
                     column_start=hull[2], column_end=hull[3],
                     level_index=level, source_cell_ids=source_ids,
                 )
-            except ValueError:
+            except CutLengthInfeasibleError:
                 # Например, новая длина не помещается в согласованный каталог раскроя.
                 continue
             ranked.append((rectangle.zone.mass_kg / len(eligible), signature, rectangle))

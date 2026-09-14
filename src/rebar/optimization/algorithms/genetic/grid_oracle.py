@@ -6,6 +6,7 @@ from dataclasses import replace
 
 from ...contracts import LayoutProblem
 from ...services import prepare_detailing
+from ...services.cutting import CutLengthInfeasibleError
 from ..genetic_pareto import (
     _atomic_leaves,
     _leaf_ids_for_rectangle,
@@ -64,12 +65,15 @@ def expand_to_complete_grid_space(
                         source_ids = tuple(sorted({
                             cell_id for leaf in eligible for cell_id in leaf.source_cell_ids
                         }))
-                        rectangle = _make_rectangle(
-                            problem, grid, context, key=4_000_000 + len(candidates),
-                            row_start=row_start, row_end=row_end,
-                            column_start=column_start, column_end=column_end,
-                            level_index=level, source_cell_ids=source_ids,
-                        )
+                        try:
+                            rectangle = _make_rectangle(
+                                problem, grid, context, key=4_000_000 + len(candidates),
+                                row_start=row_start, row_end=row_end,
+                                column_start=column_start, column_end=column_end,
+                                level_index=level, source_cell_ids=source_ids,
+                            )
+                        except CutLengthInfeasibleError:
+                            continue
                         candidates.append(_PoolCandidate(
                             rectangle=rectangle,
                             leaf_ids=_leaf_ids_for_rectangle(rectangle, leaves),

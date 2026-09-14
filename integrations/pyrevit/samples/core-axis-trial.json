@@ -1,0 +1,148 @@
+{
+  "schema_version": "qmonitoring-core-zone-trial/v1",
+  "mode": "commit-readback-rollback",
+  "units": "mm",
+  "placement_eligible": false,
+  "binding": {
+    "host_id": 407801,
+    "bar_type_id": 165160,
+    "source": "isolated-laboratory-window-not-project-grid",
+    "coordinate_system": "core-xy-plus-offset-from-host-bbox-min",
+    "offset_x_mm": 2000,
+    "offset_y_mm": 1000,
+    "z_policy": "host-top-cover-model-radius",
+    "background_action": "do-not-create",
+    "anchorage_action": "use-installed-length-without-extra-extension"
+  },
+  "core_export": {
+    "schema_version": "reinforcement-zone-revit/v2",
+    "contract_status": "draft",
+    "units": "mm",
+    "source_zone_id": "core-top-x-18-100-200-test",
+    "direction": {
+      "layer": "top",
+      "axis": "X"
+    },
+    "demand_bbox_mm": [
+      0,
+      0,
+      3900,
+      800
+    ],
+    "level_index": 0,
+    "recipe": {
+      "background": {
+        "step": 300,
+        "diameter": 18
+      },
+      "additions": [
+        {
+          "step": 150,
+          "diameter": 18
+        }
+      ]
+    },
+    "placement_source": "A101-2.4.7/slab-300-150; Revit specialist clarification 2026-09-07; partial",
+    "background": {
+      "specification": {
+        "step": 300,
+        "diameter": 18
+      },
+      "placement": {
+        "pattern": {
+          "period_mm": 300.0,
+          "offsets_mm": [
+            0.0
+          ]
+        },
+        "origin_mm": 0,
+        "axis_depth_from_face_mm": null
+      },
+      "included_in_additional_mass": false
+    },
+    "components": [
+      {
+        "component_index": 0,
+        "diameter_mm": 18,
+        "nominal_step_mm": 150,
+        "placement": {
+          "pattern": {
+            "period_mm": 300.0,
+            "offsets_mm": [
+              100.0,
+              200.0
+            ]
+          },
+          "origin_mm": 0,
+          "axis_depth_from_face_mm": null
+        },
+        "axis_window_mm": [
+          0,
+          800
+        ],
+        "axis_coordinates_mm": [
+          100.0,
+          200.0,
+          400.0,
+          500.0,
+          700.0,
+          800.0
+        ],
+        "uniform_runs": [
+          {
+            "first_axis_mm": 100.0,
+            "actual_step_mm": 300.0,
+            "bar_count": 3
+          },
+          {
+            "first_axis_mm": 200.0,
+            "actual_step_mm": 300.0,
+            "bar_count": 3
+          }
+        ],
+        "bar_count": 6,
+        "bar_axis_bbox_mm": [
+          -720.0,
+          100.0,
+          4620.0,
+          800.0
+        ],
+        "straight_bar_body_bbox_mm": [
+          -720.0,
+          91.0,
+          4620.0,
+          809.0
+        ],
+        "required_length_mm": 3900,
+        "anchored_length_mm": 5340.0,
+        "installed_length_mm": 5340.0,
+        "mass_kg": 63.9986184
+      }
+    ],
+    "metrics": {
+      "zone_count": 1,
+      "component_count": 1,
+      "uniform_run_count": 2,
+      "physical_bar_count": 6,
+      "additional_mass_kg": 63.9986184,
+      "additional_bar_length_mm": 32040.0
+    },
+    "checks": {
+      "geometry_and_schedule": "pass",
+      "export_eligible": false,
+      "blocking_check_ids": [
+        "composite-demand-coverage",
+        "composite-minimum-width",
+        "a101-composite-positions",
+        "host-boundary-cover-openings",
+        "xy-layer-order",
+        "background-and-additions-3d-collisions",
+        "revit-readback"
+      ],
+      "diagnostics": [
+        "NOT_CHECKED: покрытие КЭ, минимальная ширина по фактическим наборам, нормативные сочетания, host/проёмы/cover и 3D-укладка"
+      ]
+    },
+    "placement_boundary_policy": "body_bbox_is_not_an_area_boundary_or_a_host_clearance_check"
+  }
+}

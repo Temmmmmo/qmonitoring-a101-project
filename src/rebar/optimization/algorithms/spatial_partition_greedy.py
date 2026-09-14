@@ -28,6 +28,7 @@ from ..services import (
     prepare_detailing,
 )
 from ..services.geometry import GEOMETRY_TOLERANCE_MM, cell_bbox
+from ..services.cutting import CutLengthInfeasibleError
 
 
 @dataclass(frozen=True)
@@ -268,6 +269,77 @@ def _make_rectangle(
     )
 
 
+def _stock_bounded_rectangles(
+    problem: LayoutProblem,
+    grid: _Grid,
+    context: DetailingContext,
+    *,
+    key: int,
+    row_start: int,
+    row_end: int,
+    column_start: int,
+    column_end: int,
+    level_index: int,
+    source_cell_ids: tuple[int, ...],
+) -> tuple[_Rectangle, ...]:
+    """Разделить только слишком длинное обязательное покрытие вдоль стержней.
+
+    Границы частей совпадают с сеткой, а каждая часть получает полную анкеровку
+    и независимую длину из каталога. Это не разрез уже готового стержня без
+    нахлёста. Поперечная ширина и исходная карта КЭ не меняются.
+    """
+
+    def materialize(start: int, end: int, rectangle_key: int) -> _Rectangle:
+        rows = (row_start, row_end) if axis is Axis.X else (start, end)
+        columns = (start, end) if axis is Axis.X else (column_start, column_end)
+        ids = source_cell_ids if (start, end) == (lower, upper) else tuple(sorted({
+            cell_id
+            for row in range(*rows)
+            for column in range(*columns)
+            for cell_id in grid.source_cell_ids[row][column]
+        }))
+        return _make_rectangle(
+            problem, grid, context, key=rectangle_key,
+            row_start=rows[0], row_end=rows[1],
+            column_start=columns[0], column_end=columns[1],
+            level_index=level_index, source_cell_ids=ids,
+        )
+
+    axis = problem.demand.direction.axis
+    lower, upper = ((column_start, column_end) if axis is Axis.X else (row_start, row_end))
+    try:
+        return (materialize(lower, upper, key),)
+    except CutLengthInfeasibleError:
+        pass
+
+    result: list[_Rectangle] = []
+    start = lower
+    while start < upper:
+        # Один атом нельзя молча удалить или сделать короче ради каталога.
+        try:
+            best = materialize(start, start + 1, key + len(result))
+        except CutLengthInfeasibleError as error:
+            raise CutLengthInfeasibleError(
+                "атом обязательной сетки не помещается в каталог вместе с полной "
+                f"анкеровкой; ось {axis.value}, индекс {start}: {error}"
+            ) from error
+        # Допустимость длины монотонна по продольному габариту при том же уровне.
+        # Выбираем наибольший допустимый префикс, а не избыточные мелкие куски.
+        low, high = start + 2, upper
+        while low <= high:
+            end = (low + high) // 2
+            try:
+                proposed = materialize(start, end, key + len(result))
+            except CutLengthInfeasibleError:
+                high = end - 1
+            else:
+                best = proposed
+                low = end + 1
+        result.append(best)
+        start = best.column_end if axis is Axis.X else best.row_end
+    return tuple(result)
+
+
 def _initial_rectangles(
     problem: LayoutProblem,
     grid: _Grid,
@@ -342,21 +414,21 @@ def _initial_rectangles(
                     [row_start, row_end, column_start, column_end, level, source_ids]
                 )
 
-    return [
-        _make_rectangle(
+    rectangles: list[_Rectangle] = []
+    for values in merged:
+        rectangles.extend(_stock_bounded_rectangles(
             problem,
             grid,
             context,
-            key=index,
+            key=len(rectangles),
             row_start=int(values[0]),
             row_end=int(values[1]),
             column_start=int(values[2]),
             column_end=int(values[3]),
             level_index=int(values[4]),
             source_cell_ids=values[5],
-        )
-        for index, values in enumerate(merged)
-    ]
+        ))
+    return rectangles
 
 
 def _ranges_overlap(first_start: int, first_end: int, second_start: int, second_end: int) -> bool:
@@ -488,18 +560,21 @@ def _candidate(
             }
         )
     )
-    merged = _make_rectangle(
-        problem,
-        grid,
-        context,
-        key=next_key,
-        row_start=hull[0],
-        row_end=hull[1],
-        column_start=hull[2],
-        column_end=hull[3],
-        level_index=level_index,
-        source_cell_ids=source_ids,
-    )
+    try:
+        merged = _make_rectangle(
+            problem,
+            grid,
+            context,
+            key=next_key,
+            row_start=hull[0],
+            row_end=hull[1],
+            column_start=hull[2],
+            column_end=hull[3],
+            level_index=level_index,
+            source_cell_ids=source_ids,
+        )
+    except CutLengthInfeasibleError:
+        return None
     absorbed_cost = sum(_objective(rectangle.zone, request) for rectangle in absorbed)
     return _MergeCandidate(
         absorbed_keys=tuple(sorted(rectangle.key for rectangle in absorbed)),

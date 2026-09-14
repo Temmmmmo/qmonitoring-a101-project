@@ -511,7 +511,10 @@ def test_runtime_smoke_script_also_runs_in_the_regular_test_suite():
                             capture_output=True, text=True, check=True)
     assert "PASS: 9 serialization/file checks" in result.stdout
     assert "PASS: 6 JSON checks" in result.stdout
-    assert "8 Python files compiled" in result.stdout
+    assert "13 Python files compiled" in result.stdout
+    assert "layers remain unverified" in result.stdout
+    assert "PASS: core packet, two runs, physical readback and 100/200 mismatch rejection" in result.stdout
+    assert "PASS: CAD module import, Unicode DXF fingerprint and unsafe-path rejection" in result.stdout
 
 
 def test_parameter_double_units_are_not_all_treated_as_lengths(modules, api):
@@ -546,7 +549,9 @@ def test_probe_has_no_model_mutation_or_network_calls():
     forbidden = {"Transaction", "SubTransaction", "TransactionGroup", "Regenerate", "Save", "SaveAs",
                  "Delete", "Create", "Set", "SetValueString", "MoveElement", "RotateElement"}
     # The original diagnostic button and its entire import closure stay read-only.
-    sources = [BUTTON, EXTENSION / "lib/qm_probe_geometry.py", EXTENSION / "lib/qm_revit_probe.py"]
+    sources = [BUTTON, EXTENSION / "lib/qm_probe_geometry.py", EXTENSION / "lib/qm_revit_probe.py",
+               EXTENSION / "lib/qm_revit_cad.py", EXTENSION / "lib/qm_cad_diagnostics.py",
+               EXTENSION / "QMonitoring.tab/Diagnostics.panel/CadProbe.pushbutton/script.py"]
     for source in sources:
         tree = ast.parse(source.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
@@ -609,7 +614,8 @@ def test_package_contains_only_the_delivery_allowlist_and_refuses_overwrite(tmp_
         assert set(archive.namelist()) == set(module.FILES)
         assert archive.testzip() is None
         assert archive.read("README.md") == (SOURCE / "README.md").read_bytes()
-        assert all(Path(n).suffix in {".py", ".yaml", ".md"} or n == "samples/single-zone-trial.json"
+        assert all(Path(n).suffix in {".py", ".yaml", ".md"} or n in {
+            "samples/single-zone-trial.json", "samples/core-axis-trial.json"}
                    for n in archive.namelist())
     with pytest.raises(FileExistsError):
         module.build_package(output)

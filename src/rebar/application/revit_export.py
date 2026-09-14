@@ -6,6 +6,7 @@ from typing import Any
 
 from rebar.optimization import PlateProblem, PlateSolution
 from rebar.optimization.services.bar_geometry import axis_envelope_to_body_bbox
+from rebar.optimization.services.bar_schedule import build_bar_schedule, layout_schedule_groups
 from rebar.reporting.serialization import to_jsonable
 from rebar.reporting.zone_schedule import build_zone_schedule
 
@@ -16,6 +17,7 @@ REVIT_EXPORT_SCHEMA = "plate-solution-revit/v1"
 _EXPORT_SAFETY_GATES = frozenset(
     {
         "plate-directions",
+        "source-demand-preserved",
         "demand-coverage",
         "minimum-zone-width",
         "anchorage",
@@ -49,6 +51,16 @@ def build_plate_solution_revit_export(
         blocking_check_ids.append("plate-solution-validity")
     export_eligible = solution.valid and not blocking_items
 
+    schedule = build_bar_schedule(
+        group for item in solution.direction_solutions
+        for group in layout_schedule_groups(
+            item.solution.zones, prefix=f"{item.direction}:",
+            steel_class=item.solution.meta.get("steel_class", ""),
+        )
+    )
+    position_by_source = {
+        source_id: position.mark for position in schedule for source_id in position.source_ids
+    }
     directions = []
     for direction_problem in problem.direction_problems:
         direction = direction_problem.demand.direction
@@ -64,6 +76,7 @@ def build_plate_solution_revit_export(
                     "mark": row.mark,
                     "callout": row.callout,
                     "source_zone_id": zone.id,
+                    "position_mark": position_by_source[f"{direction}:{zone.id}"],
                     "bbox_mm": list(zone.bbox),
                     "bbox_semantics": "bar_axis_envelope",
                     "straight_bar_body_bbox_mm": list(axis_envelope_to_body_bbox(
@@ -120,5 +133,9 @@ def build_plate_solution_revit_export(
             "diagnostics": list(solution.diagnostics),
         },
         "metrics": to_jsonable(solution.metrics),
+        "bar_schedule": to_jsonable(schedule),
+        "position_count": len(schedule),
+        "position_count_scope": "straight_bars_by_diameter_length_and_declared_class",
+        "steel_class_declared": bool(schedule) and all(row.steel_class for row in schedule),
         "directions": directions,
     }

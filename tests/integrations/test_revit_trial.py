@@ -8,6 +8,7 @@ import json
 import math
 import runpy
 from types import SimpleNamespace
+from zipfile import ZipFile
 
 import pytest
 from test_revit_probe import (
@@ -170,7 +171,7 @@ def trial_api(request, trial):
     adapter, _ = trial
     DB, doc, elements = request.getfixturevalue("api")
     calls = []
-    controls = SimpleNamespace(fail=None, obstacles=[], links=[], group_open=False, committed=False)
+    controls = SimpleNamespace(fail=None, obstacles=[], links=[], group_open=False, committed=False, create_count=0)
     floor_data, solid_data = floor_geometry()
 
     class TrialFace:
@@ -206,19 +207,22 @@ def trial_api(request, trial):
             calls.append("create")
             assert doc.IsModifiable
             assert hook_a is hook_b is None
-            assert floor.Id.Value == 407801 and bar_type.Id.Value == 165163
+            assert floor.Id.Value == 407801 and bar_type.Id.Value in (165163, 165160)
             assert [normal.X, normal.Y, normal.Z] == [0, 1, 0]
-            result = NewRebar(800001, "Временная арматура")
+            number = 800001 + controls.create_count * 2
+            controls.create_count += 1
+            result = NewRebar(number, "Временная арматура")
+            result.type_id = bar_type.Id.Value
             result.first = curves[0].data
             result.indices = []
-            elements[800001] = result
-            elements[800002] = Element(800002, "temporary shape")
-            if controls.fail == "create":
+            elements[number] = result
+            elements[number + 1] = Element(number + 1, "temporary shape")
+            if controls.fail == "create" or (controls.fail == "second_create" and controls.create_count == 2):
                 raise RuntimeError("Creation failed after partial mutation")
             return result
 
         def GetTypeId(self):
-            return Id(165163)
+            return Id(self.type_id)
 
         def GetHostId(self):
             return Id(407801)
@@ -232,24 +236,26 @@ def trial_api(request, trial):
                 self.Quantity = self.NumberOfBarPositions = count
                 assert normal_side is first is last is True
                 self.spacing = spacing * 304.8
-                if controls.fail == "layout":
+                if controls.fail == "layout" or (controls.fail == "second_layout" and controls.create_count == 2):
                     raise RuntimeError("Layout failed")
             return SimpleNamespace(SetLayoutAsNumberWithSpacing=configure, Dispose=lambda: None)
 
         def DoesBarExistAtPosition(self, index):
-            return not (controls.fail == "excluded" and index == 3)
+            return not (controls.fail == "excluded" and index == self.NumberOfBarPositions - 1)
 
         def GetTransformedCenterlineCurves(self, adjust, hooks, bends, multiplanar, index):
             assert (adjust, hooks, bends, multiplanar) == (False, False, False, "all")
             calls.append("read_axis")
             self.indices.append(index)
-            if controls.fail == "readback" and index == 4:
+            if controls.fail == "readback" and index == min(4, self.NumberOfBarPositions - 1):
                 raise RuntimeError("Readback failed")
             a, b = (list(self.first[k]) for k in ("start_mm", "end_mm"))
             for p in (a, b):
                 p[1] += index * self.spacing
                 if controls.fail == "shift" or (controls.fail == "post_commit_shift" and controls.committed):
                     p[0] += 10
+                if controls.fail == "post_commit_second_shift" and controls.committed and self.Id.Value == 800003:
+                    p[1] -= 100
             if controls.fail == "post_commit_readback" and controls.committed:
                 raise RuntimeError("Post-Commit read failed")
             return [Curve(line(a, b))]
@@ -431,6 +437,10 @@ def trial_api(request, trial):
     elements[165163] = BarType(165163, "25 A500")
     elements[165163].BarNominalDiameter = original_type.BarNominalDiameter
     elements[165163].BarModelDiameter = original_type.BarModelDiameter
+    original_18 = elements[165160]
+    elements[165160] = BarType(165160, "18 A500")
+    elements[165160].BarNominalDiameter = original_18.BarNominalDiameter
+    elements[165160].BarModelDiameter = original_18.BarModelDiameter
     DB.Structure.RebarBarType = BarType
     DB.Structure.Rebar = NewRebar
     DB.Structure.RebarStyle = SimpleNamespace(Standard="standard")
@@ -821,18 +831,30 @@ def test_preflight_blocks_without_starting_any_transaction(trial_api, problem, m
     assert report["issues"] and not calls
 
 
-def test_delivery_has_only_guarded_inner_commit_no_save_delete_network_or_python3_only_syntax():
+def test_delivery_has_only_guarded_inner_commit_no_save_delete_network_or_python3_only_syntax(tmp_path):
+    # Audit the delivered archive, not unshipped experiments in the worktree.
+    # Its explicit allowlist must not pull in the persistent demo implementation.
+    spec = importlib.util.spec_from_file_location(
+        "package_trial_safety", EXTENSION.parents[2] / "scripts/package_revit_probe.py",
+    )
+    packager = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(packager)
+    with ZipFile(packager.build_package(tmp_path / "probe.zip")) as archive:
+        sources = {name: archive.read(name).decode("utf-8") for name in archive.namelist()
+                   if name.endswith(".py")}
+    assert not any("MVP.panel" in name or "mvp" in name.lower() for name in sources)
+    bundled_modules = {name.rsplit("/", 1)[-1][:-3] for name in sources}
     commits = []
     forbidden = {"Assimilate", "Save", "SaveAs", "Delete", "MoveElement", "RotateElement",
                  "SetValueString", "Set"}
-    for path in EXTENSION.rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+    for path, source in sources.items():
+        tree = ast.parse(source)
         for node in ast.walk(tree):
             if isinstance(node, ast.Call):
                 name = getattr(node.func, "attr", getattr(node.func, "id", ""))
                 assert name not in forbidden, (path, name)
                 if name == "Commit":
-                    assert path.name == "qm_revit_trial.py"
+                    assert path.rsplit("/", 1)[-1] == "qm_revit_trial.py"
                     assert isinstance(node.func.value, ast.Name) and node.func.value.id == "transaction"
                     commits.append(node)
             assert not isinstance(node, (ast.JoinedStr, ast.AnnAssign, ast.AsyncFunctionDef))
@@ -843,6 +865,8 @@ def test_delivery_has_only_guarded_inner_commit_no_save_delete_network_or_python
                 names = [n.name for n in node.names] if isinstance(node, ast.Import) else [node.module]
                 assert not any(n.split(".")[0] in {"requests", "socket", "urllib", "http", "subprocess"}
                                for n in names)
+                assert all(n.split(".")[0] in bundled_modules for n in names
+                           if n.startswith("qm_")), (path, names)
     assert len(commits) == 1  # Runtime tests prove it is guarded by a rollback group.
 
 
@@ -885,11 +909,13 @@ def test_entrypoint_writes_report_only_after_rollback_and_can_cancel_before_muta
 
 @pytest.mark.parametrize("choice", ["new", "existing", "rvt", "cancel", "decline", "cancel_input", "invalid_input",
                                     "write_failure"])
-def test_json_button_cancel_and_report_io_happen_outside_mutation(trial_api, tmp_path, monkeypatch, choice):
+@pytest.mark.parametrize("core_mode", [False, True])
+def test_json_button_cancel_and_report_io_happen_outside_mutation(trial_api, tmp_path, monkeypatch, choice, core_mode):
     _, DB, doc, elements, calls, _ = trial_api
     before = set(elements)
     source = tmp_path / "вход.json"
-    source.write_bytes(b"{}" if choice == "invalid_input" else SAMPLE.read_bytes())
+    sample = EXTENSION.parent / "samples/core-axis-trial.json" if core_mode else SAMPLE
+    source.write_bytes(b"{}" if choice == "invalid_input" else sample.read_bytes())
     original = source.read_bytes()
     destination = tmp_path / ("keep.rvt" if choice == "rvt" else "отчёт.json")
     if choice in ("existing", "rvt"):
@@ -923,12 +949,13 @@ def test_json_button_cancel_and_report_io_happen_outside_mutation(trial_api, tmp
         return writer(path, data)
 
     monkeypatch.setattr(probe, "write_report_json", checked_write)
-    runpy.run_path(str(JSON_BUTTON))
+    button = EXTENSION / "QMonitoring.tab/Diagnostics.panel/CoreTrial.pushbutton/script.py" if core_mode else JSON_BUTTON
+    runpy.run_path(str(button))
     assert source.read_bytes() == original
     if choice == "new":
         assert json.loads(destination.read_text())["post_commit_comparison"]["status"] == "matches"
     elif choice == "write_failure":
-        assert not destination.exists() and "Не удалось" in alerts[-1]
+        assert not destination.exists() and ("Ошибка теста" if core_mode else "Не удалось") in alerts[-1]
         assert set(elements) == before
     else:
         assert not calls

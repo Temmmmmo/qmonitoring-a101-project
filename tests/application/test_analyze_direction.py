@@ -77,3 +77,17 @@ def test_analyze_direction_applies_explicit_cutting_profile(monkeypatch, directi
 
     assert analysis.problem.constraints.cutting_profile == "plate-11700"
     assert analysis.problem.constraints.allowed_cut_lengths_mm[-1] == 11700
+
+
+def test_production_preserves_isolated_demand_until_explicit_sto_processing(monkeypatch, direction_mosaic):
+    monkeypatch.setattr(scenario, "read_mosaic", lambda *_a, **_k: direction_mosaic)
+    original = analyze_direction("Нижнее армирование вдоль ОСИ Х.dxf", algorithm_names=("bbox",),
+                                 min_width_cells=1)
+    research = analyze_direction("Нижнее армирование вдоль ОСИ Х.dxf", algorithm_names=("bbox",),
+                                 min_width_cells=1, single_cell_policy="legacy-research")
+    assert [c.level_index for c in original.problem.demand.cells] == [0, 1]
+    assert original.problem.meta["single_cell_preprocessing"]["changed_count"] == 0
+    assert research.problem.meta["single_cell_preprocessing"]["changed_count"] == 1
+    from rebar.application import assess_layout_gates
+    checks = {c.id: c for c in assess_layout_gates(research.problem, research.solutions[0]).items}
+    assert checks["source-demand-preserved"].status == "fail"

@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>QMonitoring · Составная плита</title>
+  <link rel="stylesheet" href="/static/composite.css?v=1">
+</head>
+<body>
+  <header><a href="/">← QMonitoring</a><h1>Составная раскладка всей плиты</h1>
+    <p>Четыре направления · все добавки из шкалы · масса и позиции спецификации</p>
+    <a href="/revit">Инструменты и подключение Revit →</a></header>
+  <main>
+    <section class="quick-start">
+      <h2>Первый раз? Посмотрите готовый пример</h2>
+      <p>Ничего выбирать или загружать не нужно. Рассчитаем синтетическую плиту 6 × 4 м:
+        четыре направления, варианты раскладки, позиции и проверка раскроя.
+        Проверки не отключаются ради демо — ограничения будут показаны в результате.</p>
+      <button id="run-demo" type="button">Посмотреть пример</button>
+      <p>После расчёта переключайте «Низ · X / Y» и «Верх · X / Y», сравнивайте варианты
+        и откройте «Общая ведомость позиций».</p>
+    </section>
+    <p id="progress" role="status" aria-live="polite"></p>
+    <p id="error" role="alert" hidden></p>
+    <details id="custom-inputs">
+      <summary>Рассчитать свои DXF — файлы и параметры проекта</summary>
+    <form id="composite-form">
+      <section><h2>1. Исходные DXF и шкалы</h2>
+        <p>Excel не нужен. Для каждого направления укажите его DXF и соответствующую шкалу SHK.
+          Поддержанный профиль: фон @300, до двух добавок @300 или условного @150 (оси 100/200),
+          либо одна добавка @100 по схеме касания фона из СТО.
+          Неподдержанную схему программа отклонит, а не заменит другой.</p>
+        <div id="direction-inputs" class="direction-grid"></div>
+      </section>
+      <section><h2>2. Параметры раскладки</h2>
+        <p>Начало фона — глобальная поперечная координата в мм (для X это Y и наоборот).
+          Первая добавка @150 автоматически следует подтверждённой схеме 100/200 относительно фона.
+          Для первой @300 и второй добавки задайте смещение относительно начала фона.
+          Пустые поля не заменяются нулём. Эти параметры не означают инженерного согласования.</p>
+        <div id="placement-inputs" class="direction-grid"></div>
+        <div class="fields">
+          <label>Название расчёта<input name="case_id" maxlength="200" placeholder="Плита / отметка"></label>
+          <label>Класс стали добавок<input id="steel-class" required maxlength="100" placeholder="Укажите по проекту"></label>
+          <label>Источник параметров<input id="phase-source" required maxlength="1000" placeholder="Проект / правило / автор выбора"></label>
+          <label>Сторона касания фона при @100<select id="contact-side"><option value="left">Слева (как на рисунке СТО)</option><option value="right">Справа (зеркально)</option></select></label>
+          <label>Максимум позиций всей плиты<input name="maximum_positions" type="number" min="1" max="512" placeholder="Без лимита"></label>
+          <label>Максимум зон на направление<input name="maximum_zones" type="number" min="1" max="128" value="64" required></label>
+          <label>Минимальная ширина<select name="min_width_cells"><option value="2">2 КЭ</option><option value="3">3 КЭ</option></select></label>
+          <label>Длины стержней<select name="cutting_profile"><option value="plate-11700-batch">Подобрать длины под безотходную партию 11700</option><option value="plate-11700">Каталог 11700 — только проверка партии</option><option value="continuous">Непрерывные длины до 11700 мм</option></select></label>
+          <label>Максимальный прирост массы ради раскроя, %<input name="maximum_cutting_overhead_pct" type="number" min="0" max="100" step="0.1" value="5" required></label>
+          <label>Кандидатов на направление<input name="maximum_candidates" type="number" min="1" max="1024" value="384" required></label>
+          <label>Бюджет MILP на направление, с<input name="solver_time_limit_s" type="number" min="1" max="30" value="10" required></label>
+        </div>
+        <p>Пока используется контрольная анкеровка 40d с каждого конца. Осреднение по СТО не применяется.
+          Для @100 принята схема касания при одинаковой высоте осей: смещение рядом с фоном равно
+          половине суммы диаметров. Высоты и фактический контакт ещё требуют совместной проверки.
+          Подбор длин — только вверх и без добавления стержней; при превышении лимита массы вариант отклоняется.
+          Это ограничение к исходному кандидату, не сравнение с инженером. Проверка партии использует смешанные отрезки одного
+          диаметра и класса из прутка 11700 мм при нулевом пропиле; допущение явно сохраняется в отчёте.</p>
+      </section>
+      <section><h2>3. Проверка границ плиты</h2>
+        <label>Отчёт Reference Probe, JSON <input name="host_reference" type="file" accept=".json"></label>
+        <label class="check"><input name="host_xy_confirmed" type="checkbox" value="true">
+          Проверено совпадение XY-координат DXF и выбранной плиты в этом снимке</label>
+        <p>Необязателен для расчёта вариантов, обязателен для проверки границ. Проверяется прямоугольная
+          плита с прямоугольными сквозными проёмами. Другая геометрия отклоняется.
+          Краевой спрос не удаляется, стержни не обрезаются. Снимок не заменяет актуальную проверку модели.</p>
+      </section>
+      <button id="run" type="submit">Рассчитать четыре направления</button>
+    </form>
+    </details>
+    <section id="output" hidden>
+      <h2>Результат всей плиты</h2>
+      <p id="demo-notice" class="notice" hidden></p>
+      <p class="notice">Это расчётные варианты, не разрешение размещения. Высоты слоёв, фон и общие
+        3D-коллизии не подтверждены. Revit-модель не меняется.</p>
+      <p id="result-summary"></p>
+      <label>Вариант на кривой «масса ↔ позиции»<select id="candidate"></select></label>
+      <div id="metrics" class="metrics"></div>
+      <p id="stock-status"></p><p id="balance-status"></p><div id="stock-patterns"></div>
+      <nav id="direction-tabs" aria-label="Направление"></nav>
+      <div id="drawing"></div><p id="direction-status"></p><ul id="installation-notes"></ul>
+      <details><summary>Общая ведомость позиций</summary><div class="table-scroll"><table>
+        <thead><tr><th>Марка</th><th>Класс</th><th>Ø, мм</th><th>Длина, мм</th><th>Стержней, шт.</th><th>Масса, кг</th></tr></thead>
+        <tbody id="schedule"></tbody></table></div></details>
+      <details><summary>Что блокирует размещение</summary><ul id="blockers"></ul></details>
+      <div class="actions"><button id="download-report" type="button">Скачать полный отчёт JSON</button>
+        <button id="download-selected" type="button">Скачать выбранную раскладку (черновик)</button></div>
+    </section>
+  </main>
+  <script src="/static/composite.js?v=1" defer></script>
+</body></html>

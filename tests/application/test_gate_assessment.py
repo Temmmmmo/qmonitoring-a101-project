@@ -7,6 +7,7 @@ from dataclasses import replace
 
 from rebar import Rebar
 from rebar.application import assess_layout_gates, assess_plate_gates
+from rebar.application.revit_export import build_plate_solution_revit_export
 from rebar.golden import PLATE_ZERO_K09
 from rebar.optimization import (
     PLATE_DIRECTIONS,
@@ -73,8 +74,66 @@ def test_layout_gate_assessment_separates_checked_and_missing_catalog(direction_
         "pass": 5,
         "fail": 0,
         "warning": 0,
-        "not_checked": 1,
+        "not_checked": 2,
     }
+
+
+def test_disabled_gap_check_is_unchecked_even_without_diagnostics(direction_mosaic):
+    problem, solution = _direction_solution(direction_mosaic, direction_mosaic.direction)
+    solution = replace(solution, diagnostics=())
+
+    item = next(item for item in assess_layout_gates(problem, solution).items
+                if item.id == "postprocessing-conflicts")
+
+    assert item.status == "not_checked"
+    assert item.actual is None
+    assert item.absolute_deviation is None
+
+
+def test_enabled_gap_check_can_pass_for_single_valid_zone(direction_mosaic):
+    problem = build_layout_problem(direction_mosaic, LayoutConstraints(min_width_cells=1))
+    solution = built_in_optimizer_registry().create("bbox").solve(problem, AlgorithmRequest(max_details=1))
+
+    item = next(item for item in assess_layout_gates(problem, solution).items
+                if item.id == "postprocessing-conflicts")
+
+    assert item.status == "pass"
+    assert item.actual == 0
+
+
+def test_reported_conflict_is_not_hidden_by_disabled_check(direction_mosaic):
+    problem, solution = _direction_solution(direction_mosaic, direction_mosaic.direction)
+    solution = replace(solution, diagnostics=("WARNING: зоны конфликтуют после детализации",))
+
+    item = next(item for item in assess_layout_gates(problem, solution).items
+                if item.id == "postprocessing-conflicts")
+
+    assert item.status == "warning"
+    assert item.actual == 1
+
+
+def test_one_disabled_direction_prevents_plate_gap_pass(direction_mosaic):
+    results = []
+    for index, direction in enumerate(PLATE_DIRECTIONS):
+        problem = build_layout_problem(
+            replace(direction_mosaic, direction=direction),
+            LayoutConstraints(min_width_cells=1, enforce_zone_gap=index != 0),
+        )
+        solution = built_in_optimizer_registry().create("bbox").solve(problem, AlgorithmRequest(max_details=1))
+        results.append((problem, replace(solution, diagnostics=())))
+    problem = build_plate_problem(p for p, _ in results)
+    solution = build_plate_solution(
+        PlateDirectionSolution(direction=p.demand.direction, solution=s) for p, s in results
+    )
+
+    item = next(item for item in assess_plate_gates(problem, solution).items
+                if item.id == "postprocessing-conflicts")
+
+    assert item.status == "not_checked"
+    assert item.actual is None
+    export = build_plate_solution_revit_export(problem, solution)
+    assert export["checks"]["export_eligible"] is False
+    assert "postprocessing-conflicts" in export["checks"]["blocking_check_ids"]
 
 
 def test_plate_gate_assessment_reports_absolute_and_relative_golden_deviation(

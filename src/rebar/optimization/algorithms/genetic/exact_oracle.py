@@ -20,6 +20,7 @@ from ...contracts import (
     SolutionStatus,
 )
 from ...services import build_zone_from_bbox, demanded_cells, evaluate_layout, prepare_detailing
+from ...services.bar_schedule import straight_bar_key, zone_position_keys
 from ..genetic_pareto import _materialize_genome, _SearchSpace
 
 MASS_TOLERANCE_KG = 1e-6
@@ -49,6 +50,8 @@ def solution_complexity(solution: LayoutSolution, axis: ComplexityAxis) -> int:
         return solution.metrics.detail_count
     if axis is ComplexityAxis.PHYSICAL_BAR_COUNT:
         return solution.metrics.physical_bar_count
+    if axis is ComplexityAxis.POSITION_COUNT:
+        return len(zone_position_keys(solution.zones))
     raise ValueError(f"неподдерживаемая ось сложности oracle: {axis}")
 
 
@@ -94,6 +97,7 @@ def solve_exact_candidate_front(
     masks: list[int] = []
     costs: list[float] = []
     bar_counts: list[int] = []
+    position_keys: list[tuple] = []
     for candidate in space.candidates:
         zone = candidate.rectangle.zone
         canonical = build_zone_from_bbox(
@@ -108,6 +112,7 @@ def solve_exact_candidate_front(
             raise ValueError("стоимость CandidateSet не совпадает с общим конструктором")
         costs.append(canonical.mass_kg)
         bar_counts.append(canonical.bar_count)
+        position_keys.append(straight_bar_key(canonical.rebar.diameter, canonical.installed_length_mm))
         masks.append(sum(
             1 << index
             for index, cell in enumerate(demanded)
@@ -129,6 +134,8 @@ def solve_exact_candidate_front(
             complexity = count if complexity_axis is ComplexityAxis.ZONE_COUNT else sum(
                 bar_counts[index] for index in indexes
             )
+            if complexity_axis is ComplexityAxis.POSITION_COUNT:
+                complexity = len({position_keys[index] for index in indexes})
             if any(
                 solution_complexity(point, complexity_axis) <= complexity
                 and point.metrics.total_mass_kg <= mass + MASS_TOLERANCE_KG
@@ -152,6 +159,8 @@ def solve_exact_candidate_front(
                 if complexity_axis is ComplexityAxis.ZONE_COUNT
                 else evaluation.metrics.physical_bar_count
             )
+            if complexity_axis is ComplexityAxis.POSITION_COUNT:
+                actual_complexity = len(zone_position_keys(zones))
             if (
                 not math.isclose(
                     mass, evaluation.metrics.total_mass_kg, rel_tol=0, abs_tol=MASS_TOLERANCE_KG,

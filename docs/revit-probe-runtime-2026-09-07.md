@@ -58,11 +58,11 @@ SHA-256 загруженного архива: `fe01eb6037411036f7f600736f9557b2
 ```bash
 docker run --rm --network none --read-only --tmpfs /tmp \
   --mount type=bind,source=PROJECT_ROOT/artifacts/revit_probe/ironpython_2_7_12/runtime,target=/ipy,readonly \
-  --mount type=bind,source=PROJECT_ROOT/integrations/pyrevit/QMonitoring.extension,target=/extension,readonly \
+  --mount type=bind,source=PROJECT_ROOT/integrations/pyrevit,target=/delivery,readonly \
   --mount type=bind,source=PROJECT_ROOT/scripts/verify_revit_probe_runtime.py,target=/check.py,readonly \
   --env IRONPYTHONPATH=/ipy/Lib --env DOTNET_ROLL_FORWARD=Major \
   mcr.microsoft.com/dotnet/runtime:6.0 \
-  dotnet /ipy/netcoreapp3.1/ipy.dll /check.py --lib-dir /extension/lib --require-ironpython
+  dotnet /ipy/netcoreapp3.1/ipy.dll /check.py --lib-dir /delivery/QMonitoring.extension/lib --require-ironpython
 ```
 
 Ожидаемый вывод: `Legacy ASCII error reproduced: True`,
@@ -108,3 +108,55 @@ python3 -m pytest -q tests/integrations/test_revit_probe.py
 Это подтверждает совместимость Python-кода и проверяемые ветви управления, но не
 создание Rebar внутри Revit. В 0.2.0 нет Commit и оставления стержней в модели;
 `passed_rolled_back` относится только к временному набору, не к production-выдаче.
+
+## Расширение 0.4.0 — 9 сентября
+
+Mount теперь включает весь `integrations/pyrevit`, чтобы рядом с расширением были
+`samples/single-zone-trial.json` и `samples/core-axis-trial.json`. Runtime не импортирует
+ядро Python 3: проверяет только полученный JSON, независимый checker и код поставки.
+Компилируются **10 Python-файлов**, сохраняются 9 сериализационных, 6 геометрических,
+6 JSON-проверок; добавлены загрузка core packet, построение двух рядов Ø18, сверка
+массы из конечных точек и отказ на подмене осей 100/200.
+
+Ожидается дополнительная строка:
+`PASS: core packet, two runs, physical readback and 100/200 mismatch rejection`.
+Это проверка настоящего IronPython 2.7.12, **но без Revit API**. Полученный отдельно
+реальный JSON Trial 0.3.0 подтвердил Commit/readback/rollback для одного равномерного
+набора; на момент отправки 0.4.0 выполнение Core Trial с двумя рядами ещё ожидалось.
+
+## Расширение 0.5.0 — CAD Probe
+
+После получения `040/` реальный Core Trial подтверждён. На момент передачи 0.5.0
+CAD Probe проверялся offline; реальный отказ чтения получен позднее (см. ниже).
+Runtime компилирует **12 Python-файлов** и проходит все предыдущие проверки,
+а также импорт `qm_revit_cad`, SHA256 синтетического DXF по Unicode-пути и отказ
+от UNC/относительного пути/расширения не DXF.
+
+Первый запуск нового smoke выявил отсутствующий `Mono.Unix` при `os.stat` в нашем
+IronPython 2.7.12 / .NET Core Linux окружении. Это не полученный от специалиста
+сбой Windows. Метаданные файла на IronPython теперь читаются через стандартный
+`System.IO.FileInfo` (размер и LastWriteTimeUtc.Ticks), на CPython — через os.stat.
+Повтор на настоящем IronPython 2.7.12 прошёл, без добавления Mono.Unix в поставку.
+
+Дополнительная строка:
+`PASS: CAD module import, Unicode DXF fingerprint and unsafe-path rejection; no Revit API exercised`.
+Сеть контейнера отключена, mounts read-only. Ни Revit API, ни настоящая CAD-геометрия
+в этом smoke не используются; обход мешей/трансформаций проверяется API doubles.
+
+## Расширение 0.5.1 — диагностика мешей без слоя
+
+Реальные отчёты `050/` выявили остановку CAD-обхода на первом меше без слоя,
+не ошибку сериализации/Unicode. Обход 0.5.1 сохраняет диагностические меши и продолжает
+чтение. Добавлен модуль `qm_cad_diagnostics.py`; smoke компилирует **13 Python-файлов**.
+Все прежние проверки сохраняются, добавлен реальный вызов нового сравнителя на
+IronPython: обратный порядок вершин, дубликаты, смещение, неполный readback и NaN.
+Даже совпавшие неизвестные меши остаются `layer_identity_verified=false`.
+
+Повтор на настоящем IronPython 2.7.12 прошёл, включая строку:
+`PASS: CAD triangle winding, duplicates, mismatch, incomplete/NaN rejection; layers remain unverified`.
+
+Это тот же движок Python, но Linux/.NET Core без Autodesk API, не целевой Windows
+Revit. Два API-пути, вложенные переносы/повороты, ошибки отдельных объектов и лимиты
+проверяются синтетическими API doubles в pytest. Условные тесты старых частных отчётов
+фиксируют только наблюдаемый отказ 0.5.0 — они не восстанавливают отсутствующие оси
+или меши. Реальный 0.5.1 всё ещё требуется.

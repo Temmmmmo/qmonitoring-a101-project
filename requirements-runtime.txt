@@ -1,5 +1,10 @@
-# Минимальные зависимости production-контейнера одного DXF web-MVP.
+# Runtime всех опубликованных web-сценариев (DXF, составная плита, числовой ingest).
 ezdxf>=1.1
 fastapi>=0.115
 python-multipart>=0.0.20
 uvicorn>=0.34
+numpy>=1.26
+shapely>=2.0
+scipy>=1.11
+openpyxl>=3.1.5,<4
+defusedxml>=0.7.1,<1

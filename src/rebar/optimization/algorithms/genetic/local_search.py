@@ -7,6 +7,7 @@ from time import perf_counter
 from typing import TYPE_CHECKING
 
 from ...contracts import ComplexityAxis
+from ...services.bar_schedule import zone_position_keys
 
 if TYPE_CHECKING:
     from ..genetic_pareto import _SearchSpace
@@ -67,6 +68,13 @@ def improve_genome(
                 complexity_delta = candidate.rectangle.zone.bar_count - sum(
                     space.candidates[index].rectangle.zone.bar_count for index in removable
                 )
+            elif complexity_axis is ComplexityAxis.POSITION_COUNT:
+                before = zone_position_keys(space.candidates[i].rectangle.zone for i in selected)
+                after = zone_position_keys(
+                    space.candidates[i].rectangle.zone
+                    for i in (selected - set(removable)) | {candidate_index}
+                )
+                complexity_delta = len(after) - len(before)
             if mass_delta > 1e-6 or complexity_delta > 0:
                 continue
             if mass_delta >= -1e-6 and complexity_delta == 0:

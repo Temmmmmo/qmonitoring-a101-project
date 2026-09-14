@@ -6,6 +6,7 @@ import importlib
 from contextlib import ExitStack
 from dataclasses import replace
 
+import pytest
 from fastapi.testclient import TestClient
 
 from rebar.application import DirectionAnalysis, PlateAnalysis
@@ -100,6 +101,7 @@ def test_landing_health_and_options_are_available():
         "bbox",
         "bsp",
         "genetic-pareto",
+        "genetic-source-recovery",
         "greedy",
         "greedy-priority",
         "row-run-greedy",
@@ -123,6 +125,7 @@ def test_landing_health_and_options_are_available():
     assert options.json()["defaults"]["demo_id"] == "irregular-plate-x"
     assert options.json()["defaults"]["algorithms"] == ["genetic-pareto"]
     assert options.json()["defaults"]["max_details"] is None
+    assert options.json()["defaults"]["complexity_axis"] == "position_count"
     assert options.json()["defaults"]["genetic_population_size"] == 16
     assert options.json()["references"] == [
         {
@@ -167,6 +170,12 @@ def test_demo_runs_real_dxf_pipeline_without_upload():
     assert payload["source"]["a101_profile_id"] == "a101-2.4.4-ats3-zero-t240-v1"
     assert payload["solutions"][0]["algorithm"] == "bbox"
     assert payload["solutions"][0]["metrics"]["under_reinforced_cell_count"] == 0
+    result = payload["solutions"][0]
+    assert result["constructability"]["position_count"] == len(result["bar_schedule"])
+    assert sum(row["physical_bar_count"] for row in result["bar_schedule"]) == result["physical_bar_count"]
+    assert sum(row["total_mass_kg"] for row in result["bar_schedule"]) == pytest.approx(
+        result["metrics"]["total_mass_kg"],
+    )
     assert "#9F7FFF" in payload["solutions"][0]["svg"]
     assert "#FF0000" in payload["solutions"][0]["svg"]
     assert "ACI 181" in payload["solutions"][0]["svg"]
@@ -223,6 +232,7 @@ def test_demo_genetic_algorithm_returns_clickable_pareto_front():
     assert response.status_code == 200
     payload = response.json()
     assert payload["schema_version"] == 3
+    assert payload["pareto_front"]["complexity_axis"] == "position_count"
     assert payload["pareto_front"]["source_candidate_count"] >= 2
     assert len(payload["pareto_front"]["points"]) >= 2
     assert len(payload["solutions"]) == len(payload["pareto_front"]["points"])
@@ -236,6 +246,28 @@ def test_demo_genetic_algorithm_returns_clickable_pareto_front():
             for solution in payload["solutions"]
         }
     ) >= 2
+
+
+def test_recovery_algorithm_receives_explicit_search_parameters(monkeypatch, direction_mosaic):
+    captured = {}
+
+    def analyze(_path, **kwargs):
+        captured.update(kwargs)
+        return _analysis(direction_mosaic)
+
+    monkeypatch.setattr(web_app, "analyze_direction", analyze)
+    response = client.post("/api/demo", data={
+        "algorithms": "genetic-source-recovery", "genetic_population_size": "8",
+        "genetic_generations": "3", "genetic_seed": "17",
+        "genetic_operator_policy": "uniform", "complexity_axis": "physical_bar_count",
+    })
+    assert response.status_code == 200
+    assert captured["algorithm_names"] == ("genetic-source-recovery",)
+    assert captured["algorithm_params"]["genetic-source-recovery"] == {
+        "population_size": 8, "generations": 3, "random_seed": 17,
+        "operator_policy": "uniform", "ucb_exploration": 2**0.5,
+    }
+    assert captured["complexity_axis"].value == "physical_bar_count"
 
 
 def test_analyze_returns_metrics_zones_and_inline_svg(monkeypatch, direction_mosaic):
@@ -273,6 +305,34 @@ def test_analyze_returns_metrics_zones_and_inline_svg(monkeypatch, direction_mos
     assert captured["algorithm_names"] == ("bbox",)
     assert captured["max_details"] == 4
     assert captured["cutting_profile"] == "continuous"
+    assert captured["complexity_axis"].value == "position_count"
+
+
+@pytest.mark.parametrize("axis", ["position_count", "physical_bar_count", "zone_count"])
+def test_analyze_passes_explicit_complexity_axis_to_shared_pipeline(monkeypatch, direction_mosaic, axis):
+    captured = {}
+
+    def fake_analyze(path, **kwargs):
+        captured.update(kwargs)
+        return _analysis(direction_mosaic)
+
+    monkeypatch.setattr(web_app, "analyze_direction", fake_analyze)
+    response = client.post("/api/analyze", files={
+        "dxf": ("Нижняя по Х.dxf", b"dummy", "application/dxf"),
+    }, data={"algorithms": "bbox", "complexity_axis": axis})
+    assert response.status_code == 200
+    assert captured["complexity_axis"].value == axis
+
+
+def test_unknown_complexity_axis_is_rejected_before_optimization(monkeypatch):
+    def unexpected(*args, **kwargs):
+        pytest.fail("Invalid axis must not start optimization")
+
+    monkeypatch.setattr(web_app, "analyze_direction", unexpected)
+    response = client.post("/api/analyze", files={
+        "dxf": ("Нижняя по Х.dxf", b"dummy", "application/dxf"),
+    }, data={"complexity_axis": "ambiguous-details"})
+    assert response.status_code == 422
 
 
 def test_analyze_rejects_wrong_extensions_and_conflicting_mapping():
@@ -357,8 +417,15 @@ def test_analyze_plate_returns_aggregate_metrics_and_four_svgs(
     assert revit_export["checks"]["export_eligible"] is False
     assert "a101-allowed-positions" in revit_export["checks"]["blocking_check_ids"]
     assert len(revit_export["directions"]) == 4
+    assert revit_export["position_count"] == len(revit_export["bar_schedule"])
+    assert revit_export["position_count"] == solution["constructability"]["position_count"]
+    assert not revit_export["steel_class_declared"]
+    positions = {row["mark"]: row for row in revit_export["bar_schedule"]}
+    quantities = {mark: 0 for mark in positions}
     for direction in revit_export["directions"]:
         for zone in direction["zones"]:
+            assert zone["position_mark"] in positions
+            quantities[zone["position_mark"]] += zone["bar_count"]
             assert zone["bbox_semantics"] == "bar_axis_envelope"
             assert zone["nominal_step_mm"] == zone["step_mm"]
             assert zone["axis_pattern"]["period_mm"] == zone["step_mm"]
@@ -366,6 +433,7 @@ def test_analyze_plate_returns_aggregate_metrics_and_four_svgs(
             axes, body = zone["bbox_mm"], zone["straight_bar_body_bbox_mm"]
             assert body[index] == axes[index] - zone["diameter_mm"] / 2
             assert body[index + 2] == axes[index + 2] + zone["diameter_mm"] / 2
+    assert quantities == {mark: row["physical_bar_count"] for mark, row in positions.items()}
     assert all(
         zone["mark"] and zone["callout"]
         for direction in revit_export["directions"]

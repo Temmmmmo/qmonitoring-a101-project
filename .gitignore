@@ -23,6 +23,19 @@ Thumbs.db
 /Дополнительные материалы/
 /revit_info/
 /economic_info/
+# Post-meeting customer sources (both common Unicode spellings).
+/Для верификации изополей 2/
+/Для верификации изополей 2/
+# Private probe reports sometimes copied next to handoff documents.
+/docs/qmonitoring-reference-*.json
+/docs/qmonitoring-creation-trial-*.json
+/docs/qmonitoring-json-trial-*.json
+/docs/qmonitoring-core-trial-*.json
+/docs/qmonitoring-cad-*.json
+# Native customer reports and correspondence also arrive in the repository root.
+/qmonitoring-*.json
+/telegram-cloud-photo-*.jpg
+/Встреча_с_разработчиками_сервиса_по_ИИ_армирования_Вопросы_и_ответы.txt
 
 # Heavy input binaries outside the data directory. Track via LFS only if explicitly needed.
 *.dwg

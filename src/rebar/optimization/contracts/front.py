@@ -16,6 +16,7 @@ class ComplexityAxis(str, Enum):
 
     ZONE_COUNT = "zone_count"
     PHYSICAL_BAR_COUNT = "physical_bar_count"
+    POSITION_COUNT = "position_count"
 
 
 @dataclass(frozen=True)
@@ -30,6 +31,11 @@ class ConstructabilityMetrics:
     unique_layout_signature_count: int
     warning_count: int
     error_count: int
+    position_count: int = 0
+    # Ключи нужны для объединения номенклатуры всей плиты, а не суммы счётчиков.
+    bar_position_keys: tuple[tuple[str, str, int, float], ...] = ()
+    # Presence of a declared class is not verification against a Revit bar type.
+    position_class_declared: bool = False
 
     def value(self, axis: ComplexityAxis) -> int:
         """Вернуть выбранную ось сложности для Парето-сравнения."""
@@ -38,6 +44,8 @@ class ConstructabilityMetrics:
             return self.zone_count
         if axis is ComplexityAxis.PHYSICAL_BAR_COUNT:
             return self.physical_bar_count
+        if axis is ComplexityAxis.POSITION_COUNT:
+            return self.position_count
         raise ValueError(f"неподдерживаемая ось сложности: {axis}")
 
 
@@ -72,6 +80,9 @@ class DirectionParetoFront:
     dominated_candidate_count: int
     equivalent_candidate_count: int
     rejections: tuple[CandidateRejection, ...] = ()
+    # Для неаддитивного position_count локально доминируемый вариант может быть
+    # полезен всей плите из-за совпадения типоразмеров с другими направлениями.
+    combination_candidates: tuple[DirectionCandidate, ...] = ()
 
 
 @dataclass(frozen=True)

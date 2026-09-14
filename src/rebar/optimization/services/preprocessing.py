@@ -49,14 +49,22 @@ def _edge_adjacency(cells: tuple[DemandCell, ...]) -> dict[int, set[int]]:
     return adjacency
 
 
-def apply_single_cell_rule(problem: LayoutProblem) -> LayoutProblem:
-    """Понизить одиночный КЭ до предыдущей полосы и сохранить протокол.
+def apply_single_cell_rule(problem: LayoutProblem, *, policy: str = "legacy-research") -> LayoutProblem:
+    """Сохранить спрос либо явно воспроизвести старое исследовательское понижение.
 
     Одиночным считается связный по общим рёбрам компонент ровно одного уровня,
     содержащий один КЭ. Проверка выполняется одновременно по исходной карте, поэтому
     понижения за один запуск не образуют каскад.
     """
 
+    if policy not in {"preserve", "legacy-research"}:
+        raise ValueError("неизвестная политика одиночных КЭ")
+    if policy == "preserve":
+        report = {"policy": "preserve-original-demand-v1", "changed_count": 0,
+                  "changes": (), "reason": "Осреднение СТО не применено; исходная потребность сохранена."}
+        return replace(problem, demand=replace(problem.demand, meta={
+            **problem.demand.meta, "single_cell_preprocessing": report,
+        }), meta={**problem.meta, "single_cell_preprocessing": report})
     cells = problem.demand.cells
     adjacency = _edge_adjacency(cells)
     by_id = {cell.id: cell for cell in cells}
@@ -104,6 +112,7 @@ def apply_single_cell_rule(problem: LayoutProblem) -> LayoutProblem:
     demand_meta = dict(problem.demand.meta)
     demand_meta["single_cell_preprocessing"] = {
         "policy": _SINGLE_CELL_POLICY,
+        "research_only": True,
         "changed_count": len(changes),
         "changes": changes,
     }

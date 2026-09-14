@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#263643">
+  <title>QMonitoring · Интеграция с Revit</title>
+  <link rel="stylesheet" href="/static/revit.css?v=2">
+</head>
+<body>
+  <header class="header"><a href="/" class="brand">QMonitoring</a>
+    <nav aria-label="Разделы приложения"><a href="/">Расчёт</a><a href="/composite">Вся плита</a><a href="/revit" aria-current="page">Revit</a></nav>
+  </header>
+  <main>
+    <section class="intro">
+      <p class="eyebrow">Приложение ↔ рабочая модель</p>
+      <h1>Подключение Revit</h1>
+      <p>Скачайте инструменты, снимите фактическую геометрию плиты и арматуры.
+        Передача идёт файлами JSON — отдельный сервер в Revit не нужен.</p>
+      <div class="compatibility">Revit 2024 · установленный pyRevit · IronPython 2.7</div>
+    </section>
+
+    <section aria-labelledby="workflow-title">
+      <h2 id="workflow-title">Как проходит работа</h2>
+      <ol class="workflow">
+        <li><span class="step-state ready">Доступно</span><strong>Установить инструменты</strong><p>ZIP ниже добавляют отдельные вкладки. Старые команды сохраняются.</p></li>
+        <li><span class="step-state ready">Доступно</span><strong>Считать рабочую модель</strong><p>Плита + DXF и существующие стержни — две кнопки только чтения.</p></li>
+        <li><span class="step-state ready">Доступно</span><strong>Проверить снимки</strong><p>Загрузите JSON ниже: сравним плиту и полноту чтения. Автоматического подключения новых снимков к расчёту здесь ещё нет.</p></li>
+        <li><span class="step-state pending">По совместимому пакету</span><strong>Проверить результат в Revit</strong><p>Plan Preview показывает линии. Создание новой арматуры и экспорт новых форм не включены в эти инструменты.</p></li>
+      </ol>
+    </section>
+
+    <section class="snapshot-panel" aria-labelledby="snapshot-title">
+      <h2 id="snapshot-title">Проверить JSON из Revit</h2>
+      <p>Можно загрузить один отчёт или оба. Два файла позволяют сопоставить идентификаторы плиты и модели.
+        Это проверка переданных записей, без подключения к текущему RVT.</p>
+      <form id="snapshot-form">
+        <div class="snapshot-files">
+          <label for="snapshot-host">Геометрия плиты · Working Host Probe<input id="snapshot-host" name="host" type="file" accept=".json,application/json"></label>
+          <label for="snapshot-rebar">Существующая арматура · Working Rebar Probe<input id="snapshot-rebar" name="rebar" type="file" accept=".json,application/json"></label>
+        </div>
+        <p class="metadata">До 32 MiB суммарно. Исходные JSON не сохраняются приложением и не публикуются по ссылке.
+          Не загружайте чужие или не разрешённые к передаче материалы.</p>
+        <button id="inspect-button" type="submit">Проверить снимки</button>
+        <p id="inspection-progress" role="status" aria-live="polite"></p>
+        <p id="inspection-error" class="error" role="alert" hidden></p>
+      </form>
+      <div id="inspection-result" hidden></div>
+    </section>
+
+    <section class="installation" aria-labelledby="installation-title">
+      <h2 id="installation-title">Установка без замены старых кнопок</h2>
+      <ol>
+        <li>Скачайте нужный ZIP и распакуйте его в новую папку на компьютере с Revit.</li>
+        <li>В <strong>pyRevit → Settings → Custom Extension Directories</strong> добавьте <strong>родительскую папку</strong>: внутри неё должна лежать папка с окончанием <code>.extension</code>.</li>
+        <li>Нажмите <strong>Reload</strong>. Откройте новую вкладку, указанную на карточке инструмента.</li>
+      </ol>
+      <p class="path-example"><span>Добавить этот путь:</span><code>C:\QMonitoring\WorkingRebar\</code><span>Внутри него:</span><code>QMonitoringReadOnly.extension\</code></p>
+      <p>Не выбирайте ZIP или <code>script.py</code>. Удалять рабочие наборы и отключать старые QMonitoring-вкладки не нужно.
+        При обновлении заменяйте только путь предыдущей версии <em>этого же</em> расширения.</p>
+    </section>
+
+    <section aria-labelledby="tools-title">
+      <h2 id="tools-title">Инструменты для скачивания</h2>
+      <p id="catalog-status" role="status" aria-live="polite">Проверяем доступность пакетов…</p>
+      <p id="catalog-error" class="error" role="alert" hidden></p>
+      <div id="tools" class="tools"></div>
+      <noscript><p>Для списка версий включите JavaScript. Каталог доступен по <a href="/api/revit/tools">/api/revit/tools</a>.</p></noscript>
+    </section>
+
+    <aside class="notice" aria-labelledby="scope-title">
+      <h2 id="scope-title">Где заканчивается установка и начинается инженерная проверка</h2>
+      <p>В этих ZIP нет моделей, исходных DXF, частных отчётов или готовой раскладки.
+        Читающие кнопки ничего не меняют в RVT; графический просмотр создаёт новый вид только после подтверждения.</p>
+      <p>Статус <code>collected</code> означает успешный сбор данных, не пройденные инженерные гейты.
+        <code>partial</code> — полезный отчёт с явными пробелами чтения, его не нужно исправлять изменением модели.</p>
+      <p>Общий JSON составного расчёта пока не является пакетом для Plan Preview.
+        Автоматическое создание арматуры с новыми формами и проверка всех коллизий здесь не заявлены.</p>
+      <p>Отчёты могут содержать геометрию, имена и пути модели. Передавайте их только участникам проекта.</p>
+    </aside>
+  </main>
+  <script src="/static/revit.js?v=2" defer></script>
+  <script src="/static/revit-inspection.js?v=1" defer></script>
+</body>
+</html>

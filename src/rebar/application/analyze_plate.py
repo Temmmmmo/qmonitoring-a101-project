@@ -86,6 +86,7 @@ def analyze_plate(
     case_id: str = "",
     complexity_axis: ComplexityAxis = ComplexityAxis.ZONE_COUNT,
     algorithm_params: Mapping[str, Mapping[str, Any]] | None = None,
+    single_cell_policy: str = "preserve",
 ) -> PlateAnalysis:
     """Разобрать четыре DXF и собрать по одному plate-baseline на алгоритм."""
 
@@ -108,6 +109,7 @@ def analyze_plate(
             cutting_profile=cutting_profile,
             complexity_axis=complexity_axis,
             algorithm_params=algorithm_params,
+            single_cell_policy=single_cell_policy,
         )
         for source in normalized_sources
     )
