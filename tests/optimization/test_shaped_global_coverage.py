@@ -137,6 +137,35 @@ def test_allowing_longitudinal_shift_never_waives_original_FE_coverage():
                                   maximum_longitudinal_shift_mm=2000)
 
 
+def test_explicit_length_swap_preserves_entire_original_stock_inventory():
+    before, lanes, problem, host = _case()
+    before = (before[0], replace(before[1], installed_interval_mm=(25, 3925)))
+    lanes = (lanes[0], replace(lanes[1], source=replace(lanes[1].source, installed_interval_mm=(25, 3925))))
+    swapped = (replace(before[0], installed_interval_mm=(25, 3925)),
+               replace(before[1], installed_interval_mm=(25, 2950)))
+    after = _shapes(swapped, host)
+    with pytest.raises(ValueError, match="true cut length"):
+        check_shaped_global_repair(before, after, lanes, problem, host)
+    report = check_shaped_global_repair(before, after, lanes, problem, host, allow_length_reassignment=True)
+    assert report["physical_stock_inventory_preserved"]
+    assert report["length_reassignment_allowed"]
+    assert not report["per_bar_cut_lengths_preserved"]
+    assert report["source_coverage"]["uncovered_cell_count"] == 0
+    assert report["shaped_host_not_proven_after"] == 0
+    assert not report["placement_eligible"]
+    duplicated_long = _shapes((swapped[0], before[1]), host)
+    with pytest.raises(ValueError, match="stock inventory changed"):
+        check_shaped_global_repair(before, duplicated_long, lanes, problem, host, allow_length_reassignment=True)
+
+
+@pytest.mark.parametrize("flag", (0, 1, "yes", None))
+def test_length_swap_policy_requires_actual_boolean(flag):
+    before, lanes, problem, host = _case()
+    with pytest.raises(ValueError, match="boolean"):
+        check_shaped_global_repair(before, _shapes(before, host), lanes, problem, host,
+                                  allow_length_reassignment=flag)
+
+
 @pytest.mark.parametrize("limit", (True, -1, 11701, float("nan"), float("inf")))
 def test_independent_checker_rejects_bad_longitudinal_limit(limit):
     before, lanes, problem, host = _case()

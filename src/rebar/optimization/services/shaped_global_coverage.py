@@ -184,6 +184,7 @@ def check_shaped_global_repair(
     before, after, lanes, problem, host, *, layer_profile=ResearchLayerProfile(),
     maximum_shift_mm: float = 300., stock_time_limit_s: float = 30,
     collision_options: dict | None = None, maximum_longitudinal_shift_mm: float = 0.,
+    allow_length_reassignment: bool = False,
 ) -> dict:
     """Independent final proof: global source union, canonical geometry and full 3D.
 
@@ -191,6 +192,8 @@ def check_shaped_global_repair(
     report. Every changed bar must be host-contained and free of both proven and
     uncertain inter-bar conflicts, even if its identity had an old conflict.
     """
+    if type(allow_length_reassignment) is not bool:
+        raise ValueError("Explicit boolean length-reassignment policy required")
     for label, value, lo, hi in (("maximum_shift_mm", maximum_shift_mm, 0, 300),
                                 ("maximum_longitudinal_shift_mm", maximum_longitudinal_shift_mm, 0, 11700),
                                 ("stock_time_limit_s", stock_time_limit_s, .001, 60)):
@@ -205,16 +208,20 @@ def check_shaped_global_repair(
     sources, original_coverage = _baseline(before, lanes, problem)
     _shape_batch(after, sources)
     old = {(bar.direction, bar.id): bar for bar in before}
+    old_inventory = Counter((str(b.direction), b.steel_class, b.diameter_mm, round(b.installed_length_mm, 6)) for b in before)
     if len(after) != len(before) or {(b.direction, b.id) for b in after} != set(old):
         raise ValueError("Same complete unique physical inventory required")
     baseline, failures_before, failures_after, changed, substitutions = [], [], [], set(), []
     moves, minimum_background_gap = [], math.inf
     for bar in after:
         previous = old[bar.direction, bar.id]
+        target_length = bar.selected_cut_length_mm
         if (bar.diameter_mm != previous.diameter_mm or bar.steel_class != previous.steel_class
                 or bar.source_bar_ids != previous.source_bar_ids
-                or abs(shaped_cut_length_mm(bar)-previous.installed_length_mm) > 1e-7):
+                or not allow_length_reassignment and abs(shaped_cut_length_mm(bar)-previous.installed_length_mm) > 1e-7):
             raise ValueError("Material/diameter/owner labels/true cut length must remain fixed")
+        if (str(bar.direction), bar.steel_class, bar.diameter_mm, round(target_length, 6)) not in old_inventory:
+            raise ValueError("Selected cut length has no original stock in the same direction/material/diameter")
         along, across = (0, 1) if bar.direction.axis is Axis.X else (1, 0)
         q = bar.segments[0].start_mm[across]
         if abs(q-previous.transverse_axis_mm) > maximum_shift_mm:
@@ -237,7 +244,9 @@ def check_shaped_global_repair(
             shift = bar.segments[0].start_mm[along]-previous.installed_interval_mm[0]
             if abs(shift) > maximum_longitudinal_shift_mm:
                 raise ValueError("Straight longitudinal translation exceeds its explicit source-baseline bound")
-            interval = tuple(value+shift for value in previous.installed_interval_mm)
+            start = bar.segments[0].start_mm[along]
+            interval = ((start, start+target_length) if allow_length_reassignment
+                        else tuple(value+shift for value in previous.installed_interval_mm))
             rebuilt = straight_bar_from_physical(replace(previous, transverse_axis_mm=q,
                 installed_interval_mm=interval), axis_z_mm=zm,
                                                  placement_profile_id=layer_profile.id)
@@ -256,7 +265,8 @@ def check_shaped_global_repair(
                     transverse_axis_mm=q, edge_coordinate_mm=edge, inward_sign=inward,
                     main_axis_z_mm=zm, return_axis_z_mm=zr,
                     slab_thickness_mm=host.sections[-1].top_z_mm-host.sections[0].bottom_z_mm,
-                    side_cover_mm=host.side_cover_mm, cut_length_mm=previous.installed_length_mm,
+                    side_cover_mm=host.side_cover_mm, cut_length_mm=(target_length if allow_length_reassignment
+                                                                 else previous.installed_length_mm),
                     source_bar_ids=previous.source_bar_ids, placement_profile_id=layer_profile.id)
                 if result.status == "geometry_conditions_met" and result.bar == bar:
                     matched = True
@@ -273,6 +283,8 @@ def check_shaped_global_repair(
             moves.append({"direction": identity[0], "bar_id": bar.id, "shape_kind": bar.shape_kind,
                           "original_q_mm": previous.transverse_axis_mm, "after_q_mm": q,
                           "q_shift_mm": q-previous.transverse_axis_mm,
+                          "original_cut_length_mm": previous.installed_length_mm,
+                          "selected_cut_length_mm": target_length,
                           "longitudinal_start_shift_mm": (bar.segments[0].start_mm[along]
                               -previous.installed_interval_mm[0] if bar.shape_kind == "straight" else None)})
         if not check_shaped_host(bar, host)["whole_body_with_cover_contained"]:
@@ -301,7 +313,6 @@ def check_shaped_global_repair(
                   if not owner_fragments_preserved(bar, frozen, sources)]
     stock = check_stock_cutting(shaped_cutting_schedule(after), time_limit_s=stock_time_limit_s)
     metrics = shaped_batch_metrics(after)
-    old_inventory = Counter((str(b.direction), b.steel_class, b.diameter_mm, round(b.installed_length_mm, 6)) for b in before)
     new_inventory = Counter((str(b.direction), b.steel_class, b.diameter_mm, round(shaped_cut_length_mm(b), 6)) for b in after)
     if old_inventory != new_inventory:
         raise ValueError("Complete physical stock inventory changed")
@@ -309,6 +320,9 @@ def check_shaped_global_repair(
     return {
         "schema_version": "shaped-global-original-FE-repair-check/v1", "policy": POLICY,
         "maximum_longitudinal_shift_mm": maximum_longitudinal_shift_mm,
+        "length_reassignment_allowed": allow_length_reassignment,
+        "per_bar_cut_lengths_preserved": all(abs(shaped_cut_length_mm(b)-old[b.direction, b.id].installed_length_mm)
+                                              <= 1e-7 for b in after),
         "status": "blocked_host" if failures_after else "blocked_body_collisions" if blocked_pairs
         else "blocked_stock" if stock["status"] != "pass" else "research_checks_passed_not_placement_approved",
         "source_coverage": coverage, "source_coverage_before_strict": baseline_coverage,

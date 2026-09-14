@@ -40,13 +40,16 @@ def run(args):
     records.extend(inputs.source_files)
     print({"stage": "fresh_source_inputs_validated", "physical_bars": len(inputs.bars)}, flush=True)
     if args.solver == "joint":
-        if args.maximum_longitudinal_shift_mm != 0:
-            raise ValueError("Joint pool currently supports q/U only; longitudinal limit must be zero")
         after, search = propose_joint_shaped_repair(inputs.bars, inputs.lanes, inputs.problem, inputs.host,
             maximum_axes_per_bar=args.joint_axes_per_bar,
             maximum_candidates_per_bar=args.joint_candidates_per_bar,
-            maximum_rounds=args.joint_rounds, time_limit_s=args.time_limit_s)
+            maximum_rounds=args.joint_rounds, time_limit_s=args.time_limit_s,
+            allow_length_reassignment=args.reassign_lengths,
+            maximum_lengths_per_bar=args.joint_lengths_per_bar,
+            maximum_longitudinal_shift_mm=args.maximum_longitudinal_shift_mm)
     else:
+        if args.reassign_lengths:
+            raise ValueError("Length reassignment requires the joint solver")
         after, search = propose_global_shaped_repair(inputs.bars, inputs.lanes, inputs.problem, inputs.host,
             maximum_axes_per_bar=args.maximum_axes_per_bar, maximum_candidates=args.maximum_candidates,
             maximum_passes=args.maximum_passes, time_limit_s=args.time_limit_s,
@@ -55,7 +58,8 @@ def run(args):
            "budget_exhausted": search.get("budget_exhausted"), "reason": search.get("reason")}, flush=True)
     checked = check_shaped_global_repair(inputs.bars, after, inputs.lanes, inputs.problem, inputs.host,
         stock_time_limit_s=args.stock_time_limit_s,
-        maximum_longitudinal_shift_mm=args.maximum_longitudinal_shift_mm)
+        maximum_longitudinal_shift_mm=args.maximum_longitudinal_shift_mm,
+        allow_length_reassignment=args.reassign_lengths)
     physical = []
     for bar in after:
         record = asdict(bar)
@@ -99,6 +103,8 @@ def main(argv=None):
     parser.add_argument("--joint-axes-per-bar", type=int, default=8)
     parser.add_argument("--joint-candidates-per-bar", type=int, default=16)
     parser.add_argument("--joint-rounds", type=int, default=20)
+    parser.add_argument("--joint-lengths-per-bar", type=int, default=4)
+    parser.add_argument("--reassign-lengths", action="store_true")
     try:
         run(parser.parse_args(argv))
     except (ValueError, TypeError, KeyError, OSError) as error:

@@ -7,6 +7,8 @@ No source field, blank length, diameter, owner inventory or approval is changed.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from collections import Counter, defaultdict
+from itertools import zip_longest
 import math
 from time import perf_counter
 
@@ -15,6 +17,7 @@ from shapely.ops import unary_union
 from shapely.strtree import STRtree
 
 from .shaped_global_repair import _axis_choices
+from .shaped_translation_candidates import straight_translation_candidates
 from ..contracts.shaped_physical import K09_U_RETURN_50D_PROFILE
 from ..services.collision_replacement import freeze_owner_fe_service
 from ..services.opening_relocation import lane_map
@@ -84,7 +87,9 @@ def _score(selected, conflict_ids):
 def propose_joint_shaped_repair(before, lanes, problem, host, *,
         layer_profile=ResearchLayerProfile(), maximum_axes_per_bar=8,
         maximum_candidates_per_bar=16, maximum_rounds=20,
-        maximum_witnesses=20000, time_limit_s=600):
+        maximum_witnesses=20000, time_limit_s=600,
+        allow_length_reassignment=False, maximum_lengths_per_bar=4,
+        maximum_longitudinal_shift_mm=0.):
     """Pure q/U joint experiment; a final independent checker is still required.
 
     Lexicographic integer objective: remaining host failures, original conflict
@@ -93,16 +98,26 @@ def propose_joint_shaped_repair(before, lanes, problem, host, *,
     not. Point cuts converge only within the finite, explicitly truncated pool.
     """
     for value, high in ((maximum_axes_per_bar, 32), (maximum_candidates_per_bar, 64),
-                        (maximum_rounds, 100), (maximum_witnesses, 100000)):
+                        (maximum_rounds, 100), (maximum_witnesses, 100000), (maximum_lengths_per_bar, 16)):
         if type(value) is not int or not 1 <= value <= high:
             raise ValueError("Positive bounded joint-search resources required")
     if (isinstance(time_limit_s, bool) or not isinstance(time_limit_s, (int, float))
             or not math.isfinite(time_limit_s) or not .001 <= time_limit_s <= 1800):
         raise ValueError("Finite bounded joint-search time required")
+    if type(allow_length_reassignment) is not bool:
+        raise ValueError("Explicit boolean length-reassignment policy required")
+    if (isinstance(maximum_longitudinal_shift_mm, bool) or not isinstance(maximum_longitudinal_shift_mm, (int, float))
+            or not math.isfinite(maximum_longitudinal_shift_mm) or not 0 <= maximum_longitudinal_shift_mm <= 11700):
+        raise ValueError("Finite bounded longitudinal limit required")
     freeze_owner_fe_service(before, lanes, problem)
     sources = lane_map(lanes)
     started = perf_counter()
     candidates, by_owner = [], [[] for _ in before]
+    stock_inventory = Counter((str(b.direction), b.steel_class, b.diameter_mm, round(b.installed_length_mm, 6))
+                              for b in before)
+    length_menus = defaultdict(set)
+    for b in before:
+        length_menus[b.direction, b.steel_class, b.diameter_mm].add(b.installed_length_mm)
     baseline = []
     for owner, previous in enumerate(before):
         zm, _ = layer_elevations(host, previous.direction, previous.diameter_mm, layer_profile)
@@ -122,6 +137,9 @@ def propose_joint_shaped_repair(before, lanes, problem, host, *,
         "placement_eligible": False, "source_field_transferred": False,
         "global_optimality_proven": False, "finite_point_coverage_is_final_proof": False,
         "candidate_pool_truncated": False, "original_3D_collisions": initial_collisions}
+    telemetry.update(length_reassignment_allowed=allow_length_reassignment,
+                     maximum_longitudinal_shift_mm=maximum_longitudinal_shift_mm,
+                     stock_inventory_constraints=True)
     telemetry["U_shape_length_limit_bar_ids"] = []
 
     def finish(reason):
@@ -144,30 +162,42 @@ def propose_joint_shaped_repair(before, lanes, problem, host, *,
                 round(i*(len(axes)-1)/(maximum_axes_per_bar-1)) for i in range(maximum_axes_per_bar)}
             axes = tuple(axes[i] for i in sorted(indexes))
         zm, zr = layer_elevations(host, previous.direction, previous.diameter_mm, layer_profile)
-        allow_u = previous.installed_length_mm <= K09_U_RETURN_50D_PROFILE.maximum_cut_length_mm
-        if not allow_u:
+        if previous.installed_length_mm > K09_U_RETURN_50D_PROFILE.maximum_cut_length_mm:
             telemetry["U_shape_length_limit_bar_ids"].append((str(previous.direction), previous.id))
-        choices = []
-        for q in axes:
-            choices.append(straight_bar_from_physical(replace(previous, transverse_axis_mm=q),
-                axis_z_mm=zm, placement_profile_id=layer_profile.id))
-            if not allow_u:
-                # Keep the exact source length and all straight candidates.
-                # Do not silently round a slightly over-limit binary float to
-                # 11700 just to make the stricter U constructor accept it.
-                continue
-            for edge, inward in exterior_edge_choices(host, previous.direction, q, previous.diameter_mm):
-                built = build_u_edge_bar(bar_id=previous.id, direction=previous.direction,
-                    steel_class=previous.steel_class, diameter_mm=previous.diameter_mm,
-                    transverse_axis_mm=q, edge_coordinate_mm=edge, inward_sign=inward,
-                    main_axis_z_mm=zm, return_axis_z_mm=zr,
-                    slab_thickness_mm=host.sections[-1].top_z_mm-host.sections[0].bottom_z_mm,
-                    side_cover_mm=host.side_cover_mm, cut_length_mm=previous.installed_length_mm,
-                    source_bar_ids=previous.source_bar_ids, placement_profile_id=layer_profile.id)
-                if built.status == "geometry_conditions_met":
-                    choices.append(built.bar)
+        lengths = (previous.installed_length_mm,)
+        if allow_length_reassignment:
+            menu = sorted(length_menus[previous.direction, previous.steel_class, previous.diameter_mm],
+                          key=lambda length: (abs(length-previous.installed_length_mm), length))
+            telemetry["candidate_pool_truncated"] |= len(menu) > maximum_lengths_per_bar
+            lengths = tuple(menu[:maximum_lengths_per_bar])
+        groups = []
+        for length in lengths:
+            choices = []
+            for q in axes:
+                interval = previous.installed_interval_mm if length == previous.installed_length_mm else (
+                    previous.installed_interval_mm[0], previous.installed_interval_mm[0]+length)
+                straight = replace(previous, transverse_axis_mm=q, installed_interval_mm=interval)
+                choices.append(straight_bar_from_physical(straight, axis_z_mm=zm, placement_profile_id=layer_profile.id))
+                translated, truncated = straight_translation_candidates(straight, host, (),
+                    maximum_longitudinal_shift_mm=maximum_longitudinal_shift_mm, maximum_positions=2)
+                telemetry["candidate_pool_truncated"] |= truncated
+                choices.extend(straight_bar_from_physical(b, axis_z_mm=zm, placement_profile_id=layer_profile.id)
+                               for b in translated)
+                if length > K09_U_RETURN_50D_PROFILE.maximum_cut_length_mm:
+                    continue  # retain the exact over-limit source; never round it for a U.
+                for edge, inward in exterior_edge_choices(host, previous.direction, q, previous.diameter_mm):
+                    built = build_u_edge_bar(bar_id=previous.id, direction=previous.direction,
+                        steel_class=previous.steel_class, diameter_mm=previous.diameter_mm,
+                        transverse_axis_mm=q, edge_coordinate_mm=edge, inward_sign=inward,
+                        main_axis_z_mm=zm, return_axis_z_mm=zr,
+                        slab_thickness_mm=host.sections[-1].top_z_mm-host.sections[0].bottom_z_mm,
+                        side_cover_mm=host.side_cover_mm, cut_length_mm=length,
+                        source_bar_ids=previous.source_bar_ids, placement_profile_id=layer_profile.id)
+                    if built.status == "geometry_conditions_met":
+                        choices.append(built.bar)
+            groups.append(choices)
         known = {baseline[owner].bar}
-        for bar in choices:
+        for bar in (value for row in zip_longest(*groups) for value in row if value is not None):
             if perf_counter()-started >= time_limit_s:
                 return finish("candidate_time_budget")
             if bar in known:
@@ -225,6 +255,12 @@ def propose_joint_shaped_repair(before, lanes, problem, host, *,
     cost = np.array([(not c.host_ok)*(n+1)**2
         + (c.original and (str(c.bar.direction), c.bar.id) in conflict_ids)*(n+1)
         + (not c.original) for c in candidates], dtype=float)
+    stock_groups = defaultdict(list)
+    for i, c in enumerate(candidates):
+        key = str(c.bar.direction), c.bar.steel_class, c.bar.diameter_mm, round(c.bar.selected_cut_length_mm, 6)
+        stock_groups[key].append(i)
+    if set(stock_groups) != set(stock_inventory):
+        raise ValueError("Candidate pool changed the original finite stock catalog")
     for iteration in range(maximum_rounds):
         remaining = time_limit_s-(perf_counter()-started)
         if remaining <= 0:
@@ -239,6 +275,8 @@ def propose_joint_shaped_repair(before, lanes, problem, host, *,
 
         for group in by_owner:
             row(group, 1, 1)
+        for key, count in stock_inventory.items():
+            row(stock_groups[key], count, count)
         for group in points:
             row(group, 1, math.inf)
         for pair in sorted(cuts):
@@ -254,6 +292,10 @@ def propose_joint_shaped_repair(before, lanes, problem, host, *,
                 or any(abs(value-round(value)) > 1e-6 for value in result.x)):
             return finish("nonintegral_or_incomplete_solver_result")
         selected = tuple(sorted((candidates[i] for i in selected_indexes), key=lambda c: c.owner))
+        selected_stock = Counter((str(c.bar.direction), c.bar.steel_class, c.bar.diameter_mm,
+                                  round(c.bar.selected_cut_length_mm, 6)) for c in selected)
+        if selected_stock != stock_inventory:
+            return finish("integer_stock_inventory_mismatch")
         missing = _missing(problem, selected)
         point_count = add_points(_witnesses(missing))
         if point_count is None:

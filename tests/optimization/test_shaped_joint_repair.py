@@ -68,6 +68,27 @@ def test_over_limit_source_float_retains_inventory_without_rounding_for_U():
     assert report["physical_stock_inventory_preserved"]
 
 
+def test_joint_stock_swap_supplies_a_main_leg_that_old_short_U_cannot():
+    pytest.importorskip("scipy.optimize")
+    before, lanes, problem, host = _case(edge=True, demand_bounds=(100, -50, 2225, 50))
+    before = (before[0], replace(before[1], installed_interval_mm=(-300, 3600)))
+    lanes = (replace(lanes[0], source=replace(lanes[0].source, required_interval_mm=(100, 2225))),
+             replace(lanes[1], axis_window_mm=(150, 450), source=replace(lanes[1].source,
+                     installed_interval_mm=(-300, 3600), required_interval_mm=(100, 2225))))
+    fixed, _ = propose_joint_shaped_repair(before, lanes, problem, host, time_limit_s=20)
+    assert check_shaped_global_repair(before, fixed, lanes, problem, host)["shaped_host_not_proven_after"] >= 1
+    after, search = propose_joint_shaped_repair(before, lanes, problem, host,
+        time_limit_s=20, allow_length_reassignment=True, maximum_candidates_per_bar=32)
+    report = check_shaped_global_repair(before, after, lanes, problem, host, allow_length_reassignment=True)
+    assert report["source_coverage"]["uncovered_cell_count"] == 0
+    assert report["shaped_host_not_proven_after"] == 0
+    assert not report["per_bar_cut_lengths_preserved"]
+    assert report["physical_stock_inventory_preserved"]
+    assert search["stock_inventory_constraints"]
+    assert after[0].selected_cut_length_mm == 3900
+    assert after[1].selected_cut_length_mm == 2925
+
+
 def test_optional_solver_or_budget_never_returns_partial_party():
     before, lanes, problem, host = _case(edge=True)
     after, search = propose_joint_shaped_repair(before, lanes, problem, host, time_limit_s=.001)
