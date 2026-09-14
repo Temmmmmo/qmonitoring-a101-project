@@ -11,6 +11,10 @@ services:
     read_only: true
     tmpfs:
       - /tmp:size=256m,mode=1777
+    environment:
+      REBAR_ENGINEERING_INPUTS_DIR: /engineering-inputs
+    volumes:
+      - engineering-inputs:/engineering-inputs:ro
     expose:
       - "8000"
     healthcheck:
@@ -36,3 +40,8 @@ networks:
   caddy_net:
     external: true
     name: caddy_net
+
+volumes:
+  engineering-inputs:
+    external: true
+    name: qmonitoring-engineering-inputs

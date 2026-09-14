@@ -2,27 +2,41 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>QMonitoring · Составная плита</title>
-  <link rel="stylesheet" href="/static/composite.css?v=1">
+  <title>QMonitoring · Раскладка всей плиты</title>
+  <link rel="stylesheet" href="/static/composite.css?v=2">
+  <link rel="stylesheet" href="/static/engineering-start.css?v=1">
 </head>
 <body>
-  <header><a href="/">← QMonitoring</a><h1>Составная раскладка всей плиты</h1>
-    <p>Четыре направления · все добавки из шкалы · масса и позиции спецификации</p>
-    <a href="/revit">Инструменты и подключение Revit →</a></header>
+  <header class="workspace-header"><a class="workspace-brand" href="/">QMonitoring <span>× A101</span></a>
+    <nav aria-label="Разделы"><a href="/composite" aria-current="page">Раскладка плиты</a><a href="/revit">Revit</a><a href="/?advanced=1">Одно направление</a></nav></header>
   <main>
-    <section class="quick-start">
-      <h2>Первый раз? Посмотрите готовый пример</h2>
-      <p>Ничего выбирать или загружать не нужно. Рассчитаем синтетическую плиту 6 × 4 м:
-        четыре направления, варианты раскладки, позиции и проверка раскроя.
-        Проверки не отключаются ради демо — ограничения будут показаны в результате.</p>
-      <button id="run-demo" type="button">Посмотреть пример</button>
-      <p>После расчёта переключайте «Низ · X / Y» и «Верх · X / Y», сравнивайте варианты
-        и откройте «Общая ведомость позиций».</p>
-    </section>
+    <div class="engineering-start">
+      <p class="start-eyebrow">Четыре направления · единая ведомость</p>
+      <h1>Рассчитайте раскладку для настоящей плиты</h1>
+      <p class="start-description">Исходные изополя К09 уже выбраны. Один запуск — схема, варианты раскладки
+        и сравнение с инженерной спецификацией.</p>
+      <article class="example-card">
+        <div><span class="example-tag">Выбран реальный комплект проекта</span>
+          <h2 id="example-title">К09 · плита над 3–14 этажами</h2>
+          <p id="example-description" class="example-description">Исходные DXF и шкалы из материалов проекта, без генерации или замены данных.</p>
+          <div id="example-facts" class="example-facts"><span>4 направления</span><span>Файлы и шкалы уже выбраны</span></div>
+          <details class="example-profile"><summary>Параметры примера и ограничения</summary><p id="example-profile-note">Загружаем описание выбранного профиля…</p></details>
+          <button id="run-engineering-example" type="button" class="start-primary" disabled>Рассчитать плиту К09</button>
+          <p id="example-status" class="example-status" role="status" aria-live="polite">Проверяем наличие исходных данных на сервере…</p>
+        </div>
+        <aside class="example-reference"><h3>Инженерная выдача · эталон сравнения</h3>
+          <dl><dt>Масса арматуры</dt><dd id="example-mass">—</dd><dt>Физические стержни</dt><dd id="example-bars">—</dd><dt>Позиции спецификации</dt><dd id="example-positions">—</dd></dl>
+          <p id="example-reference-note">Проверяем состав инженерного эталона…</p>
+        </aside>
+        <div id="example-files" class="example-files" aria-label="Выбранные исходные файлы"></div>
+      </article>
+      <div class="start-alternatives"><a href="#custom-inputs" class="start-secondary" id="open-custom-inputs">Загрузить свои файлы →</a>
+        <a href="/revit" class="start-secondary">Инструменты Revit →</a></div>
+    </div>
     <p id="progress" role="status" aria-live="polite"></p>
     <p id="error" role="alert" hidden></p>
-    <details id="custom-inputs">
-      <summary>Рассчитать свои DXF — файлы и параметры проекта</summary>
+    <details id="custom-inputs" class="custom-inputs">
+      <summary>Свой проект · загрузить четыре DXF и шкалы</summary>
     <form id="composite-form">
       <section><h2>1. Исходные DXF и шкалы</h2>
         <p>Excel не нужен. Для каждого направления укажите его DXF и соответствующую шкалу SHK.
@@ -31,6 +45,7 @@
           Неподдержанную схему программа отклонит, а не заменит другой.</p>
         <div id="direction-inputs" class="direction-grid"></div>
       </section>
+      <details class="custom-parameters"><summary>Параметры проекта, укладки и поиска</summary>
       <section><h2>2. Параметры раскладки</h2>
         <p>Начало фона — глобальная поперечная координата в мм (для X это Y и наоборот).
           Первая добавка @150 автоматически следует подтверждённой схеме 100/200 относительно фона.
@@ -65,27 +80,46 @@
           плита с прямоугольными сквозными проёмами. Другая геометрия отклоняется.
           Краевой спрос не удаляется, стержни не обрезаются. Снимок не заменяет актуальную проверку модели.</p>
       </section>
+      </details>
       <button id="run" type="submit">Рассчитать четыре направления</button>
     </form>
     </details>
     <section id="output" hidden>
-      <h2>Результат всей плиты</h2>
+      <div class="result-heading"><div><p class="section-eyebrow">Результат расчёта</p><h2 id="result-title">Раскладка всей плиты</h2></div>
+        <span class="draft-label">Черновик · не размещён в Revit</span></div>
       <p id="demo-notice" class="notice" hidden></p>
-      <p class="notice">Это расчётные варианты, не разрешение размещения. Высоты слоёв, фон и общие
-        3D-коллизии не подтверждены. Revit-модель не меняется.</p>
-      <p id="result-summary"></p>
-      <label>Вариант на кривой «масса ↔ позиции»<select id="candidate"></select></label>
+      <p id="result-summary" class="result-summary"></p>
+      <label class="candidate-control">Вариант раскладки<select id="candidate"></select></label>
       <div id="metrics" class="metrics"></div>
-      <p id="stock-status"></p><p id="balance-status"></p><div id="stock-patterns"></div>
-      <nav id="direction-tabs" aria-label="Направление"></nav>
-      <div id="drawing"></div><p id="direction-status"></p><ul id="installation-notes"></ul>
-      <details><summary>Общая ведомость позиций</summary><div class="table-scroll"><table>
+      <section id="engineer-comparison" class="engineer-comparison" hidden><h3>Сравнение с инженерной выдачей</h3>
+        <div class="table-scroll"><table><thead><tr><th>Показатель</th><th>Этот вариант</th><th>Инженер</th><th>Разница</th></tr></thead><tbody id="comparison-rows"></tbody></table></div>
+        <p id="comparison-scope"></p></section>
+      <div class="drawing-heading"><h3>Схема армирования</h3><p>Выберите направление и слой отображения</p></div>
+      <div class="drawing-toolbar"><nav id="direction-tabs" aria-label="Направление"></nav>
+        <div id="drawing-layers" class="segmented" role="group" aria-label="Слой схемы"><button type="button" data-layer="layout" aria-pressed="true">Раскладка</button><button type="button" data-layer="demand" aria-pressed="false">Потребность</button><button type="button" data-layer="overlay" aria-pressed="false">Вместе</button></div></div>
+      <div id="drawing" data-layer="layout"></div>
+      <div class="drawing-footer"><p id="drawing-legend">Синие линии — оси дополнительных стержней. Светлая подложка — исходная сетка КЭ.</p>
+        <div class="zoom-controls"><button id="zoom-out" type="button" aria-label="Уменьшить схему">−</button><span id="zoom-level">100%</span><button id="zoom-in" type="button" aria-label="Увеличить схему">+</button><button id="zoom-reset" type="button">Целиком</button></div></div>
+      <p id="direction-status"></p>
+      <section class="checks-section"><h3>Что проверено и что осталось</h3>
+        <p class="notice">Это расчётные варианты, не разрешение размещения. Высоты слоёв, фон и общие
+          3D-коллизии не подтверждены. Revit-модель не меняется.</p>
+        <div id="check-summary" class="check-summary"></div>
+        <h4 id="blocker-title">Незакрытые условия</h4><ul id="blockers" class="blocker-list"></ul>
+      </section>
+      <details class="result-details"><summary>Общая ведомость позиций</summary><div class="table-scroll"><table>
         <thead><tr><th>Марка</th><th>Класс</th><th>Ø, мм</th><th>Длина, мм</th><th>Стержней, шт.</th><th>Масса, кг</th></tr></thead>
         <tbody id="schedule"></tbody></table></div></details>
-      <details><summary>Что блокирует размещение</summary><ul id="blockers"></ul></details>
+      <details class="result-details"><summary>Раскрой 11700, параметры и технические примечания</summary>
+        <p id="stock-status"></p><p id="balance-status"></p><div id="stock-patterns"></div>
+        <ul id="installation-notes"></ul><p id="full-result-warning"></p></details>
       <div class="actions"><button id="download-report" type="button">Скачать полный отчёт JSON</button>
         <button id="download-selected" type="button">Скачать выбранную раскладку (черновик)</button></div>
     </section>
+    <details class="synthetic-example"><summary>Синтетический пример · только для знакомства с интерфейсом</summary>
+      <p>Отдельная сгенерированная плита 6 × 4 м, не проект К09 и не инженерный эталон. Проверки не отключаются.</p>
+      <button id="run-demo" type="button">Посмотреть пример на синтетических данных</button></details>
   </main>
-  <script src="/static/composite.js?v=1" defer></script>
+  <script src="/static/engineering-example.js?v=1" defer></script>
+  <script src="/static/composite.js?v=2" defer></script>
 </body></html>

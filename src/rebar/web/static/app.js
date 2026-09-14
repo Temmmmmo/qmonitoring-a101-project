@@ -111,7 +111,7 @@ function updateSourceMode() {
   scopeLabel.textContent = plateMode ? "Плита · 4 направления" : "Одно направление";
   panelCode.textContent = plateMode ? "DXF · 04" : "DXF · 01";
   if (results.hidden && loading.hidden) {
-    const label = demoMode ? "Демо готово" : (plateMode ? "Ожидание комплекта" : "Ожидание DXF");
+    const label = demoMode ? "Система готова" : (plateMode ? "Ожидание комплекта" : "Ожидание DXF");
     setWorkspaceState(label, demoMode ? "ready" : "");
   }
 }
@@ -168,7 +168,7 @@ async function loadOptions() {
     const response = await fetch("/api/options", { cache: "no-store" });
     if (!response.ok) throw new Error("Не удалось получить настройки приложения.");
     renderOptions(await response.json());
-    setWorkspaceState(sourceMode() === "demo" ? "Демо готово" : "Система готова", "ready");
+    setWorkspaceState("Система готова", "ready");
   } catch (error) {
     showError(error.message);
     setWorkspaceState("Ошибка конфигурации", "bad");
@@ -194,7 +194,7 @@ sourceModeInputs.forEach((input) => input.addEventListener("change", () => {
 }));
 demoSelect.addEventListener("change", () => {
   updateDemoDescription();
-  if (results.hidden && loading.hidden) setWorkspaceState("Демо готово", "ready");
+  if (results.hidden && loading.hidden) setWorkspaceState("Система готова", "ready");
 });
 shkInput.addEventListener("change", () => {
   document.querySelector("#shk-label").textContent = shkInput.files[0]?.name ?? "Добавить .shk";

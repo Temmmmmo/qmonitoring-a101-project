@@ -55,6 +55,7 @@ from rebar.application.revit_installation import (
     RevitBundleUnavailableError, revit_tool_catalog, revit_tool_download,
 )
 from rebar.web.revit_inspection import router as revit_inspection_router
+from rebar.web.engineering_examples import router as engineering_examples_router
 
 STATIC_DIR = Path(__file__).with_name("static")
 MAX_UPLOAD_BYTES = 30 * 1024 * 1024
@@ -128,6 +129,7 @@ app = FastAPI(
 )
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.include_router(revit_inspection_router)
+app.include_router(engineering_examples_router)
 
 
 @app.get("/composite")
