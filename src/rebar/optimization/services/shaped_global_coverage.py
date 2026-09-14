@@ -183,7 +183,7 @@ def _pair_key(pair):
 def check_shaped_global_repair(
     before, after, lanes, problem, host, *, layer_profile=ResearchLayerProfile(),
     maximum_shift_mm: float = 300., stock_time_limit_s: float = 30,
-    collision_options: dict | None = None,
+    collision_options: dict | None = None, maximum_longitudinal_shift_mm: float = 0.,
 ) -> dict:
     """Independent final proof: global source union, canonical geometry and full 3D.
 
@@ -192,6 +192,7 @@ def check_shaped_global_repair(
     uncertain inter-bar conflicts, even if its identity had an old conflict.
     """
     for label, value, lo, hi in (("maximum_shift_mm", maximum_shift_mm, 0, 300),
+                                ("maximum_longitudinal_shift_mm", maximum_longitudinal_shift_mm, 0, 11700),
                                 ("stock_time_limit_s", stock_time_limit_s, .001, 60)):
         if (isinstance(value, bool) or not isinstance(value, (int, float))
                 or not math.isfinite(value) or not lo <= value <= hi):
@@ -233,10 +234,15 @@ def check_shaped_global_repair(
         if not check_shaped_host(original_shape, host)["whole_body_with_cover_contained"]:
             failures_before.append(identity)
         if bar.shape_kind == "straight":
-            rebuilt = straight_bar_from_physical(replace(previous, transverse_axis_mm=q), axis_z_mm=zm,
+            shift = bar.segments[0].start_mm[along]-previous.installed_interval_mm[0]
+            if abs(shift) > maximum_longitudinal_shift_mm:
+                raise ValueError("Straight longitudinal translation exceeds its explicit source-baseline bound")
+            interval = tuple(value+shift for value in previous.installed_interval_mm)
+            rebuilt = straight_bar_from_physical(replace(previous, transverse_axis_mm=q,
+                installed_interval_mm=interval), axis_z_mm=zm,
                                                  placement_profile_id=layer_profile.id)
             if bar != rebuilt:
-                raise ValueError("Straight change must be a pure q translation under the exact layer profile")
+                raise ValueError("Straight change must preserve its exact interval and declared layer profile")
         elif bar.shape_kind == "U":
             inward = 1 if bar.segments[0].start_mm[along] > bar.segments[0].end_mm[along] else -1
             arc_tip = curve_point(bar.segments[1], 1)
@@ -266,7 +272,9 @@ def check_shaped_global_repair(
             changed.add(identity)
             moves.append({"direction": identity[0], "bar_id": bar.id, "shape_kind": bar.shape_kind,
                           "original_q_mm": previous.transverse_axis_mm, "after_q_mm": q,
-                          "q_shift_mm": q-previous.transverse_axis_mm})
+                          "q_shift_mm": q-previous.transverse_axis_mm,
+                          "longitudinal_start_shift_mm": (bar.segments[0].start_mm[along]
+                              -previous.installed_interval_mm[0] if bar.shape_kind == "straight" else None)})
         if not check_shaped_host(bar, host)["whole_body_with_cover_contained"]:
             failures_after.append(identity)
             if is_changed:
@@ -300,6 +308,7 @@ def check_shaped_global_repair(
     blocked_pairs = after_pairs["proven_collision_pair_count"]+after_pairs["uncertain_pair_count"]
     return {
         "schema_version": "shaped-global-original-FE-repair-check/v1", "policy": POLICY,
+        "maximum_longitudinal_shift_mm": maximum_longitudinal_shift_mm,
         "status": "blocked_host" if failures_after else "blocked_body_collisions" if blocked_pairs
         else "blocked_stock" if stock["status"] != "pass" else "research_checks_passed_not_placement_approved",
         "source_coverage": coverage, "source_coverage_before_strict": baseline_coverage,

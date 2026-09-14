@@ -29,6 +29,7 @@ def run(args):
         "src/rebar/optimization/services/shaped_collisions.py",
         "src/rebar/optimization/services/shaped_fe_repair.py",
         "src/rebar/optimization/services/shaped_global_coverage.py",
+        "src/rebar/optimization/algorithms/shaped_translation_candidates.py",
         "src/rebar/optimization/algorithms/shaped_global_repair.py")]
     inputs = load_fe_research_inputs(shifted_dir=args.shifted_dir, snapshot=args.snapshot,
         candidate_id=args.candidate_id, working_host_report=args.working_host_report,
@@ -38,11 +39,13 @@ def run(args):
     print({"stage": "fresh_source_inputs_validated", "physical_bars": len(inputs.bars)}, flush=True)
     after, search = propose_global_shaped_repair(inputs.bars, inputs.lanes, inputs.problem, inputs.host,
         maximum_axes_per_bar=args.maximum_axes_per_bar, maximum_candidates=args.maximum_candidates,
-        maximum_passes=args.maximum_passes, time_limit_s=args.time_limit_s)
+        maximum_passes=args.maximum_passes, time_limit_s=args.time_limit_s,
+        maximum_longitudinal_shift_mm=args.maximum_longitudinal_shift_mm)
     print({"stage": "finite_search_finished", "operations": len(search["operations"]),
            "budget_exhausted": search["budget_exhausted"]}, flush=True)
     checked = check_shaped_global_repair(inputs.bars, after, inputs.lanes, inputs.problem, inputs.host,
-                                        stock_time_limit_s=args.stock_time_limit_s)
+        stock_time_limit_s=args.stock_time_limit_s,
+        maximum_longitudinal_shift_mm=args.maximum_longitudinal_shift_mm)
     physical = []
     for bar in after:
         record = asdict(bar)
@@ -81,6 +84,7 @@ def main(argv=None):
     parser.add_argument("--maximum-axes-per-bar", type=int, default=64)
     parser.add_argument("--maximum-candidates", type=int, default=50000)
     parser.add_argument("--maximum-passes", type=int, default=2)
+    parser.add_argument("--maximum-longitudinal-shift-mm", type=float, default=0)
     try:
         run(parser.parse_args(argv))
     except (ValueError, TypeError, KeyError, OSError) as error:

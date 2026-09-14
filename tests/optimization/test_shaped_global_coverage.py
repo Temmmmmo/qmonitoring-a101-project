@@ -107,6 +107,44 @@ def test_root_proposal_is_independently_checked_without_old_ownership_gate():
     assert not search["source_field_transferred"]
 
 
+def test_explicit_longitudinal_search_preserves_original_FE_without_needing_U():
+    before, lanes, problem, host = _case(edge=True, demand_bounds=(500, 100, 1500, 200))
+    after, search = propose_global_shaped_repair(before, lanes, problem, host,
+        time_limit_s=20, maximum_longitudinal_shift_mm=11700)
+    assert all(bar.shape_kind == "straight" for bar in after)
+    assert all(bar.segments[0].start_mm[0] == 25 for bar in after)
+    assert search["maximum_longitudinal_shift_mm"] == 11700
+    with pytest.raises(ValueError, match="longitudinal translation"):
+        check_shaped_global_repair(before, after, lanes, problem, host)
+    with pytest.raises(ValueError, match="longitudinal translation"):
+        check_shaped_global_repair(before, after, lanes, problem, host, maximum_longitudinal_shift_mm=324)
+    report = check_shaped_global_repair(before, after, lanes, problem, host,
+                                      maximum_longitudinal_shift_mm=325)
+    assert report["source_coverage"]["uncovered_cell_count"] == 0
+    assert report["shaped_host_not_proven_after"] == 0
+    assert report["U_substitution_count"] == 0
+    assert report["physical_stock_inventory_preserved"]
+    assert report["3d_collisions_after"]["status"] == "pass"
+    assert not report["placement_eligible"]
+
+
+def test_allowing_longitudinal_shift_never_waives_original_FE_coverage():
+    before, lanes, problem, host = _case(edge=True, demand_bounds=(500, 100, 1500, 200))
+    shifted = tuple(replace(b, installed_interval_mm=(1125, 4050)) for b in before)
+    after = _shapes(shifted, host)
+    with pytest.raises(ValueError, match="original FE positive-area"):
+        check_shaped_global_repair(before, after, lanes, problem, host,
+                                  maximum_longitudinal_shift_mm=2000)
+
+
+@pytest.mark.parametrize("limit", (True, -1, 11701, float("nan"), float("inf")))
+def test_independent_checker_rejects_bad_longitudinal_limit(limit):
+    before, lanes, problem, host = _case()
+    with pytest.raises(ValueError, match="longitudinal"):
+        check_shaped_global_repair(before, _shapes(before, host), lanes, problem, host,
+                                  maximum_longitudinal_shift_mm=limit)
+
+
 def test_weak_As_offers_never_sum_to_replace_stronger_original_demand():
     before, lanes, problem, host = _case(strong=True, demand_bounds=(700, 100, 2000, 150))
     initial = _shapes(before, host)

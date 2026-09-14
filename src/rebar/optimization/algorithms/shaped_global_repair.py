@@ -14,6 +14,7 @@ from time import perf_counter
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 
+from .shaped_translation_candidates import straight_translation_candidates
 from ..services.opening_relocation import coverage_from_offers, lane_map
 from ..services.shaped_collisions import check_shaped_collisions
 from ..services.shaped_fe_repair import (
@@ -119,9 +120,11 @@ def _axis_choices(previous, sources, host, maximum_shift_mm, maximum_axes):
 
 def propose_global_shaped_repair(before, lanes, problem, host, *,
         layer_profile=ResearchLayerProfile(), maximum_shift_mm=300., maximum_axes_per_bar=64,
-        maximum_candidates=50000, maximum_passes=2, time_limit_s=180):
+        maximum_candidates=50000, maximum_passes=2, time_limit_s=180,
+        maximum_longitudinal_shift_mm=0.):
     """A bounded incumbent search. Exhaustion is visible, never proof of optimum."""
-    for value, low, high in ((maximum_shift_mm, 0, 300), (time_limit_s, .001, 600)):
+    for value, low, high in ((maximum_shift_mm, 0, 300), (time_limit_s, .001, 600),
+                            (maximum_longitudinal_shift_mm, 0, 11700)):
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not low <= value <= high:
             raise ValueError("Finite bounded search limits required")
     for value, cap in ((maximum_axes_per_bar, 256), (maximum_candidates, 100000), (maximum_passes, 10)):
@@ -162,9 +165,16 @@ def propose_global_shaped_repair(before, lanes, problem, host, *,
             zm, zr = layer_elevations(host, previous.direction, previous.diameter_mm, layer_profile)
 
             def proposals():
+                nonlocal truncated
                 for q in axes:
                     shifted = replace(previous, transverse_axis_mm=q)
                     yield straight_bar_from_physical(shifted, axis_z_mm=zm, placement_profile_id=layer_profile.id)
+                    translations, positions_cut = straight_translation_candidates(shifted, host, required,
+                        maximum_longitudinal_shift_mm=maximum_longitudinal_shift_mm)
+                    truncated |= positions_cut
+                    for translated in translations:
+                        yield straight_bar_from_physical(translated, axis_z_mm=zm,
+                                                         placement_profile_id=layer_profile.id)
                     for edge, inward in exterior_edge_choices(host, previous.direction, q, previous.diameter_mm):
                         result = build_u_edge_bar(bar_id=previous.id, direction=previous.direction,
                             steel_class=previous.steel_class, diameter_mm=previous.diameter_mm,
@@ -206,6 +216,9 @@ def propose_global_shaped_repair(before, lanes, problem, host, *,
                 operations.append({"direction": str(previous.direction), "bar_id": previous.id,
                     "shape": candidate.shape_kind, "original_axis_mm": previous.transverse_axis_mm,
                     "chosen_axis_mm": candidate.segments[0].start_mm[1 if str(previous.direction).endswith("X") else 0],
+                    "longitudinal_start_shift_mm": (candidate.segments[0].start_mm[
+                        0 if str(previous.direction).endswith("X") else 1]-previous.installed_interval_mm[0]
+                        if candidate.shape_kind == "straight" else None),
                     "original_true_cut_length_mm": previous.installed_length_mm, "pass": iteration+1})
                 changed_this_pass = True
                 break
@@ -213,7 +226,10 @@ def propose_global_shaped_repair(before, lanes, problem, host, *,
                 break
         if exhausted or not changed_this_pass:
             break
-    return tuple(current[_key(b)] for b in before), {"policy": "global-original-FE-fixed-stock-q-shift-exterior-U/research-v1",
+    policy = ("global-original-FE-fixed-stock-XY-shift-exterior-U/research-v1" if maximum_longitudinal_shift_mm
+              else "global-original-FE-fixed-stock-q-shift-exterior-U/research-v1")
+    return tuple(current[_key(b)] for b in before), {"policy": policy,
+        "maximum_longitudinal_shift_mm": maximum_longitudinal_shift_mm,
         "candidate_checks": checked, "candidate_axes_truncated": truncated,
         "budget_exhausted": exhausted, "search_runtime_s": perf_counter()-started,
         "passes": passes, "operations": operations, "rejections": dict(reasons),
