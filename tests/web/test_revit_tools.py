@@ -222,6 +222,17 @@ def test_sdist_manifest_contains_every_exact_public_dependency_without_private_g
     assert "recursive-include" not in manifest and "artifacts" not in manifest
 
 
+def test_dockerfile_copies_every_catalog_button_without_excluding_workflow():
+    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    ignored = (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
+    assert "integrations" not in ignored and "*.pushbutton" not in ignored
+    for tool in installation.TOOLS:
+        panel = tool.get("panel", "Diagnostics")
+        source = (f"integrations/pyrevit/QMonitoring.extension/QMonitoring.tab/"
+            f"{panel}.panel/{tool['button']}.pushbutton")
+        assert f"COPY {source} ./{source}" in dockerfile
+
+
 def test_catalog_runtime_versions_match_packaged_native_modules():
     for tool in installation.TOOLS:
         tree = ast.parse((SOURCE / installation.SOURCE_EXTENSION / "lib" / tool["runtime_module"]).read_text(encoding="utf-8"))
