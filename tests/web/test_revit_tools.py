@@ -62,7 +62,7 @@ def test_catalog_describes_three_data_free_nonstructural_tools_and_missing_featu
 
 def test_source_graphics_download_has_matching_new_runtime_and_complete_helper():
     row = next(t for t in client.get("/api/revit/tools").json()["tools"] if t["id"] == "plan-preview")
-    assert row["runtime_version"] == "0.2.1"
+    assert row["runtime_version"] == "0.2.2"
     assert "source-isofields-zones/v1" in row["accepted_input_schemas"]
     assert "graphic-bar-plan-draft/v1" in row["accepted_input_schemas"]
     assert "первый запуск FilledRegion" in row["verification"]

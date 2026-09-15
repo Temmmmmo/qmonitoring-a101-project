@@ -63,6 +63,53 @@ def test_full_after_party_keeps_splits_and_unresolved_originals(module):
     assert not result["engineering_approval"] and not result["placement_eligible"]
 
 
+def openings_packet():
+    packet = cut_packet()
+    remove_parent(packet, 0)
+    packet["respect_openings"] = True
+    packet["source_stage"] = "physically-trimmed-to-outer-and-openings"
+    packet["crop_policy_id"] = "user-physical-outer-and-openings-trim-and-split/2026-09-15-v1"
+    for row in packet["piece_mapping"]:
+        row["policy"] = packet["crop_policy_id"]
+    packet["removed_input_bars"] = packet["removed_wholly_external_bars"]
+    packet["removed_wholly_external_bars"] = []  # This parent was in a hole, not outside the slab.
+    packet["checks"]["material_boundary"] = {"status": "pass", "failure_count": 0}
+    packet["checks"]["openings"] = {"status": "pass", "failure_count": 0}
+    return packet
+
+
+def test_openings_transport_and_caption_keep_no_material_removals_and_all_checks(module):
+    packet = openings_packet()
+    primitive = module.build_preview_primitives(packet, 20, 30)
+    module._validate_primitives(primitive)
+    assert primitive["trim_graphics"]["removed_input_bar_count"] == 1
+    assert primitive["trim_graphics"]["removed_wholly_external_bar_count"] == 0
+    assert primitive["trim_graphics"]["respect_openings"] is True
+    caption = module._trim_caption(primitive)
+    assert "ОТВЕРСТИЯ УЧТЕНЫ РАЗРЕЗАНИЕМ" in caption
+    assert "БЕЗ ПЕРЕСЕЧЕНИЯ С МАТЕРИАЛОМ: 1" in caption
+    assert "40d" in caption and "fail" in caption
+
+
+@pytest.mark.parametrize("bad", ["policy", "mapping_policy", "missing_check", "false_pass", "removed", "unknown"])
+def test_openings_transport_cannot_hide_new_checks_or_missing_pieces(module, bad):
+    packet = openings_packet()
+    if bad == "policy":
+        packet["crop_policy_id"] = "outer-only"
+    elif bad == "mapping_policy":
+        packet["piece_mapping"][0]["policy"] = "outer-only"
+    elif bad == "missing_check":
+        del packet["checks"]["openings"]
+    elif bad == "false_pass":
+        packet["checks"]["openings"] = {"status": "fail", "failure_count": 1}
+    elif bad == "removed":
+        packet["removed_input_bars"] = []
+    else:
+        packet["checks"]["material_boundary"] = {"status": "not_checked", "failure_count": None}
+    with pytest.raises(ValueError):
+        module.build_preview_primitives(packet, 0, 0)
+
+
 @pytest.mark.parametrize("delta", [-5, 0, 5])
 def test_only_explicit_one_radius_axis_shift_preserves_full_piece_mapping(module, delta):
     packet = cut_packet()

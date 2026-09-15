@@ -5,16 +5,24 @@ from rebar.models import Axis
 from rebar.optimization.services.axis_patterns import pattern_coordinates
 
 from .svg import ZONE_COLORS, _aci_hex
+from .source_graphics import _box, render_source_zone_layers
 
 
 def render_composite_svg(demand, zones, *, host_envelope=None, outline_cell_ids=(), physical_bars=None,
-                         host_rings_mm=()) -> str:
+                         host_rings_mm=(), source_zone_drafts=(), host_opening_rings_mm=()) -> str:
     if physical_bars is not None and zones:
         raise ValueError("Render physical bars or source zones, not both inventories at once")
     boxes = [demand.bbox]
+    if source_zone_drafts and (zones or physical_bars is None):
+        raise ValueError("Source overlay requires a separate physical inventory")
+    for source in source_zone_drafts:
+        if source["direction"] != {"layer": demand.direction.layer.value, "axis": demand.direction.axis.value}:
+            raise ValueError("Source overlay direction differs from physical bars")
+        boxes.append(_box(source["demand_bbox_mm"]))
+        boxes.extend(_box(c["bar_axis_bbox_mm"]) for c in source["components"])
     if host_envelope is not None:
         boxes.append(host_envelope.outer_mm)
-    for ring in host_rings_mm:
+    for ring in (*host_rings_mm, *host_opening_rings_mm):
         boxes.append((min(p[0] for p in ring), min(p[1] for p in ring),
                       max(p[0] for p in ring), max(p[1] for p in ring)))
     outlined = frozenset(outline_cell_ids)
@@ -58,9 +66,20 @@ def render_composite_svg(demand, zones, *, host_envelope=None, outline_cell_ids=
         points = " ".join(f"{x-xmin:.3f},{ymax-y:.3f}" for x, y in ring)
         contours.append(f'<polygon points="{points}" fill="none" stroke="#111827" stroke-width="2" '
                         'vector-effect="non-scaling-stroke"><title>Внешний контур сечения рабочего host; '
-                        'замкнутые проёмы и защитный слой исключены из обрезки</title></polygon>')
+                        'защитный слой не добавлен к обрезке</title></polygon>')
+    openings = []
+    for ring in host_opening_rings_mm:
+        points = " ".join(f"{x-xmin:.3f},{ymax-y:.3f}" for x, y in ring)
+        openings.append(f'<polygon points="{points}" fill="none" stroke="#dc2626" stroke-width="2" '
+                        'vector-effect="non-scaling-stroke"><title>Отверстие рабочего host; '
+                        'реальные отрезки разрезаны по границе, без добавленного защитного слоя</title></polygon>')
     source_zones = []
     source_envelopes = []
+    if source_zone_drafts:
+        rectangles, envelopes = render_source_zone_layers(source_zone_drafts, xmin=xmin, ymax=ymax,
+                                                          span=max(width, height))
+        source_zones.append(rectangles)
+        source_envelopes.append(envelopes)
     for index, zone in enumerate(zones, 1):
         for component in zone.components:
             start, end = component.longitudinal_interval_mm
@@ -94,4 +113,5 @@ def render_composite_svg(demand, zones, *, host_envelope=None, outline_cell_ids=
             f'<g class="cells">{"".join(cells)}</g><g class="bar-axes">{"".join(bars)}</g>'
             f'<g class="source-component-envelopes">{"".join(source_envelopes)}</g>'
             f'<g class="source-zones">{"".join(source_zones)}</g>'
-            f'<g class="host-contours">{"".join(contours)}</g></svg>')
+            f'<g class="host-contours">{"".join(contours)}</g>'
+            f'<g class="host-openings">{"".join(openings)}</g></svg>')

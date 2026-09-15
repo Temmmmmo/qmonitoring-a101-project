@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>QMonitoring · Раскладка всей плиты</title>
-  <link rel="stylesheet" href="/static/composite.css?v=2">
+  <link rel="stylesheet" href="/static/composite.css?v=3">
   <link rel="stylesheet" href="/static/engineering-start.css?v=1">
 </head>
 <body>
@@ -23,17 +23,18 @@
           <details class="example-profile"><summary>Параметры примера и ограничения</summary><p id="example-profile-note">Загружаем описание выбранного профиля…</p></details>
           <button id="run-engineering-example" type="button" class="start-primary" disabled>Рассчитать плиту К09</button>
           <p id="example-status" class="example-status" role="status" aria-live="polite">Проверяем наличие исходных данных на сервере…</p>
-          <details class="boundary-trim-options"><summary>Укоротить стержни по настоящей границе плиты</summary>
+          <details class="boundary-trim-options"><summary>Обрезать по границе плиты и отверстиям</summary>
             <form id="boundary-trim-form">
               <label>Снимок Working Host из Revit, JSON<input id="boundary-trim-host" name="working_host" type="file" accept=".json" required></label>
               <label class="check"><input name="host_xy_confirmed" type="checkbox" value="true" required>
                 Подтверждаю совпадение XY этих DXF и выбранной плиты без смещения, поворота и масштаба</label>
-              <p>Отдельный пересчёт К09: реальные прямые отрезки укорачиваются или разделяются по внешнему контуру.
-                Исходная потребность не удаляется. Проёмы и защитный слой не ограничивают эту операцию.
+              <p>Отдельный пересчёт К09: реальные прямые отрезки укорачиваются по внешнему контуру
+                и разрезаются на отдельные стержни у отверстий. Исходная потребность не удаляется.
+                Защитный слой не добавляется к границе реза.
                 Если тело на краевой оси не помещается, допускается сдвиг оси на радиус внутрь (Ø/2) с повторной проверкой.
-                Полностью внешние стержни не оставляют отрезков — их список сохраняется в отчёте, КЭ не удаляются.
+                Стержни без пересечения с материалом плиты не оставляют отрезков — их список сохраняется в отчёте, КЭ не удаляются.
                 Наличие стали, запас 40d и новый раскрой проверяются раздельно; обрезка не доказывает анкеровку.</p>
-              <button id="run-boundary-trim" type="submit" disabled>Рассчитать и укоротить по границе</button>
+              <button id="run-boundary-trim" type="submit" disabled>Рассчитать и обрезать по контуру и отверстиям</button>
             </form>
           </details>
         </div>
@@ -110,7 +111,8 @@
         <p id="comparison-scope"></p></section>
       <div class="drawing-heading"><h3>Схема армирования</h3><p>Выберите направление и слой отображения</p></div>
       <div id="drawing-views" class="segmented drawing-views" role="group" aria-label="Исходный или физический результат">
-        <button type="button" data-view="source" aria-pressed="true">Исходные изополя + зоны</button>
+        <button type="button" data-view="combined" aria-pressed="true">Зоны + стержни</button>
+        <button type="button" data-view="source" aria-pressed="false">Исходные изополя + зоны</button>
         <button type="button" data-view="physical" aria-pressed="false">Физические стержни</button>
       </div>
       <p id="drawing-view-note" class="notice"></p>
@@ -118,7 +120,7 @@
         Огибающие исходных наборов после 40d/раскроя — пунктир, не границы AreaReinforcement</label>
       <div class="drawing-toolbar"><nav id="direction-tabs" aria-label="Направление"></nav>
         <div id="drawing-layers" class="segmented" role="group" aria-label="Слой схемы"><button type="button" data-layer="layout" aria-pressed="true">Раскладка</button><button type="button" data-layer="demand" aria-pressed="false">Потребность</button><button type="button" data-layer="overlay" aria-pressed="false">Вместе</button></div></div>
-      <div id="drawing" data-layer="layout" data-view="source" data-envelopes="hidden"></div>
+      <div id="drawing" data-layer="layout" data-view="combined" data-envelopes="hidden"></div>
       <div id="source-legend" class="source-legend" aria-label="Исходная шкала DXF"></div>
       <div class="drawing-footer"><p id="drawing-legend">Цвета исходного DXF — потребность; прямоугольники — исходные параметрические зоны.</p>
         <div class="zoom-controls"><button id="zoom-out" type="button" aria-label="Уменьшить схему">−</button><span id="zoom-level">100%</span><button id="zoom-in" type="button" aria-label="Увеличить схему">+</button><button id="zoom-reset" type="button">Целиком</button></div></div>
@@ -153,5 +155,5 @@
       <button id="run-demo" type="button">Посмотреть пример на синтетических данных</button></details>
   </main>
   <script src="/static/engineering-example.js?v=1" defer></script>
-  <script src="/static/composite.js?v=3" defer></script>
+  <script src="/static/composite.js?v=4" defer></script>
 </body></html>

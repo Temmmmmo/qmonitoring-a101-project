@@ -10,6 +10,7 @@ from rebar.application.physical_layout_recovery import recover_physical_layout
 from rebar.application.physical_web_report import physical_web_report
 from rebar.optimization.contracts.physical import PhysicalNormalizationConfig
 from rebar.reporting.source_graphics import build_source_graphics, render_source_graphics_svg
+from rebar.reporting.composite_svg import render_composite_svg
 
 
 @pytest.fixture(scope="module")
@@ -165,3 +166,39 @@ def test_original_source_svg_does_not_clip_rectangle_outside_FE_or_stale_bbox(ph
         x, y, w, h = (float(rect.attrib[k]) for k in ("x", "y", "width", "height"))
         assert vx <= x <= x+w <= vx+width and vy <= y <= y+h <= vy+height
     assert not drawing.findall(".//{http://www.w3.org/2000/svg}clipPath")
+
+
+def test_overlay_draws_exact_source_rectangles_without_adding_old_bars_or_changing_metrics(physical_case):
+    problem, recovery = physical_case
+    report = physical_web_report(problem, recovery)
+    assert report["default_drawing_view"] == "combined"
+    ns = "{http://www.w3.org/2000/svg}"
+    for direction in report["directions"]:
+        candidate = direction["candidates"][0]
+        svg = ET.fromstring(candidate["overlay_svg"])
+        rectangles = svg.findall(f'.//{ns}g[@class="source-zones"]/{ns}g')
+        assert len(rectangles) == len(direction["source_zone_drafts"])
+        assert len(svg.findall(f'.//{ns}line')) == len(candidate["physical_bars"])
+        for group, source in zip(rectangles, direction["source_zone_drafts"]):
+            assert group.attrib["data-zone-id"] == source["source_zone_id"]
+            box = source["demand_bbox_mm"]
+            rect = group.find(f'{ns}rect')
+            assert float(rect.attrib["width"]) == pytest.approx(box[2]-box[0])
+            assert float(rect.attrib["height"]) == pytest.approx(box[3]-box[1])
+            assert "условный шаг" in rect.find(f'{ns}title').text
+        assert not svg.findall(f'.//{ns}clipPath')
+    source = deepcopy(report["directions"][0]["source_zone_drafts"])
+    source[0]["source_zone_id"] = '<zone & "id">'
+    source[0]["demand_bbox_mm"] = [-20000, -15000, 30000, 40000]
+    candidate = report["directions"][0]["candidates"][0]
+    drawing = ET.fromstring(render_composite_svg(problem.direction_problems[0].demand, (),
+        physical_bars=candidate["physical_bars"], source_zone_drafts=source))
+    assert drawing.find(f'.//{ns}g[@data-zone-id]').attrib["data-zone-id"] == source[0]["source_zone_id"]
+    _, _, width, height = map(float, drawing.attrib["viewBox"].split())
+    for rect in drawing.findall(f'.//{ns}rect'):
+        x, y, w, h = (float(rect.attrib[k]) for k in ("x", "y", "width", "height"))
+        assert 0 <= x <= x+w <= width and 0 <= y <= y+h <= height
+    source[0]["direction"]["axis"] = "Y" if source[0]["direction"]["axis"] == "X" else "X"
+    with pytest.raises(ValueError, match="direction"):
+        render_composite_svg(problem.direction_problems[0].demand, (),
+            physical_bars=candidate["physical_bars"], source_zone_drafts=source)

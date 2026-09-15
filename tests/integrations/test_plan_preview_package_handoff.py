@@ -29,7 +29,7 @@ def test_preview_archive_complete_allowlist_manifest_and_real_input(physical_pac
         assert json.loads(archive.read("physical-bar-plan-trial.json")) == packet
         manifest = json.loads(archive.read("manifest.json"))
         runtime = importlib.import_module("qm_revit_plan_preview")
-        assert manifest["version"] == runtime.VERSION == "0.2.1"
+        assert manifest["version"] == runtime.VERSION == "0.2.2"
         assert manifest["placement_eligible"] is False
         assert manifest["recommended_preview_input"] == "physical-bar-plan-trial.json"
         assert {row["path"] for row in manifest["files"]} == names-{"manifest.json"}

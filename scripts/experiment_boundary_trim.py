@@ -51,11 +51,13 @@ def run(args):
     before = decode_shaped_bars(raw["physical_bars"])
     print({"stage": "loaded_fresh_original_demand_and_host", "bars": len(before)}, flush=True)
     after, mapping = trim_straight_bars_to_outer_boundary(before, inputs.host, lanes=inputs.lanes,
-        nudge_edge_axis=args.nudge_edge_axis, discard_empty_intersections=args.discard_empty_intersections)
+        nudge_edge_axis=args.nudge_edge_axis, discard_empty_intersections=args.discard_empty_intersections,
+        respect_openings=args.respect_openings)
     checked = check_boundary_trim(before, after, mapping, inputs.lanes, inputs.problem,
                                   inputs.host, stock_time_limit_s=args.stock_time_limit_s,
                                   nudge_edge_axis=args.nudge_edge_axis,
-                                  discard_empty_intersections=args.discard_empty_intersections)
+                                  discard_empty_intersections=args.discard_empty_intersections,
+                                  respect_openings=args.respect_openings)
     physical = []
     for bar in after:
         record = asdict(bar)
@@ -96,6 +98,8 @@ def main():
     parser.add_argument("--confirm-identity-xy", action="store_true")
     parser.add_argument("--nudge-edge-axis", action="store_true",
                         help="Permit only a radius-sized inward nudge for a bar axis lying on the edge")
+    parser.add_argument("--respect-openings", action="store_true",
+                        help="Physically split at measured closed holes too; concrete cover remains excluded")
     parser.add_argument("--discard-empty-intersections", action="store_true",
                         help="Record explicit original-to-empty mappings; never delete the original FE demand")
     parser.add_argument("--stock-time-limit-s", type=float, default=30)

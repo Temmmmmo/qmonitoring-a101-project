@@ -59,6 +59,54 @@ def test_closed_holes_and_snapshot_covers_do_not_change_trim():
     assert hole_host.side_cover_mm == 25 and len(hole_host.sections[0].footprint.interiors) == 1
 
 
+def test_opt_in_hole_cut_splits_real_bars_preserves_host_and_checks_all_original_demand():
+    before, lanes, problem, host = _trim_case()
+    material = Polygon(box(0, -1000, 5000, 1000).exterior.coords,
+                       [box(1000, 0, 2000, 500).exterior.coords])
+    hole_host = replace(host, sections=(SolidHostSection(0, 200, material),), volume_mm3=material.area*200)
+    after, mapping = trim_straight_bars_to_outer_boundary(before, hole_host, respect_openings=True)
+    assert [shaped_cut_length_mm(b) for b in after] == [1000, 625, 1000, 625]
+    report = check_boundary_trim(before, after, mapping, lanes, problem, hole_host, respect_openings=True)
+    assert report["external_boundary_failures_after"] == report["material_boundary_failures_after"] == 0
+    assert report["opening_affected_input_bar_count"] == 2 and report["opening_intersections_after"] == 0
+    assert report["excluded_from_TZ"] == ["concrete_cover"]
+    assert report["geometric_presence"]["status"] == report["coverage_with_control_40d"]["status"] == "fail"
+    assert not report["source_demand_removed"] and not report["engineering_approval"]
+    assert hole_host.side_cover_mm == 25 and hole_host.sections[0].footprint.equals(material)
+    with pytest.raises(ValueError):  # Cannot reuse hole cuts under an outer-only certificate.
+        check_boundary_trim(before, after, mapping, lanes, problem, hole_host)
+
+
+def test_hole_cut_uses_body_width_and_every_height_section():
+    before, _, _, host = _trim_case()
+    material = Polygon(box(0, -1000, 5000, 1000).exterior.coords,
+                       [box(1000, 102, 2000, 500).exterior.coords])
+    hole_host = replace(host, sections=(SolidHostSection(0, 150, box(0, -1000, 5000, 1000)),
+                                       SolidHostSection(150, 200, material)),
+                        volume_mm3=1e7*150+material.area*50)
+    assert before[0].segments[0].start_mm[1] == 100  # Axis itself misses the hole, Ø10 does not.
+    assert straight_outer_intersections(before[0], hole_host, respect_openings=True) == ((0, 1000), (2000, 2625))
+    lower = replace(before[0], segments=(Line3D((-300, 100, 100), (2625, 100, 100)),))
+    assert straight_outer_intersections(lower, hole_host, respect_openings=True) == ((0, 2625),)
+    with pytest.raises(ValueError, match="boolean"):
+        straight_outer_intersections(lower, hole_host, respect_openings=1)
+
+
+def test_bar_wholly_in_a_hole_is_recorded_as_no_material_not_wholly_external():
+    before, lanes, problem, host = _trim_case()
+    material = Polygon(box(-1000, -1000, 5000, 1000).exterior.coords,
+                       [box(-400, 0, 3000, 500).exterior.coords])
+    host = replace(host, sections=(SolidHostSection(0, 200, material),), volume_mm3=material.area*200)
+    after, mapping = trim_straight_bars_to_outer_boundary(before, host, respect_openings=True,
+                                                        discard_empty_intersections=True)
+    report = check_boundary_trim(before, after, mapping, lanes, problem, host, respect_openings=True,
+                                 discard_empty_intersections=True)
+    assert not after and len(report["removed_input_bars"]) == 2
+    assert report["removed_wholly_external_bars"] == []
+    assert report["geometric_presence"]["uncovered_cell_count"] == 1
+    assert report["opening_affected_input_bar_count"] == 2 and report["opening_intersections_after"] == 0
+
+
 def test_all_body_width_and_height_sections_not_only_axis_are_checked():
     before, _, _, host = _trim_case()
     # Axis at y100 is clear, but diameter10 hits a recess starting at y102.

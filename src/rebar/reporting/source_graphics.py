@@ -106,9 +106,19 @@ def render_source_graphics_svg(direction):
             f'points="{points}" fill="{color}" fill-opacity=".55"><title>'
             f'КЭ {html.escape(str(cell["cell_id"]))}; уровень {cell["level_index"]}; '
             f'ACI {cell["aci"]}</title></polygon>')
+    rectangles, envelopes = render_source_zone_layers(zones, xmin=xmin, ymax=ymax, span=max(width, height))
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{-padding} {-padding} '
+        f'{width+2*padding} {height+2*padding}" role="img" aria-label="Исходные изополя и прямоугольные зоны">'
+        f'<g class="cells">{"".join(cells)}</g><g class="source-component-envelopes">{envelopes}</g>'
+        f'<g class="source-zones">{rectangles}</g></svg>')
+
+
+def render_source_zone_layers(zones, *, xmin, ymax, span):
+    """Draw source rectangles in the caller's world frame, never reconstruct from bars."""
+    rectangles, envelopes = [], []
     for index, zone in enumerate(zones, 1):
         for component in zone["components"]:
-            bx1, by1, bx2, by2 = component["bar_axis_bbox_mm"]
+            bx1, by1, bx2, by2 = _box(component["bar_axis_bbox_mm"])
             note = html.escape(f'Z{index} / {component["component_index"]+1}; исходный набор после 40d/раскроя; '
                 f'Ø{component["diameter_mm"]}; условный шаг {component["nominal_step_mm"]} мм; '
                 f'L={component["installed_length_mm"]} мм; {component["bar_count"]} шт.; '
@@ -117,7 +127,7 @@ def render_source_graphics_svg(direction):
                 f'x="{bx1-xmin:.9f}" y="{ymax-by2:.9f}" width="{bx2-bx1:.9f}" height="{by2-by1:.9f}" '
                 f'fill="none" stroke="#7b426f" stroke-dasharray="5 4" stroke-width="1" '
                 f'vector-effect="non-scaling-stroke"><title>{note}</title></rect>')
-        x1, y1, x2, y2 = zone["demand_bbox_mm"]
+        x1, y1, x2, y2 = _box(zone["demand_bbox_mm"])
         specs = "; ".join(f'Ø{c["diameter_mm"]}, условный шаг {c["nominal_step_mm"]} мм, '
             f'L={c["installed_length_mm"]} мм, {c["bar_count"]} шт.' for c in zone["components"])
         title = html.escape(f'Z{index} · {zone["source_zone_id"]}; demand bbox {x2-x1} × {y2-y1} мм; {specs}')
@@ -125,9 +135,6 @@ def render_source_graphics_svg(direction):
             f'<rect x="{x1-xmin:.9f}" y="{ymax-y2:.9f}" width="{x2-x1:.9f}" height="{y2-y1:.9f}" '
             f'fill="none" stroke="#173f61" stroke-width="1.8" vector-effect="non-scaling-stroke">'
             f'<title>{title}</title></rect><text x="{x1-xmin:.9f}" y="{ymax-y2:.9f}" '
-            f'font-size="{max(width, height)*.009:.9f}" fill="#173f61" paint-order="stroke" '
-            f'stroke="white" stroke-width="{max(width, height)*.0015:.9f}">Z{index}</text></g>')
-    return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{-padding} {-padding} '
-        f'{width+2*padding} {height+2*padding}" role="img" aria-label="Исходные изополя и прямоугольные зоны">'
-        f'<g class="cells">{"".join(cells)}</g><g class="source-component-envelopes">{"".join(envelopes)}</g>'
-        f'<g class="source-zones">{"".join(rectangles)}</g></svg>')
+            f'font-size="{span*.009:.9f}" fill="#173f61" paint-order="stroke" '
+            f'stroke="white" stroke-width="{span*.0015:.9f}">Z{index}</text></g>')
+    return "".join(rectangles), "".join(envelopes)

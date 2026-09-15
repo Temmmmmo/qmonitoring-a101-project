@@ -14,8 +14,7 @@ from rebar.optimization.contracts.physical import PhysicalBar
 from rebar.optimization.contracts.plate import PLATE_DIRECTIONS
 from rebar.optimization.services.shaped_fe_repair import ResearchLayerProfile, layer_elevations
 from rebar.optimization.services.shaped_geometry import shaped_cutting_schedule, straight_bar_from_physical
-from rebar.optimization.services.tz_boundary_trim import POLICY, check_boundary_trim
-from rebar.optimization.services.tz_outer_scope import outer_scope_domain
+from rebar.optimization.services.tz_boundary_trim import check_boundary_trim, trimming_domain
 from rebar.reporting.composite_svg import render_composite_svg
 from rebar.reporting.serialization import to_jsonable
 
@@ -82,10 +81,10 @@ def _graphic_packet(problem, before, after, checks, source_sha, host_sha, zone_c
         directions.append({"direction": to_jsonable(direction), "bars": rows})
         before_directions.append({"direction": to_jsonable(direction),
             "bars": [_raw_bar(b) for b in before if b.direction == direction]})
-    return {"schema_version": "graphic-bar-plan-draft/v1", "units": "mm", "case_id": problem.case_id,
+    result = {"schema_version": "graphic-bar-plan-draft/v1", "units": "mm", "case_id": problem.case_id,
         "geometry_kind": "straight-bars-only", "source_stage": "physically-trimmed-to-outer-contour",
         "source_report_sha256": source_sha, "source_host_report_sha256": host_sha,
-        "provenance_status": "sha256_recorded", "crop_policy_id": POLICY,
+        "provenance_status": "sha256_recorded", "crop_policy_id": checks["policy"],
         "radius_sized_edge_axis_nudge_enabled": True,
         "source_to_revit_xy_mm": [0, 0], "binding_source": BINDING,
         "coverage_policy": "physical-main-leg-presence-NOT-anchorage",
@@ -109,10 +108,19 @@ def _graphic_packet(problem, before, after, checks, source_sha, host_sha, zone_c
         "removed_wholly_external_bars": [{k: row[k] for k in ("direction", "bar_id", "reason")}
                                         for row in checks.get("removed_wholly_external_bars", ())],
         "placement_eligible": False, "engineering_approval": False}
+    if checks["respect_openings"]:
+        result["source_stage"] = "physically-trimmed-to-outer-and-openings"
+        result["respect_openings"] = True
+        result["removed_input_bars"] = deepcopy(checks.get("removed_input_bars", []))
+        # Keep the old external-only list semantically unchanged.
+        for key, count in (("material_boundary", checks["material_boundary_failures_after"]),
+                           ("openings", checks["opening_intersections_after"])):
+            result["checks"][key] = {"status": "fail" if count else "pass", "failure_count": count}
+    return result
 
 
 def boundary_trim_web_report(problem, recovery, working_host_bytes, *, confirm_identity_xy,
-                             stock_time_limit_s=30):
+                             stock_time_limit_s=30, respect_openings=True):
     if confirm_identity_xy is not True:
         raise ValueError("Подтвердите совпадение XY исходных DXF и плиты; автоматической привязки нет")
     snapshot = load_working_host_json(working_host_bytes, maximum_bytes=MAX_WORKING_REPORT_BYTES)
@@ -128,19 +136,21 @@ def boundary_trim_web_report(problem, recovery, working_host_bytes, *, confirm_i
         axis_z_mm=layer_elevations(host, bar.direction, bar.diameter_mm, profile)[0],
         placement_profile_id=profile.id) for bar in physical)
     after, mapping = trim_straight_bars_to_outer_boundary(before, host, lanes=lanes, nudge_edge_axis=True,
-                                                        discard_empty_intersections=True)
+        discard_empty_intersections=True, respect_openings=respect_openings)
     checks = check_boundary_trim(before, after, mapping, lanes, problem, host,
                                  stock_time_limit_s=stock_time_limit_s, nudge_edge_axis=True,
-                                 discard_empty_intersections=True)
+                                 discard_empty_intersections=True, respect_openings=respect_openings)
     report = physical_web_report(problem, recovery)
     host_sha = hashlib.sha256(working_host_bytes).hexdigest()
     zone_count = report["front"][0]["zone_count"]
     graphic = _graphic_packet(problem, before, after, checks, source_sha, host_sha, zone_count)
     # Keep all section outlines, not the bounding box or a fabricated hole-free rectangle.
     contours = []
-    for section in outer_scope_domain(host).sections:
+    holes = []
+    for section in trimming_domain(host, respect_openings=respect_openings).sections:
         parts = [section.footprint] if section.footprint.geom_type == "Polygon" else section.footprint.geoms
         contours.extend(tuple(p.exterior.coords) for p in parts)
+        holes.extend(tuple(ring.coords) for p in parts for ring in p.interiors)
     coverage = {row["direction"]: row for row in checks["coverage_with_control_40d"]["directions"]}
     presence = {row["direction"]: row for row in checks["geometric_presence"]["directions"]}
     for direction, original, graphical in zip(report["directions"], problem.direction_problems, graphic["directions"]):
@@ -152,7 +162,10 @@ def boundary_trim_web_report(problem, recovery, working_host_bytes, *, confirm_i
             coverage=deepcopy(coverage[key]), geometric_presence=deepcopy(presence[key]),
             bar_schedule=to_jsonable(schedule), host_preflight=None,
             svg=render_composite_svg(original.demand, (), physical_bars=graphical["bars"],
-                                     host_rings_mm=tuple(contours)),
+                                     host_rings_mm=tuple(contours), host_opening_rings_mm=tuple(holes)),
+            overlay_svg=render_composite_svg(original.demand, (), physical_bars=graphical["bars"],
+                host_rings_mm=tuple(contours), host_opening_rings_mm=tuple(holes),
+                source_zone_drafts=direction["source_zone_drafts"]),
             metrics={"zone_count": candidate["metrics"]["zone_count"], "physical_bar_count": len(bars),
                      "position_count": len(schedule), "additional_mass_kg": math.fsum(p.total_mass_kg for p in schedule)})
     schedule = shaped_cutting_schedule(after) if after else ()
@@ -179,11 +192,13 @@ def boundary_trim_web_report(problem, recovery, working_host_bytes, *, confirm_i
             "Исследовательское назначение высот, не измеренная арматура или подтверждённый профиль Revit."},
         warning="Стержни физически укорочены/разделены по внешнему контуру рабочего снимка, не скрыты на рисунке. "
             "Исходные КЭ и зоны не изменены. Наличие стали не доказывает анкеровку: проверка прежних 40d "
-            "и новый раскрой показаны отдельно и могут не выполняться. Проёмы и защитный слой исключены "
-            "из этой операции, внешний контур с вырезами сохранён. Высоты исследовательские; "
+            "и новый раскрой показаны отдельно и могут не выполняться. " +
+            ("Отверстия учтены физическим разрезанием, защитный слой не добавлен. " if respect_openings else
+             "Проёмы и защитный слой исключены из этой операции. ") +
+            "Внешний контур с вырезами сохранён. Высоты исследовательские; "
             "Если тело на краевой оси не помещалось, разрешён явный сдвиг оси ровно на радиус внутрь, "
             "с повторной проверкой исходного окна и фона. "
-            "Полностью внешние стержни не оставляют отрезков; их полный список сохранён отдельно, "
+            "Стержни без пересечения с материалом плиты не оставляют отрезков; их список сохранён отдельно, "
             "а исходная потребность проверена без удаления КЭ. "
             "существующий фон Revit и инженерная пригодность не подтверждены. Старый пакет размещения не применяется.")
     return report

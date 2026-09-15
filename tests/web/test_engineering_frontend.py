@@ -59,7 +59,8 @@ def test_composite_keeps_all_controls_but_checks_are_visible_and_metrics_unambig
     assert "Синтетический пример" in html and "Черновик · не размещён в Revit" in html
     assert html.index('id="output"') < html.index('id="run-demo"')
     assert not page.stack
-    assert page.ids["drawing"][1]["data-view"] == "source"
+    assert page.ids["drawing"][1]["data-view"] == "combined"
+    assert "Зоны + стержни" in html and "Обрезать по границе плиты и отверстиям" in html
     assert "Исходные изополя + зоны" in html and "Физические стержни" in html
     assert "open" in page.ids["source-zone-details"][1]
     assert "required" in page.ids["boundary-trim-host"][1]
@@ -123,7 +124,7 @@ assert(q('#metrics').innerHTML.includes('Физические стержни'));
 assert(q('#metrics').innerHTML.includes('7 параметрических зон'));assert(q('#comparison-rows').innerHTML.includes('+10 кг'));
 assert(q('#comparison-scope').textContent.includes('Straight and shaped'));assert.equal(q('#engineer-comparison').hidden,false);
 assert(q('#check-summary').innerHTML.includes('Нужна независимая проверка'));assert(q('#blockers').innerHTML.includes('Порядок и высоты'));
-assert.equal(q('#drawing').dataset.view,'source');assert(q('#drawing-view-note').textContent.includes('не физическая ведомость'));
+assert.equal(q('#drawing').dataset.view,'combined');assert(q('#drawing-view-note').textContent.includes('исходные зоны потребности'));
 q('#drawing-views').callbacks.click({target:{closest:()=>({dataset:{view:'physical'}})}});
 assert.equal(q('#drawing').dataset.view,'physical');assert(q('#drawing-view-note').textContent.includes('не обрезаются'));
 q('#drawing-layers').callbacks.click({target:{closest:()=>({dataset:{layer:'demand'}})}});
@@ -148,7 +149,7 @@ vm.createContext(context);vm.runInContext(fs.readFileSync(process.argv[1],'utf8'
 const zone={source_zone_id:'<original-zone>',direction:{axis:'Y'},demand_bbox_mm:[0,0,800,3900],components:[{
  component_index:0,diameter_mm:25,nominal_step_mm:150,installed_length_mm:5850,axis_window_mm:[0,800],
  bar_count:6,axis_coordinates_mm:[0,100,300,400,600,700]}]};
-const candidate={svg:'<svg>physical-complete-outside-host</svg>',zone_drafts:[],physical_bars:[{},{}],coverage:{uncovered_cell_count:0},installation_notes:[]};
+const candidate={svg:'<svg>physical-complete-outside-host</svg>',overlay_svg:'<svg>source-zones-plus-actual-bars</svg>',zone_drafts:[],physical_bars:[{},{}],coverage:{uncovered_cell_count:0},installation_notes:[]};
 const point={additional_mass_kg:110,physical_bar_count:8,position_count:3,zone_count:4,bar_schedule:[],
  direction_candidate_indexes:[0,0,0,0],stock_cutting:{status:'fail',groups:[]}};
 context.payload={output_kind:'normalized-physical-bars',front:[point],directions:Array.from({length:4},()=>({
@@ -156,6 +157,10 @@ context.payload={output_kind:'normalized-physical-bars',front:[point],directions
  source_graphics:{directions:Array.from({length:4},()=>({legend:[{level_index:1,label:'<level>',rgb:[255,0,0]}]}))},
  blocking_check_ids:['xy-layer-order'],same_plane_conflicts:{body_intersection_count:12}};
 vm.runInContext('result=payload;renderPoint()',context);
+assert.equal(q('#drawing').innerHTML,'<svg>source-zones-plus-actual-bars</svg>');
+assert.equal(q('#source-zone-details').hidden,false);
+assert(q('#drawing-view-note').textContent.includes('не является новым контуром стали'));
+q('#drawing-views').callbacks.click({target:{closest:()=>({dataset:{view:'source'}})}});
 assert.equal(q('#drawing').innerHTML,'<svg>original-polygons-and-rectangles</svg>');
 assert(q('#source-zone-rows').innerHTML.includes('3 900 × 800'));
 assert(q('#source-zone-rows').innerHTML.includes('5 850 × 800'));
@@ -166,6 +171,9 @@ q('#source-envelopes').checked=true;q('#source-envelopes').callbacks.change();
 assert.equal(q('#drawing').dataset.envelopes,'shown');assert(q('#drawing-legend').textContent.includes('не тела стали и не AreaBoundary'));
 assert(q('#metrics-scope').textContent.includes('физическая партия'));assert(q('#check-summary').innerHTML.includes('12 пар'));
 const oldMetrics=q('#metrics').innerHTML, oldChecks=q('#check-summary').innerHTML;
+q('#drawing-views').callbacks.click({target:{closest:()=>({dataset:{view:'combined'}})}});
+assert.equal(q('#drawing').innerHTML,'<svg>source-zones-plus-actual-bars</svg>');
+assert.equal(q('#metrics').innerHTML,oldMetrics);assert.equal(q('#check-summary').innerHTML,oldChecks);
 q('#drawing-views').callbacks.click({target:{closest:()=>({dataset:{view:'physical'}})}});
 assert.equal(q('#drawing').innerHTML,'<svg>physical-complete-outside-host</svg>');assert.equal(q('#source-zone-details').hidden,true);
 assert(q('#drawing-view-note').textContent.includes('не обрезаются'));assert.equal(q('#metrics').innerHTML,oldMetrics);assert.equal(q('#check-summary').innerHTML,oldChecks);
@@ -206,7 +214,8 @@ assert(q('#check-summary').innerHTML.includes('Наличие стали на и
 assert(q('#check-summary').innerHTML.includes('8 КЭ'));assert(q('#check-summary').innerHTML.includes('После')===false);
 assert(q('#check-summary').innerHTML.includes('после: 1'));assert(q('#metrics-scope').textContent.includes('физическая партия'));
 assert(q('#direction-status').textContent.includes('с прежними 40d — 2'));
-assert.equal(q('#drawing').innerHTML,'<svg>ORIGINAL</svg>');
+assert.equal(q('#drawing').dataset.view,'combined');
+assert.equal(q('#drawing').innerHTML,'<svg>ACTUAL-CUTS-WITH-UNRESOLVED-OUTSIDE</svg>');
 q('#drawing-views').callbacks.click({target:{closest:()=>({dataset:{view:'physical'}})}});
 assert(q('#drawing-view-note').textContent.includes('не обрезка картинки'));
 assert.equal(q('#drawing').innerHTML,'<svg>ACTUAL-CUTS-WITH-UNRESOLVED-OUTSIDE</svg>');

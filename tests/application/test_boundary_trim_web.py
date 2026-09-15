@@ -70,7 +70,7 @@ def test_full_web_trim_uses_real_sections_and_separate_fresh_checks(trim_case,tr
     report = trim_result
     assert report["output_kind"] == "boundary-trimmed-physical-bars"
     assert report["source_graphics"] == physical_web_report(problem,recovery)["source_graphics"]
-    assert report["default_drawing_view"] == "source"
+    assert report["default_drawing_view"] == "combined"
     assert report["original_source_zones"] == recovery.packet["source_zones"]
     assert len(report["working_host"]["geometry"]["sections"]) == 2  # actual nonrectangular solid
     assert report["working_host"]["source_report_sha256"] == hashlib.sha256(host_bytes).hexdigest()
@@ -97,6 +97,9 @@ def test_full_web_trim_uses_real_sections_and_separate_fresh_checks(trim_case,tr
         assert svg.findall(f'.//{ns}g[@class="host-contours"]/{ns}polygon')
         assert not svg.findall(f'.//{ns}clipPath')
         lines = svg.findall(f'.//{ns}line')
+        overlay = ET.fromstring(candidate["overlay_svg"])
+        assert len(overlay.findall(f'.//{ns}line')) == len(lines)
+        assert len(overlay.findall(f'.//{ns}g[@class="source-zones"]/{ns}g')) == len(direction["source_zone_drafts"])
         assert len(lines) == len(candidate["physical_bars"])
         for line,bar in zip(lines,candidate["physical_bars"]):
             length = abs(float(line.attrib["x2"])-float(line.attrib["x1"]))+abs(float(line.attrib["y2"])-float(line.attrib["y1"]))
@@ -108,6 +111,9 @@ def test_graphical_export_maps_all_parents_and_real_pieces_without_old_revit_pac
     draft = trim_result["graphic_bar_plan_draft"]
     assert draft["schema_version"] == "graphic-bar-plan-draft/v1"
     assert draft["geometry_kind"] == "straight-bars-only"
+    assert draft["respect_openings"] is True
+    assert draft["source_stage"] == "physically-trimmed-to-outer-and-openings"
+    assert draft["checks"]["material_boundary"]["failure_count"] == trim_result["boundary_trim"]["material_boundary_failures_after"]
     assert draft["source_report_sha256"] == hashlib.sha256(recovery.patterned_report_bytes).hexdigest()
     assert draft["checks"]["anchorage_40d"] == "fail"
     assert draft["coverage_policy"] == "physical-main-leg-presence-NOT-anchorage"

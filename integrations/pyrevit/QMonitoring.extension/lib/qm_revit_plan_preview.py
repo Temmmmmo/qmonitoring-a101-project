@@ -24,7 +24,7 @@ from qm_trial_worksharing import classify_document
 from qm_revit_source_preview import (SCHEMA as SOURCE_SCHEMA, build_source_primitives,
     draw_source_views, readback_source_views, source_graphic_types, _finite_tree, _normal_text)
 
-VERSION = "0.2.1"
+VERSION = "0.2.2"
 GRAPHIC_BAR_SCHEMA = "graphic-bar-plan-draft/v1"
 REPORT_SCHEMA = "revit-graphic-plan-preview-report/v1"
 DISCLAIMER = "GRAPHIC PREVIEW / НЕ АРМАТУРА / НЕ ВЫДАЧА"
@@ -181,13 +181,16 @@ def _graphic_mass(bars):
 def _graphic_bar_primitives(packet, offset_x_mm, offset_y_mm):
     """Actual post-trim straight pieces; old source/40d certificates never reused."""
     _finite_tree(packet)
+    openings = packet.get("respect_openings") is True
     exact_keys(packet, ("schema_version", "units", "case_id", "placement_eligible", "engineering_approval",
         "geometry_kind", "source_stage", "source_report_sha256", "source_host_report_sha256", "provenance_status",
         "crop_policy_id", "source_to_revit_xy_mm", "binding_source", "coverage_policy",
         "original_FE_geometry_changed", "source_demand_removed", "checks", "before", "after", "directions", "piece_mapping",
-        "radius_sized_edge_axis_nudge_enabled", "removed_wholly_external_bars"))
+        "radius_sized_edge_axis_nudge_enabled", "removed_wholly_external_bars") +
+        (("respect_openings", "removed_input_bars") if openings else ()))
     if (packet["schema_version"] != GRAPHIC_BAR_SCHEMA or packet["units"] != "mm" or packet["placement_eligible"] is not False or packet["engineering_approval"] is not False
-            or packet["geometry_kind"] != "straight-bars-only" or packet["source_stage"] != "physically-trimmed-to-outer-contour"
+            or packet["geometry_kind"] != "straight-bars-only" or packet["source_stage"] !=
+                ("physically-trimmed-to-outer-and-openings" if openings else "physically-trimmed-to-outer-contour")
             or packet["original_FE_geometry_changed"] is not False or packet["source_demand_removed"] is not False
             or packet["coverage_policy"] != "physical-main-leg-presence-NOT-anchorage"):
         raise ValueError("Expected unapproved straight-only physical trim graphics, no shapes or dropped demand")
@@ -195,6 +198,8 @@ def _graphic_bar_primitives(packet, offset_x_mm, offset_y_mm):
         raise ValueError("Explicit radius-sized edge-axis nudge flag required")
     for field in ("case_id", "crop_policy_id", "binding_source"):
         label(packet[field])
+    if openings and packet["crop_policy_id"] != "user-physical-outer-and-openings-trim-and-split/2026-09-15-v1":
+        raise ValueError("Explicit approved openings cut policy required")
     if packet["provenance_status"] != "sha256_recorded":
         raise ValueError("Trim graphics requires explicit source/report SHA metadata")
     for field in ("source_report_sha256", "source_host_report_sha256"):
@@ -209,13 +214,15 @@ def _graphic_bar_primitives(packet, offset_x_mm, offset_y_mm):
         raise ValueError("Explicit source XY binding pair required")
     for value in offset+packet["source_to_revit_xy_mm"]:
         number(value, -100000000, 100000000)
-    exact_keys(packet["checks"], ("anchorage_40d", "coverage", "stock_cutting", "outer_boundary", "collisions_3d"))
+    exact_keys(packet["checks"], ("anchorage_40d", "coverage", "stock_cutting", "outer_boundary", "collisions_3d") +
+               (("material_boundary", "openings") if openings else ()))
     for field in ("anchorage_40d", "coverage", "stock_cutting"):
         status = packet["checks"][field]
         if status not in ("pass", "fail", "not_checked"):
             raise ValueError("Explicit 40d, geometric-presence and cutting statuses required")
     for field, count_fields in (("outer_boundary", ("failure_count",)),
-            ("collisions_3d", ("proven_pair_count", "uncertain_pair_count"))):
+            ("collisions_3d", ("proven_pair_count", "uncertain_pair_count"))) + (
+            (("material_boundary", ("failure_count",)), ("openings", ("failure_count",))) if openings else ()):
         entry = packet["checks"][field]
         exact_keys(entry, ("status",)+count_fields)
         if entry["status"] not in ("pass", "fail", "not_checked"):
@@ -237,6 +244,15 @@ def _graphic_bar_primitives(packet, offset_x_mm, offset_y_mm):
     outer_check, pairs_check = packet["checks"]["outer_boundary"], packet["checks"]["collisions_3d"]
     if outer_check["status"] != "not_checked" and outer_check["failure_count"] > len(after):
         raise ValueError("Outer failure count exceeds the complete actual party")
+    if openings:
+        for name in ("material_boundary", "openings"):
+            entry = packet["checks"][name]
+            if entry["status"] == "not_checked" or entry["failure_count"] > len(after):
+                raise ValueError("Openings cut requires bounded fresh material checks")
+        material_count = packet["checks"]["material_boundary"]["failure_count"]
+        if outer_check["status"] == "not_checked" or material_count < max(
+                outer_check["failure_count"], packet["checks"]["openings"]["failure_count"]):
+            raise ValueError("Material check cannot hide outer or opening failures")
     if pairs_check["status"] != "not_checked" and pairs_check["proven_pair_count"]+pairs_check["uncertain_pair_count"] > len(after)*(len(after)-1)//2:
         raise ValueError("3D pair count exceeds the complete actual party")
     for recorded, inventory in ((packet["before"], before), (packet["after"], after)):
@@ -248,7 +264,7 @@ def _graphic_bar_primitives(packet, offset_x_mm, offset_y_mm):
     mapping = packet["piece_mapping"]
     if not isinstance(mapping, list) or len(mapping) != len(before):
         raise ValueError("Every original bar must retain an explicit complete piece mapping")
-    removed = packet["removed_wholly_external_bars"]
+    removed = packet["removed_input_bars"] if openings else packet["removed_wholly_external_bars"]
     if not isinstance(removed, list) or len(removed) > len(before):
         raise ValueError("Explicit bounded whole-external-bar removal records required")
     removed_ids = set()
@@ -260,10 +276,18 @@ def _graphic_bar_primitives(packet, offset_x_mm, offset_y_mm):
         if key not in before or key in removed_ids:
             raise ValueError("Unknown/duplicate wholly-external removal record")
         removed_ids.add(key)
+    if openings:
+        external = packet["removed_wholly_external_bars"]
+        if not isinstance(external, list) or any(row not in removed for row in external):
+            raise ValueError("External removals must be a subset of all no-material removals")
+        if len(set((row["direction"], row["bar_id"]) for row in external)) != len(external):
+            raise ValueError("Duplicate external removal record")
     mapped_originals, mapped_pieces, changed_originals = set(), set(), set()
     for row in mapping:
         exact_keys(row, ("direction", "source_bar_id", "piece_ids", "policy"))
         label(row["policy"])
+        if openings and row["policy"] != packet["crop_policy_id"]:
+            raise ValueError("Piece mapping uses another cut policy")
         key = (row["direction"], row["source_bar_id"])
         if key not in before or key in mapped_originals:
             raise ValueError("Unknown/duplicate original bar in piece mapping")
@@ -360,8 +384,10 @@ def _graphic_bar_primitives(packet, offset_x_mm, offset_y_mm):
             "source_host_report_sha256": packet["source_host_report_sha256"], "before_count": len(before),
             "before_mass_kg": _graphic_mass(before), "physically_cut_piece_count": cut_count,
             "before_inventory": copy.deepcopy(packet["before"]["directions"]),
-            "removed_wholly_external_bars": copy.deepcopy(removed),
-            "removed_wholly_external_bar_count": len(removed_ids),
+            "removed_wholly_external_bars": copy.deepcopy(packet["removed_wholly_external_bars"]),
+            "removed_wholly_external_bar_count": len(packet["removed_wholly_external_bars"]),
+            "removed_input_bar_count": len(removed_ids), "removed_input_bars": copy.deepcopy(removed),
+            "respect_openings": openings,
             "radius_sized_axis_nudged_piece_count": nudge_count,
             "changed_original_bar_count": len(changed_originals), "piece_mapping": copy.deepcopy(mapping),
             "recorded_binding_matches_entered": offset == packet["source_to_revit_xy_mm"],
@@ -579,6 +605,11 @@ def _trim_caption(primitives):
             trim["recorded_binding_matches_entered"])
     text += "\nВНЕШНИЙ КОНТУР по backend: {0}; остаточных непрошедших стержней: {1}.".format(
         checks["outer_boundary"]["status"], checks["outer_boundary"]["failure_count"])
+    if trim.get("respect_openings"):
+        text += "\nОТВЕРСТИЯ УЧТЕНЫ РАЗРЕЗАНИЕМ. Пересечений с отверстиями: {0}; отказов по материалу плиты: {1}. Защитный слой не добавлен к резу.".format(
+            checks["openings"]["failure_count"], checks["material_boundary"]["failure_count"])
+        text += "\nБЕЗ ПЕРЕСЕЧЕНИЯ С МАТЕРИАЛОМ: {0} исходных стержней не оставили отрезков; все ID сохранены, КЭ не удалены.".format(
+            trim["removed_input_bar_count"])
     text += "\nЦЕЛИКОМ СНАРУЖИ: для {0} исходных стержней не оставлено ни одного отрезка. Их ID, исходная геометрия и причины сохранены в JSON; КЭ не удалены.".format(
         trim["removed_wholly_external_bar_count"])
     text += "\n3D по профилю backend: {0}; доказанных пар: {1}; непроверенных пар: {2}. Это НЕ проверка существующей арматуры RVT.".format(

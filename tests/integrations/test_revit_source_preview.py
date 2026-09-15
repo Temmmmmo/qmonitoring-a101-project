@@ -325,7 +325,7 @@ def test_public_code_only_zip_deterministic_whitelist(module, monkeypatch, tmp_p
     with ZipFile(first) as archive:
         assert archive.testzip() is None
         manifest = json.loads(archive.read("manifest.json"))
-        assert manifest["code_only"] is True and manifest["version"] == "0.2.1"
+        assert manifest["code_only"] is True and manifest["version"] == "0.2.2"
         assert {row["path"] for row in manifest["files"]} == set(archive.namelist())-{"manifest.json"}
         for row in manifest["files"]:
             assert hashlib.sha256(archive.read(row["path"])).hexdigest() == row["sha256"]

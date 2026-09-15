@@ -55,7 +55,7 @@ TOOLS = (
         "verification": "Новая команда проверена offline-тестами; её первый реальный запуск Revit ещё требуется.",
     },
     {
-        "id": "plan-preview", "title": "Изополя, зоны и раскладка в Revit", "runtime_version": "0.2.1",
+        "id": "plan-preview", "title": "Изополя, зоны и раскладка в Revit", "runtime_version": "0.2.2",
         "button": "PlanPreview", "command": "Plan Preview", "extension": "QMonitoringPreview",
         "mode": "graphic_preview", "description": "Исходные изополя и прямоугольные зоны в четырёх новых видах; физические стержни — отдельный режим. Графика, не арматура.",
         "report_schema": "revit-graphic-plan-preview-report/v1",

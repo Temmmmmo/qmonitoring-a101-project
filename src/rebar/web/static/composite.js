@@ -14,6 +14,7 @@ const statuses = { pass: "Пройдено в расчётной модели", 
 const explanations = {
   "boundary-trim-engineering-review": "Обрезка у края требует решения анкеровки; это не разрешение размещения",
   "external_boundary": "Есть стержни, тело которых не помещается во внешний контур",
+  "slab_material_boundary": "Есть стержни, тело которых не помещается в материал плиты с учётом отверстий",
   "original_FE_geometric_presence": "Не везде сохранено геометрическое наличие стали по исходным КЭ",
   "original_FE_with_control_40d": "Часть исходных КЭ не покрыта с прежним контрольным запасом 40d",
   "additional_3D_collisions": "Пересечения тел добавок при явно назначенных исследовательских высотах",
@@ -56,7 +57,7 @@ let result = null;
 let activeDirection = 0;
 let busy = false;
 let zoom = 1;
-let drawingView = "source";
+let drawingView = "combined";
 q("#direction-inputs").innerHTML = directions.map((d) => `<fieldset><legend>${d.title}</legend>
   <label>Изополе DXF<input name="dxf_${d.key}" type="file" accept=".dxf" required></label>
   <label>Соответствующая шкала<input name="shk_${d.key}" type="file" accept=".shk" required></label></fieldset>`).join("");
@@ -118,13 +119,17 @@ function renderChecks(point, blockers) {
         `${fmt(trim.coverage_with_control_40d.uncovered_cell_count, 0)} КЭ с непокрытой частью после обрезки. Наличие стали само по себе не подтверждает анкеровку.`],
       ["Внешний контур рабочего снимка", trim.external_boundary_failures_after ? "fail" : "pass",
         `До: ${fmt(trim.external_boundary_failures_before, 0)}, после: ${fmt(trim.external_boundary_failures_after, 0)} стержней вне контура. ` +
-        `${fmt(trim.removed_wholly_external_bars?.length || 0, 0)} исходных стержней полностью снаружи — не оставлено ни отрезка; исходные КЭ проверены. Проёмы и cover исключены.`],
+        `${fmt(trim.removed_input_bars?.length ?? trim.removed_wholly_external_bars?.length ?? 0, 0)} исходных стержней без пересечения с материалом — не оставлено ни отрезка; исходные КЭ проверены. Защитный слой не добавлен.`],
+      ["Обрезка у отверстий", trim.respect_openings ? (trim.material_boundary_failures_after ? "fail" : "pass") : "not_checked",
+        trim.respect_openings ? `Отверстия затрагивали ${fmt(trim.opening_affected_input_bar_count, 0)} исходных стержней; ` +
+          `после разрезания пересечений с отверстиями: ${fmt(trim.opening_intersections_after, 0)}. ` +
+          "Каждый оставшийся отрезок учтён в массе и ведомости; потребность КЭ не вырезается." : "В этом отчёте отверстия исключены из обрезки."],
       ["3D-пересечения добавок", trim.collisions.proven_collision_pair_count || trim.collisions.uncertain_pair_count ? "fail" : "pass",
         `${fmt(trim.collisions.proven_collision_pair_count, 0)} пересечений, ${fmt(trim.collisions.uncertain_pair_count, 0)} неопределённых пар. Высоты исследовательские, не измеренная арматура; существующий фон не проверен.`],
       ["Новый раскрой 11,7 м", trim.stock_cutting.status,
         "Вся изменённая партия проверена заново. Старый сертификат раскроя не используется."],
       ["Фактический host с проёмами и cover", trim.actual_Revit_host_informational_failures ? "fail" : "pass",
-        `${fmt(trim.actual_Revit_host_informational_failures, 0)} геометрических отказов. Информационно; эти ограничения исключены из выбранной обрезки, а не объявлены выполненными.`],
+        `${fmt(trim.actual_Revit_host_informational_failures, 0)} геометрических отказов. Информационно: защитный слой в этой операции не учтён; это не подтверждение размещения в Revit.`],
       ["Инженерная анкеровка и Revit", "not_checked", "Геометрический рисунок не является расчётом узла анкеровки или размещённой арматурой."]];
   }
   q("#check-summary").innerHTML = rows.map(([title, status, note]) => `<div class="check-card" data-status="${esc(status)}"><span>${esc(statuses[status] || status)}</span><strong>${esc(title)}</strong><p>${esc(note)}</p></div>`).join("");
@@ -141,22 +146,27 @@ function renderDirection() {
   // Never derive source rectangles from normalized bars or crop bars to FE/host bounds.
   q("#drawing").innerHTML = drawingView === "source"
     ? (sourceMatches ? direction.source_svg : null) ?? candidate?.svg ?? direction.input_svg ?? ""
+    : drawingView === "combined" ? candidate?.overlay_svg ?? candidate?.svg ?? direction.input_svg ?? ""
     : candidate?.svg ?? direction.input_svg ?? ""; // Server's escaped geometry renderer only.
   q("#drawing").dataset.view = drawingView;
   q("#drawing").dataset.envelopes = q("#source-envelopes").checked ? "shown" : "hidden";
-  q("#source-envelope-control").hidden = drawingView !== "source";
+  q("#source-envelope-control").hidden = drawingView === "physical";
   q("#drawing-layers").hidden = drawingView === "source";
-  q("#source-zone-details").hidden = drawingView !== "source";
-  q("#source-legend").hidden = drawingView !== "source";
+  q("#source-zone-details").hidden = drawingView === "physical";
+  q("#source-legend").hidden = drawingView === "physical";
   q("#drawing-views").querySelectorAll("button").forEach((button) => button.setAttribute("aria-pressed", button.dataset.view === drawingView));
   q("#drawing-view-note").textContent = drawingView === "source"
     ? "Исходные изополя и параметрические зоны до физической обработки. Это не физическая ведомость и не размещённая арматура. Прямоугольники не заменены контуром нормализованных стержней."
-    : (result.output_kind === "boundary-trimmed-physical-bars" ? "Новая физическая партия: отрезки реально укорочены/разделены по внешнему контуру рабочего снимка. Это не обрезка картинки. "
+    : (result.output_kind === "boundary-trimmed-physical-bars" ? "Новая физическая партия: отрезки реально укорочены/разделены по внешнему контуру" +
+        (result.boundary_trim.respect_openings ? " и отверстиям" : "") + " рабочего снимка. Это не обрезка картинки. "
       : physical ? "Физическая партия после обработки; схема и ведомость относятся к одним стержням. "
       : "Оси стержней параметрического кандидата; физическая нормализация для этого расчёта не выполнена. ") +
       (result.output_kind === "boundary-trimmed-physical-bars"
         ? "Показаны новые физические концы; дополнительных масок и скрытия оставшихся нарушений нет. Проверки приведены ниже."
         : "Выходы за контур и пересечения не обрезаются и не скрываются. Их проверки приведены ниже; отсутствие видимой ошибки не заменяет проверку.");
+  if (drawingView === "combined") q("#drawing-view-note").textContent +=
+    " Прямоугольники Z — исходные зоны потребности, линии — стержни выбранной партии. " +
+    "После обработки их границы могут различаться: прямоугольник не является новым контуром стали.";
   q("#source-zone-summary").textContent = `${directions[activeDirection].title}: ${fmt(sourceZones.length, 0)} исходных зон; ` +
     `${fmt(sourceZones.reduce((sum, zone) => sum + zone.components.reduce((n, c) => n + c.bar_count, 0), 0), 0)} стержней до физической обработки. Это не количество в итоговой физической партии.`;
   q("#source-zone-rows").innerHTML = sourceZones.flatMap((zone, zi) => zone.components.map((component) => {
@@ -241,7 +251,7 @@ q("#candidate").addEventListener("change", renderPoint);
 q("#source-envelopes").addEventListener("change", renderDirection);
 q("#drawing-views").addEventListener("click", (event) => {
   const button = event.target.closest("button[data-view]");
-  if (!button || !["source", "physical"].includes(button.dataset.view)) return;
+  if (!button || !["source", "physical", "combined"].includes(button.dataset.view)) return;
   drawingView = button.dataset.view;
   renderDirection();
 });
@@ -259,6 +269,8 @@ function renderDrawingLegend() {
         : "Границы линий не обрезаны.")
     : layer === "demand" ? "Цвета исходного DXF — требуемые уровни армирования. Раскладка скрыта только на схеме; нарушения и проверки не меняются."
     : "Цветные поля — потребность КЭ; линии — оси добавок. Наведите на элемент для параметров.";
+  if (drawingView === "combined") q("#drawing-legend").textContent +=
+    " Охристые прямоугольники Z1, Z2… — исходные зоны. Размеры, диаметр и шаг — при наведении и в таблице ниже.";
 }
 q("#drawing-layers").addEventListener("click", (event) => {
   const button = event.target.closest("button[data-layer]");
@@ -312,7 +324,7 @@ async function runAnalysis(url, options) {
     q("#candidate").disabled = !result.front.length;
     q("#output").hidden = false;
     activeDirection = 0;
-    drawingView = "source";
+    drawingView = result.default_drawing_view || "combined";
     zoom = 1;
     renderPoint();
     q("#progress").textContent = result.front.length ? "Расчёт закончен. Проверки размещения показаны отдельно." : "Полного решения не найдено. Смотрите причины по направлениям.";

@@ -51,6 +51,8 @@ def physical_web_report(problem, recovery) -> dict:
                         "position_count": len(schedule), "additional_mass_kg": mass},
             "coverage": {**coverage[key], "physical_source_axis_and_new40d_status": "pass"},
             "svg": render_composite_svg(original.demand, (), physical_bars=bars),
+            "overlay_svg": render_composite_svg(original.demand, (), physical_bars=bars,
+                                                 source_zone_drafts=direction["source_zone_drafts"]),
             "host_preflight": None, "bar_schedule": to_jsonable(schedule),
             "physical_bars": deepcopy(bars), "installation_notes": source_candidate.get("installation_notes", []),
             # Retained parametric zones are source provenance, NOT normalized placement geometry.
@@ -58,7 +60,8 @@ def physical_web_report(problem, recovery) -> dict:
     if count != expected["physical_bar_count"] or abs(math.fsum(masses) - expected["additional_mass_kg"]) > 1e-6:
         raise ValueError("Displayed physical inventory differs from independent count/mass verification")
     report.update(output_kind="normalized-physical-bars", status=recovery.status,
-        selected_index=0, source_graphics_candidate_index=0, front=[{"direction_candidate_indexes": [0] * 4,
+        selected_index=0, default_drawing_view="combined", source_graphics_candidate_index=0,
+        front=[{"direction_candidate_indexes": [0] * 4,
             "zone_count": expected["source_zone_count"], "physical_bar_count": expected["physical_bar_count"],
             "position_count": expected["position_count"], "additional_mass_kg": expected["additional_mass_kg"],
             "bar_schedule": deepcopy(review["bar_schedule"]), "stock_cutting": deepcopy(review["stock_cutting"])}],

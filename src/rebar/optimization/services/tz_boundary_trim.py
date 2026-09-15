@@ -27,6 +27,16 @@ from .stock_cutting import check_stock_cutting
 from .tz_outer_scope import check_tz_outer_bar, outer_scope_domain, translate_straight_whole
 
 POLICY = "user-physical-outer-boundary-trim-and-split/2026-09-15-v1"
+OPENINGS_POLICY = "user-physical-outer-and-openings-trim-and-split/2026-09-15-v1"
+
+
+def trimming_domain(actual_host, *, respect_openings=False):
+    """Explicit cut domain: preserve measured holes on opt-in; never add cover."""
+    if type(respect_openings) is not bool:
+        raise ValueError("Explicit boolean openings policy required")
+    outer = outer_scope_domain(actual_host)  # validates the immutable measured host
+    return (replace(actual_host, top_cover_mm=0., bottom_cover_mm=0., side_cover_mm=0.)
+            if respect_openings else outer)
 
 
 def _polygons(shape):
@@ -38,7 +48,7 @@ def _polygons(shape):
             yield from _polygons(child)
 
 
-def straight_outer_intersections(bar, actual_host):
+def straight_outer_intersections(bar, actual_host, *, respect_openings=False):
     """All positive retained intervals, using full diameter, not centerline only."""
     shaped_cut_length_mm(bar)
     if bar.shape_kind != "straight":
@@ -47,7 +57,7 @@ def straight_outer_intersections(bar, actual_host):
     a, b = bar.segments[0].start_mm, bar.segments[0].end_mm
     if a[along] >= b[along]:
         raise ValueError("Canonical increasing straight interval required")
-    domain = outer_scope_domain(actual_host)
+    domain = trimming_domain(actual_host, respect_openings=respect_openings)
     radius = bar.diameter_mm/2
     low_z, high_z = a[2]-radius, a[2]+radius
     if low_z < domain.sections[0].bottom_z_mm or high_z > domain.sections[-1].top_z_mm:
@@ -101,7 +111,7 @@ def build_trimmed_pieces(bar, intervals):
     return tuple(result)
 
 
-def trimming_parent(bar, actual_host, sources, *, nudge_edge_axis=False):
+def trimming_parent(bar, actual_host, sources, *, nudge_edge_axis=False, respect_openings=False):
     """Optional radius-sized inward nudge for an axis lying ON an outer edge.
 
     This is not an arbitrary phase search. Only +/-radius is tried when the
@@ -111,7 +121,8 @@ def trimming_parent(bar, actual_host, sources, *, nudge_edge_axis=False):
     """
     if type(nudge_edge_axis) is not bool:
         raise ValueError("Explicit boolean edge-axis nudge policy required")
-    if not nudge_edge_axis or bar.shape_kind != "straight" or straight_outer_intersections(bar, actual_host):
+    if not nudge_edge_axis or bar.shape_kind != "straight" or straight_outer_intersections(
+            bar, actual_host, respect_openings=respect_openings):
         return bar
     along = 0 if bar.direction.axis is Axis.X else 1
     q = bar.segments[0].start_mm[1-along]
@@ -126,7 +137,7 @@ def trimming_parent(bar, actual_host, sources, *, nudge_edge_axis=False):
                for owner in bar.source_bar_ids):
             continue
         candidate = translate_straight_whole(bar, start_mm=bar.segments[0].start_mm[along], transverse_axis_mm=trial_q)
-        if straight_outer_intersections(candidate, actual_host):
+        if straight_outer_intersections(candidate, actual_host, respect_openings=respect_openings):
             return candidate
     return bar
 
@@ -148,7 +159,7 @@ def geometry_presence_offers(bars, sources):
 
 
 def check_boundary_trim(before, after, piece_mapping, lanes, problem, actual_host, *, stock_time_limit_s=30,
-                        nudge_edge_axis=False, discard_empty_intersections=False):
+                        nudge_edge_axis=False, discard_empty_intersections=False, respect_openings=False):
     """Rebuild every authorized cut and freshly check the complete physical party.
 
     One-to-many owners are explicit source provenance, not additive weak As.
@@ -158,6 +169,8 @@ def check_boundary_trim(before, after, piece_mapping, lanes, problem, actual_hos
     """
     _problem(problem)
     sources = lane_map(lanes)
+    domain = trimming_domain(actual_host, respect_openings=respect_openings)
+    policy = OPENINGS_POLICY if respect_openings else POLICY
     _shape_batch(before, sources)
     if type(discard_empty_intersections) is not bool:
         raise ValueError("Explicit boolean empty-intersection policy required")
@@ -168,15 +181,18 @@ def check_boundary_trim(before, after, piece_mapping, lanes, problem, actual_hos
             or not math.isfinite(stock_time_limit_s) or not 0 < stock_time_limit_s <= 60):
         raise ValueError("Finite bounded stock verification time required")
     keyed = {(str(b.direction), b.id): b for b in after}
+    originals = {(str(b.direction), b.id): b for b in before}
     if len(keyed) != len(after):
         raise ValueError("Unique physical piece identities required")
     seen, changes, unresolved, removed = set(), [], [], []
     for old, row in zip(before, piece_mapping):
-        if row.get("direction") != str(old.direction) or row.get("source_bar_id") != old.id:
+        if (row.get("direction") != str(old.direction) or row.get("source_bar_id") != old.id
+                or row.get("policy") != policy):
             raise ValueError("Each input bar must have its exact provenance mapping")
-        parent = trimming_parent(old, actual_host, sources, nudge_edge_axis=nudge_edge_axis)
+        parent = trimming_parent(old, actual_host, sources, nudge_edge_axis=nudge_edge_axis,
+                                 respect_openings=respect_openings)
         if parent.shape_kind == "straight":
-            intervals = straight_outer_intersections(parent, actual_host)
+            intervals = straight_outer_intersections(parent, actual_host, respect_openings=respect_openings)
             expected = (build_trimmed_pieces(parent, intervals) if intervals or discard_empty_intersections
                         else (parent,))
         else:
@@ -198,7 +214,7 @@ def check_boundary_trim(before, after, piece_mapping, lanes, problem, actual_hos
                     - old.segments[0].start_mm[1 if old.direction.axis is Axis.X else 0],
                 "removed_length_mm": shaped_cut_length_mm(old)-math.fsum(shaped_cut_length_mm(b) for b in expected)})
         for bar in expected:
-            if check_tz_outer_bar(bar, actual_host)["status"] != "pass":
+            if check_shaped_host(bar, domain)["status"] != "pass":
                 unresolved.append({"direction": str(bar.direction), "bar_id": bar.id,
                     "reason": "no_whole_body_intersection" if bar.shape_kind == "straight" else "bent_shape_not_trimmed"})
     if seen != set(keyed):
@@ -215,9 +231,18 @@ def check_boundary_trim(before, after, piece_mapping, lanes, problem, actual_hos
              check_stock_cutting(schedule, time_limit_s=stock_time_limit_s) if len(schedule) <= 512 else
              {"status": "not_checked", "reason": "cutting_position_budget_exceeded", "position_count": len(schedule)})
     before_metrics, after_metrics = shaped_batch_metrics(before), shaped_batch_metrics(after)
+    outside_before = sum(check_tz_outer_bar(b, actual_host)["status"] != "pass" for b in before)
+    outside_after = sum(check_tz_outer_bar(b, actual_host)["status"] != "pass" for b in after)
+    openings_before = sum(b.shape_kind == "straight" and
+        straight_outer_intersections(b, actual_host) != straight_outer_intersections(b, actual_host, respect_openings=True)
+        for b in before) if respect_openings else None
+    openings_after = sum(b.shape_kind == "straight" and
+        straight_outer_intersections(b, actual_host) != straight_outer_intersections(b, actual_host, respect_openings=True)
+        for b in after) if respect_openings else None
     blockers = []
     for failed, label in (
-        (bool(unresolved), "external_boundary"),
+        (bool(outside_after), "external_boundary"),
+        (respect_openings and bool(unresolved), "slab_material_boundary"),
         (presence["status"] != "pass", "original_FE_geometric_presence"),
         (anchored["status"] != "pass", "original_FE_with_control_40d"),
         (bool(pairs["proven_collision_pair_count"]), "additional_3D_collisions"),
@@ -226,20 +251,27 @@ def check_boundary_trim(before, after, piece_mapping, lanes, problem, actual_hos
     ):
         if failed:
             blockers.append(label)
-    return {"schema_version": "tz-boundary-trim-check/v1", "policy": POLICY, "units": "mm",
+    return {"schema_version": "tz-boundary-trim-check/v1", "policy": policy, "units": "mm",
         "status": "requires_engineering_review" if after else "empty_physical_result", "blockers": blockers,
-        "external_boundary_failures_before": sum(check_tz_outer_bar(b, actual_host)["status"] != "pass" for b in before),
-        "external_boundary_failures_after": len(unresolved), "unresolved_bars": unresolved,
+        "external_boundary_failures_before": outside_before,
+        "external_boundary_failures_after": outside_after, "unresolved_bars": unresolved,
+        "respect_openings": respect_openings,
+        "material_boundary_failures_after": len(unresolved),
+        "opening_affected_input_bar_count": openings_before, "opening_intersections_after": openings_after,
         "changed_input_bar_count": len(changes), "changes": changes, "piece_mapping": list(piece_mapping),
         "radius_sized_edge_axis_nudge_enabled": nudge_edge_axis,
-        **({"discard_empty_intersections": True, "removed_wholly_external_bars": removed,
+        **({"discard_empty_intersections": True,
+            "removed_wholly_external_bars": [r for r in removed if not straight_outer_intersections(
+                originals[r["direction"], r["bar_id"]], actual_host)],
+            "removed_input_bars": removed,
             "removed_input_bar_count": len(removed)} if discard_empty_intersections else {}),
         "geometric_presence": presence, "coverage_with_control_40d": anchored, "collisions": pairs,
         "stock_cutting": stock, "physical_metrics_before": before_metrics, "physical_metrics": after_metrics,
         "removed_length_mm": before_metrics["true_cut_length_mm"]-after_metrics["true_cut_length_mm"],
         "removed_mass_kg": before_metrics["mass_kg"]-after_metrics["mass_kg"],
         "actual_Revit_host_informational_failures": sum(check_shaped_host(b, actual_host)["status"] != "pass" for b in after),
-        "excluded_from_TZ": ["closed_openings", "concrete_cover"], "outer_recesses_preserved": True,
+        "excluded_from_TZ": (["concrete_cover"] if respect_openings else ["closed_openings", "concrete_cover"]),
+        "outer_recesses_preserved": True,
         "source_demand_removed": False, "original_FE_geometry_changed": False, "weak_As_summation": False,
         "cutoff_is_not_a_hidden_display_clip": True, "old_coverage_or_cutting_certificate_reused": False,
         "placement_eligible": False, "engineering_approval": False, "all_TZ_requirements_certified": False,
