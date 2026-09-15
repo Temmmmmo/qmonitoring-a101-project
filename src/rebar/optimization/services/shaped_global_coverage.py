@@ -23,7 +23,7 @@ from .opening_relocation import coverage_from_offers, lane_map
 from .shaped_collisions import check_shaped_collisions
 from .shaped_fe_repair import (
     ResearchLayerProfile, exterior_edge_choices, layer_elevations,
-    owner_fragments_preserved, shaped_service_offers,
+    owner_fragments_preserved, shaped_service_offers, SOURCE_REQUIRED_SERVICE,
 )
 from .shaped_geometry import (
     build_u_edge_bar, check_edge_anchor_geometry, check_shaped_host, curve_point,
@@ -82,9 +82,10 @@ def _shape_batch(bars, sources):
         raise ValueError("Every original owner label must remain exactly once in the physical batch")
 
 
-def _offers(bars, sources):
+def _offers(bars, sources, *, longitudinal_service_policy=SOURCE_REQUIRED_SERVICE):
     return {direction: [offer for bar in bars if bar.direction == direction
-                        for offer in shaped_service_offers(bar, sources)] for direction in PLATE_DIRECTIONS}
+                        for offer in shaped_service_offers(bar, sources,
+                            longitudinal_service_policy=longitudinal_service_policy)] for direction in PLATE_DIRECTIONS}
 
 
 def _strict_coverage(problem, offers):

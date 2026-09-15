@@ -15,6 +15,7 @@ from rebar.models import Axis, Direction, Layer
 from .analyze_composite_plate import CompositeDirectionSettings
 from .analyze_plate import PlateDirectionSource
 from .assistant_inputs import analyze_assistant_sources
+from .boundary_trim_web import boundary_trim_web_report
 from .physical_layout_recovery import recover_physical_layout
 from .physical_web_report import physical_web_report
 from rebar.optimization.contracts.physical import PhysicalNormalizationConfig
@@ -95,9 +96,12 @@ def engineering_example_catalog() -> dict:
     return {"examples": [entry]}
 
 
-def analyze_engineering_example(example_id: str) -> dict:
+def analyze_engineering_example(example_id: str, *, working_host_bytes: bytes | None = None,
+                                confirm_identity_xy: bool = False) -> dict:
     if example_id != EXAMPLE_ID:
         raise KeyError(example_id)
+    if (working_host_bytes is not None) != (confirm_identity_xy is True):
+        raise ValueError("Для обрезки нужны одновременно снимок Working Host и подтверждение совпадения XY")
     originals = _source_bytes()
     # Each run reads a private immutable snapshot of the verified original bytes.
     # No persistent results or lucky cached calculation are substituted for a rerun.
@@ -119,7 +123,9 @@ def analyze_engineering_example(example_id: str) -> dict:
         recovery = recover_physical_layout(source.problem, source.solution, tuple(settings),
             normalization_config=PhysicalNormalizationConfig(allow_diameter_increase=True),
             source_provenance=provenance)
-        report = physical_web_report(source.problem, recovery)
+        report = (physical_web_report(source.problem, recovery) if working_host_bytes is None else
+            boundary_trim_web_report(source.problem, recovery, working_host_bytes,
+                                     confirm_identity_xy=confirm_identity_xy))
     report["engineering_example"] = example_metadata(available=True, status="ready")
     return report
 

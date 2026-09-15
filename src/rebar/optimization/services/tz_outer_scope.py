@@ -15,9 +15,11 @@ from shapely.ops import unary_union
 from rebar.models import Axis
 from ..contracts.physical import PhysicalBar
 from ..contracts.shaped_physical import Line3D
+from .cutting import PLATE_11700_CUT_LENGTHS_MM
 from .opening_relocation import lane_map
 from .physical_host_fit import _host_intervals
 from .shaped_collisions import check_shaped_collisions
+from .shaped_fe_repair import ACTUAL_CORE_SERVICE, SOURCE_REQUIRED_SERVICE
 from .shaped_geometry import (
     _validate_host, check_shaped_host, shaped_batch_metrics, shaped_cut_length_mm,
     shaped_cutting_schedule,
@@ -26,6 +28,7 @@ from .shaped_global_coverage import _offers, _problem, _shape_batch, _strict_cov
 from .stock_cutting import check_stock_cutting
 
 TZ_OUTER_SCOPE = "user-TZ-outer-boundary-no-openings-no-cover/2026-09-15-v1"
+TZ_LENGTH_REASSIGNMENT = "user-TZ-outer-boundary-catalogue-length-reassignment/2026-09-15-v1"
 
 
 def outer_scope_domain(actual_host):
@@ -76,6 +79,27 @@ def translate_straight_whole(bar, *, start_mm, transverse_axis_mm=None):
     return replace(bar, segments=(Line3D(tuple(a), tuple(b)),))
 
 
+def reselect_straight_length(bar, length_mm):
+    """Select a NEW complete catalogue bar, not clip display or keep stale mass.
+
+    This construction carries no coverage/host/cutting acceptance. A caller must
+    independently revalidate the whole changed inventory with its new lengths.
+    """
+    shaped_cut_length_mm(bar)
+    if (bar.shape_kind != "straight" or len(bar.segments) != 1
+            or isinstance(length_mm, bool) or not isinstance(length_mm, (int, float))
+            or not math.isfinite(length_mm)
+            or min(abs(length_mm-v) for v in PLATE_11700_CUT_LENGTHS_MM) > 1e-7):
+        raise ValueError("A complete straight bar and an explicit catalogue length required")
+    along = 0 if bar.direction.axis is Axis.X else 1
+    segment = bar.segments[0]
+    if segment.start_mm[along] >= segment.end_mm[along]:
+        raise ValueError("Canonical increasing straight interval required")
+    end = list(segment.end_mm)
+    end[along] = segment.start_mm[along] + length_mm
+    return replace(bar, segments=(Line3D(segment.start_mm, tuple(end)),), selected_cut_length_mm=length_mm)
+
+
 def outer_start_intervals(bar, actual_host, *, transverse_axis_mm=None):
     """Exact whole-length longitudinal fit BEFORE any FE/40d restriction.
 
@@ -105,12 +129,19 @@ def outer_start_intervals(bar, actual_host, *, transverse_axis_mm=None):
     return _host_intervals(proxy, material, 0., 4096)
 
 
-def check_tz_outer_batch(before, after, lanes, problem, actual_host, *, stock_time_limit_s=30):
+def check_tz_outer_batch(before, after, lanes, problem, actual_host, *, stock_time_limit_s=30,
+                         allow_length_reassignment=False, longitudinal_service_policy=SOURCE_REQUIRED_SERVICE):
     """Independent report; excluded host criteria CANNOT leak into TZ status.
 
     A geometric trial is allowed to fail FE/collision checks, but never labelled
-    accepted. Only rigid changes of existing straight bars are supported.
+    accepted. Default: rigid moves only. Explicit opt-in: complete catalogue
+    lengths can be reselected; fresh mass, original FE and whole-party stock
+    checks still apply. This does NOT authorize a changed diameter, Z, or shape.
     """
+    if type(allow_length_reassignment) is not bool:
+        raise ValueError("Explicit boolean length-reassignment policy required")
+    if longitudinal_service_policy not in (SOURCE_REQUIRED_SERVICE, ACTUAL_CORE_SERVICE):
+        raise ValueError("Explicit supported longitudinal service policy required")
     _problem(problem)
     sources = lane_map(lanes)
     _shape_batch(before, sources)
@@ -118,24 +149,33 @@ def check_tz_outer_batch(before, after, lanes, problem, actual_host, *, stock_ti
     original = {(b.direction, b.id): b for b in before}
     if len(after) != len(before) or {(b.direction, b.id) for b in after} != set(original):
         raise ValueError("Same complete physical bar identities required")
-    changed = []
+    changed, lengths = [], []
     for bar in after:
         old = original[bar.direction, bar.id]
         if bar == old:
             continue
         along = 0 if bar.direction.axis is Axis.X else 1
-        canonical = translate_straight_whole(old,
+        resized = (reselect_straight_length(old, bar.selected_cut_length_mm)
+                   if allow_length_reassignment else old)
+        canonical = translate_straight_whole(resized,
             start_mm=bar.segments[0].start_mm[along],
             transverse_axis_mm=bar.segments[0].start_mm[1-along])
-        if bar != canonical or abs(shaped_cut_length_mm(old)-shaped_cut_length_mm(bar)) > 1e-7:
+        if bar != canonical or (not allow_length_reassignment
+                and abs(shaped_cut_length_mm(old)-shaped_cut_length_mm(bar)) > 1e-7):
             raise ValueError("Rigid whole-bar translation required; no cut/shape/material change")
+        if old.selected_cut_length_mm != bar.selected_cut_length_mm:
+            lengths.append({"direction": str(bar.direction), "bar_id": bar.id,
+                "before_mm": old.selected_cut_length_mm, "after_mm": bar.selected_cut_length_mm})
         changed.append({"direction": str(bar.direction), "bar_id": bar.id,
             "longitudinal_shift_mm": bar.segments[0].start_mm[along]-old.segments[0].start_mm[along],
             "transverse_shift_mm": bar.segments[0].start_mm[1-along]-old.segments[0].start_mm[1-along]})
     before_outer = [check_tz_outer_bar(b, actual_host) for b in before]
     after_outer = [check_tz_outer_bar(b, actual_host) for b in after]
     failures = [r for r in after_outer if r["status"] != "pass"]
-    coverage = _strict_coverage(problem, _offers(after, sources))
+    coverage = _strict_coverage(problem, _offers(after, sources, longitudinal_service_policy=longitudinal_service_policy))
+    coverage["longitudinal_service_policy"] = longitudinal_service_policy
+    coverage["straight_end_control_anchor_diameters"] = 40
+    coverage["transverse_source_windows_enlarged"] = False
     pairs = check_shaped_collisions(after)
     background_failures = []
     minimum_gap = math.inf
@@ -163,13 +203,16 @@ def check_tz_outer_batch(before, after, lanes, problem, actual_host, *, stock_ti
         if condition:
             blockers.append(label)
     return {
-        "schema_version": "tz-outer-scope-check/v1", "policy": TZ_OUTER_SCOPE,
+        "schema_version": "tz-outer-scope-check/v1",
+        "policy": TZ_LENGTH_REASSIGNMENT if allow_length_reassignment else TZ_OUTER_SCOPE,
         "checked_gates_status": "fail" if blockers else "pass", "tz_blockers": blockers,
         "excluded_from_TZ": ["closed_openings", "concrete_cover"],
         "excluded_criteria_reported_as_failures": False,
         "external_boundary_failures_before": sum(r["status"] != "pass" for r in before_outer),
         "external_boundary_failures_after": len(failures), "external_boundary_failures": failures,
-        "changes": changed, "changed_bar_count": len(changed), "whole_lengths_preserved": True,
+        "changes": changed, "changed_bar_count": len(changed), "whole_lengths_preserved": not lengths,
+        "length_reassignment_enabled": allow_length_reassignment, "length_changes": lengths,
+        "longitudinal_service_policy": longitudinal_service_policy,
         "source_coverage": coverage, "collisions": pairs, "stock_cutting": stock,
         "source_prescribed_background_axis_failures": background_failures,
         "minimum_source_prescribed_background_gap_mm": minimum_gap,

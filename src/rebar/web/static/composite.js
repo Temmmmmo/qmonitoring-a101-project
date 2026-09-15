@@ -12,6 +12,13 @@ const fmt = (value, digits = 2) => value === null || value === undefined ? "—"
   new Intl.NumberFormat("ru-RU", { maximumFractionDigits: digits }).format(value);
 const statuses = { pass: "Пройдено в расчётной модели", fail: "Не выполнено", not_checked: "Не проверено" };
 const explanations = {
+  "boundary-trim-engineering-review": "Обрезка у края требует решения анкеровки; это не разрешение размещения",
+  "external_boundary": "Есть стержни, тело которых не помещается во внешний контур",
+  "original_FE_geometric_presence": "Не везде сохранено геометрическое наличие стали по исходным КЭ",
+  "original_FE_with_control_40d": "Часть исходных КЭ не покрыта с прежним контрольным запасом 40d",
+  "additional_3D_collisions": "Пересечения тел добавок при явно назначенных исследовательских высотах",
+  "additional_3D_separation_unproven": "Для части пар разделение тел в 3D не доказано",
+  "11700_zero_waste_cutting": "Новые длины после обрезки не подтверждены безотходным раскроем 11700 мм",
   "same-plane-additional-bar-intersections": "Пересечения тел дополнительных стержней: требуется проверка узлов",
   "monotone-diameter-substitution-engineering-approval": "Подтверждение замены одиночной добавки на более сильную",
   "permanent-placement-not-authorized": "Постоянное размещение арматуры не разрешено",
@@ -49,6 +56,7 @@ let result = null;
 let activeDirection = 0;
 let busy = false;
 let zoom = 1;
+let drawingView = "source";
 q("#direction-inputs").innerHTML = directions.map((d) => `<fieldset><legend>${d.title}</legend>
   <label>Изополе DXF<input name="dxf_${d.key}" type="file" accept=".dxf" required></label>
   <label>Соответствующая шкала<input name="shk_${d.key}" type="file" accept=".shk" required></label></fieldset>`).join("");
@@ -59,6 +67,11 @@ q("#placement-inputs").innerHTML = directions.map((d) => `<fieldset data-directi
 q("#direction-tabs").innerHTML = directions.map((d, i) => `<button type="button" data-index="${i}">${d.title}</button>`).join("");
 
 function selectedPoint() { return result?.front[Number(q("#candidate").value)]; }
+function isPhysicalResult() { return ["normalized-physical-bars", "boundary-trimmed-physical-bars"].includes(result?.output_kind); }
+function hasSelectedSourceGraphics() {
+  return Boolean(result?.source_graphics) && (result.source_graphics_candidate_index === undefined ||
+    result.source_graphics_candidate_index === Number(q("#candidate").value));
+}
 function setZoom(value) {
   zoom = Math.min(3, Math.max(1, value));
   const svg = q("#drawing svg");
@@ -90,13 +103,30 @@ function renderChecks(point, blockers) {
   const hostStatus = hostChecks.length === 4 && hostChecks.every((status) => status === "pass") ? "pass"
     : hostChecks.some((status) => status === "fail") ? "fail" : "not_checked";
   const pairs = result.same_plane_conflicts?.body_intersection_count;
-  const rows = [["Покрытие исходной потребности", covered ? "pass" : point ? "fail" : "not_checked",
+  let rows = [["Покрытие исходной потребности", covered ? "pass" : point ? "fail" : "not_checked",
     covered ? "Все исходные КЭ покрыты в принятой модели." : "Полное покрытие выбранного варианта не подтверждено."],
     ["Раскрой прутка 11,7 м", point?.stock_cutting?.status || "not_checked", "Проверка всей партии, смешанный рез и нулевой пропил."],
     ["Пересечения стержней одного направления", Number.isInteger(pairs) ? (pairs ? "fail" : "pass") : "not_checked",
       Number.isInteger(pairs) ? `${fmt(pairs, 0)} пар в плоской модели. Это не проверка фактических высот и 3D.` : "Проверка физических стержней не выполнена."],
     ["Границы и проёмы плиты", hostStatus, hostStatus === "not_checked" ? "Нужна независимая проверка фактической геометрии host." : "Проверено только в переданной плоской модели host."],
     ["Создание в Revit", "not_checked", "Этот web-расчёт не изменял и не читал обратно модель."]];
+  if (result.output_kind === "boundary-trimmed-physical-bars") {
+    const trim = result.boundary_trim;
+    rows = [["Наличие стали на исходных КЭ — не анкеровка", trim.geometric_presence.status,
+      `${fmt(trim.geometric_presence.uncovered_cell_count, 0)} КЭ с непокрытой частью. Исходные полигоны не изменены; достаточные зоны объединены без суммы слабых As.`],
+      ["Исходная потребность с контрольными 40d", trim.coverage_with_control_40d.status,
+        `${fmt(trim.coverage_with_control_40d.uncovered_cell_count, 0)} КЭ с непокрытой частью после обрезки. Наличие стали само по себе не подтверждает анкеровку.`],
+      ["Внешний контур рабочего снимка", trim.external_boundary_failures_after ? "fail" : "pass",
+        `До: ${fmt(trim.external_boundary_failures_before, 0)}, после: ${fmt(trim.external_boundary_failures_after, 0)} стержней вне контура. ` +
+        `${fmt(trim.removed_wholly_external_bars?.length || 0, 0)} исходных стержней полностью снаружи — не оставлено ни отрезка; исходные КЭ проверены. Проёмы и cover исключены.`],
+      ["3D-пересечения добавок", trim.collisions.proven_collision_pair_count || trim.collisions.uncertain_pair_count ? "fail" : "pass",
+        `${fmt(trim.collisions.proven_collision_pair_count, 0)} пересечений, ${fmt(trim.collisions.uncertain_pair_count, 0)} неопределённых пар. Высоты исследовательские, не измеренная арматура; существующий фон не проверен.`],
+      ["Новый раскрой 11,7 м", trim.stock_cutting.status,
+        "Вся изменённая партия проверена заново. Старый сертификат раскроя не используется."],
+      ["Фактический host с проёмами и cover", trim.actual_Revit_host_informational_failures ? "fail" : "pass",
+        `${fmt(trim.actual_Revit_host_informational_failures, 0)} геометрических отказов. Информационно; эти ограничения исключены из выбранной обрезки, а не объявлены выполненными.`],
+      ["Инженерная анкеровка и Revit", "not_checked", "Геометрический рисунок не является расчётом узла анкеровки или размещённой арматурой."]];
+  }
   q("#check-summary").innerHTML = rows.map(([title, status, note]) => `<div class="check-card" data-status="${esc(status)}"><span>${esc(statuses[status] || status)}</span><strong>${esc(title)}</strong><p>${esc(note)}</p></div>`).join("");
   q("#blocker-title").textContent = `Незакрытые условия: ${blockers.length}`;
 }
@@ -104,7 +134,48 @@ function renderDirection() {
   const point = selectedPoint();
   const direction = result.directions[activeDirection];
   const candidate = point ? direction.candidates[point.direction_candidate_indexes[activeDirection]] : null;
-  q("#drawing").innerHTML = candidate?.svg ?? direction.input_svg ?? ""; // Server's escaped geometry renderer only.
+  const sourceMatches = hasSelectedSourceGraphics();
+  const source = sourceMatches ? result.source_graphics.directions?.[activeDirection] : null;
+  const sourceZones = (sourceMatches ? direction.source_zone_drafts : null) ?? candidate?.zone_drafts ?? [];
+  const physical = isPhysicalResult();
+  // Never derive source rectangles from normalized bars or crop bars to FE/host bounds.
+  q("#drawing").innerHTML = drawingView === "source"
+    ? (sourceMatches ? direction.source_svg : null) ?? candidate?.svg ?? direction.input_svg ?? ""
+    : candidate?.svg ?? direction.input_svg ?? ""; // Server's escaped geometry renderer only.
+  q("#drawing").dataset.view = drawingView;
+  q("#drawing").dataset.envelopes = q("#source-envelopes").checked ? "shown" : "hidden";
+  q("#source-envelope-control").hidden = drawingView !== "source";
+  q("#drawing-layers").hidden = drawingView === "source";
+  q("#source-zone-details").hidden = drawingView !== "source";
+  q("#source-legend").hidden = drawingView !== "source";
+  q("#drawing-views").querySelectorAll("button").forEach((button) => button.setAttribute("aria-pressed", button.dataset.view === drawingView));
+  q("#drawing-view-note").textContent = drawingView === "source"
+    ? "Исходные изополя и параметрические зоны до физической обработки. Это не физическая ведомость и не размещённая арматура. Прямоугольники не заменены контуром нормализованных стержней."
+    : (result.output_kind === "boundary-trimmed-physical-bars" ? "Новая физическая партия: отрезки реально укорочены/разделены по внешнему контуру рабочего снимка. Это не обрезка картинки. "
+      : physical ? "Физическая партия после обработки; схема и ведомость относятся к одним стержням. "
+      : "Оси стержней параметрического кандидата; физическая нормализация для этого расчёта не выполнена. ") +
+      (result.output_kind === "boundary-trimmed-physical-bars"
+        ? "Показаны новые физические концы; дополнительных масок и скрытия оставшихся нарушений нет. Проверки приведены ниже."
+        : "Выходы за контур и пересечения не обрезаются и не скрываются. Их проверки приведены ниже; отсутствие видимой ошибки не заменяет проверку.");
+  q("#source-zone-summary").textContent = `${directions[activeDirection].title}: ${fmt(sourceZones.length, 0)} исходных зон; ` +
+    `${fmt(sourceZones.reduce((sum, zone) => sum + zone.components.reduce((n, c) => n + c.bar_count, 0), 0), 0)} стержней до физической обработки. Это не количество в итоговой физической партии.`;
+  q("#source-zone-rows").innerHTML = sourceZones.flatMap((zone, zi) => zone.components.map((component) => {
+    const box = zone.demand_bbox_mm, x = zone.direction.axis === "X";
+    const length = x ? box[2] - box[0] : box[3] - box[1];
+    const width = x ? box[3] - box[1] : box[2] - box[0];
+    const gaps = [...new Set(component.axis_coordinates_mm.slice(1).map((value, i) =>
+      Number((value - component.axis_coordinates_mm[i]).toFixed(6))))].sort((a, b) => a-b);
+    return `<tr><td><strong>Z${zi + 1} / ${component.component_index + 1}</strong><br>${esc(zone.source_zone_id)}</td>` +
+      `<td>${fmt(length, 3)} × ${fmt(width, 3)}</td><td>${fmt(component.installed_length_mm, 3)} × ${fmt(component.axis_window_mm[1] - component.axis_window_mm[0], 3)}</td>` +
+      `<td>${fmt(component.diameter_mm)}</td><td>${fmt(component.nominal_step_mm)}</td><td>${fmt(component.bar_count, 0)}</td>` +
+      `<td>${gaps.length ? gaps.map((gap) => fmt(gap, 3)).join(" / ") : "Одна ось"}</td></tr>`;
+  })).join("");
+  q("#source-legend").innerHTML = (source?.legend || []).map((level) => {
+    const validColor = Array.isArray(level.rgb) && level.rgb.length === 3 && level.rgb.every((n) => Number.isInteger(n) && n >= 0 && n <= 255);
+    const color = validColor ? `rgb(${level.rgb.join(",")})` : "#d9e4ec";
+    return `<span><i style="background:${color}"></i>${esc(level.label || `Уровень ${level.level_index}`)}</span>`;
+  }).join("");
+  renderDrawingLegend();
   setZoom(zoom);
   q("#installation-notes").innerHTML = [...new Set((candidate?.installation_notes || []).map((item) => item.note))]
     .map((note) => `<li>${esc(note)} Высоты осей ещё не назначены; фактическое касание не подтверждено.</li>`).join("");
@@ -116,11 +187,22 @@ function renderDirection() {
         ? `Несовместимы с текущей анкеровкой у края: ${direction.telemetry.host_demand_feasibility.cell_count} КЭ, выделены красным. Спрос не удалён.`
         : "Полного решения в заданном конечном поиске не найдено; показан исходный спрос, лимиты не ослаблены. " +
           (direction.telemetry?.host_rejected_candidates ? `${direction.telemetry.host_rejected_candidates} кандидатов отклонены проверкой границ/проёмов/конфликтов.` : ""));
+  if (candidate && result.output_kind === "boundary-trimmed-physical-bars") {
+    q("#direction-status").textContent = `${directions[activeDirection].title}: геометрическое наличие — ` +
+      `${fmt(candidate.geometric_presence.uncovered_cell_count, 0)} непокрытых КЭ; с прежними 40d — ` +
+      `${fmt(candidate.coverage.uncovered_cell_count, 0)}. Эти проверки не взаимозаменяемы; чёрным показаны внешние контуры сечений настоящего host.`;
+  }
   q("#direction-tabs").querySelectorAll("button").forEach((button, i) => button.setAttribute("aria-pressed", i === activeDirection));
 }
 function renderPoint() {
   const point = selectedPoint();
-  q("#download-selected").disabled = !point;
+  q("#download-selected").disabled = !point || (result.output_kind === "boundary-trimmed-physical-bars" && !result.graphic_bar_plan_draft);
+  q("#download-source").disabled = !hasSelectedSourceGraphics();
+  const physical = isPhysicalResult();
+  q("#metrics-scope").textContent = physical
+    ? "Метрики и общая ведомость выше/ниже — физическая партия после обработки. На исходной схеме показаны другие, исходные параметры зон; их количество стержней не подменяет итоговое."
+    : "Метрики относятся к выбранному параметрическому кандидату. Отдельная физическая нормализация не выполнена; исходные зоны и их расчётные оси доступны раздельно.";
+  q("#schedule-title").textContent = physical ? "Общая ведомость физических стержней после обработки" : "Расчётная ведомость стержней параметрического кандидата";
   q("#metrics").innerHTML = point ? [[point.additional_mass_kg, "Масса добавки", "кг", "Установленная партия", 2],
     [point.physical_bar_count, "Физические стержни", "шт.", "Количество отдельных стержней", 0],
     [point.position_count, "Позиции спецификации", "поз.", `${fmt(point.zone_count, 0)} параметрических зон`, 0]]
@@ -140,9 +222,9 @@ function renderPoint() {
           explanations[attempt.telemetry?.reason] || attempt.telemetry?.reason || "Причина не передана")).join(". ") +
       ". Это не доказательство результата для всех возможных разбиений плиты."
     : "";
-  q("#stock-patterns").innerHTML = point ? point.stock_cutting.groups.map((group) => `<details><summary>
+  q("#stock-patterns").innerHTML = point ? (point.stock_cutting.groups || []).map((group) => `<details><summary>
     ${esc(group.steel_class || "Класс не задан")} Ø${fmt(group.diameter_mm)} — ${esc(statuses[group.status])}</summary>
-    <p>${esc(explanations[group.reason] || group.reason)}</p>${group.patterns.map((pattern) => `<p>${fmt(pattern.stock_bar_count, 0)} прутков: ` +
+    <p>${esc(explanations[group.reason] || group.reason)}</p>${(group.patterns || []).map((pattern) => `<p>${fmt(pattern.stock_bar_count, 0)} прутков: ` +
       pattern.cuts.map((cut) => `${fmt(cut.pieces_per_stock_bar, 0)} × ${fmt(cut.length_mm, 3)} мм (${esc(cut.mark)})`).join(" + ") +
       " = 11700 мм, остаток 0.</p>").join("")}</details>`).join("") : "";
   const blockers = result.blocking_check_ids.filter((id) => id !== "stock-cutting-zero-waste");
@@ -156,15 +238,34 @@ q("#direction-tabs").addEventListener("click", (event) => {
   if (button) { activeDirection = Number(button.dataset.index); renderDirection(); }
 });
 q("#candidate").addEventListener("change", renderPoint);
+q("#source-envelopes").addEventListener("change", renderDirection);
+q("#drawing-views").addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-view]");
+  if (!button || !["source", "physical"].includes(button.dataset.view)) return;
+  drawingView = button.dataset.view;
+  renderDirection();
+});
+function renderDrawingLegend() {
+  if (drawingView === "source") {
+    q("#drawing-legend").textContent = "Цвета исходного DXF — потребность; Z1, Z2… — исходные прямоугольники demand_bbox. " +
+      (q("#source-envelopes").checked ? "Пунктир — огибающие исходных осей после 40d/раскроя, не тела стали и не AreaBoundary. " : "") +
+      "Наведите на КЭ или зону. Параметры компонентов — в таблице ниже.";
+    return;
+  }
+  const layer = q("#drawing").dataset.layer || "layout";
+  q("#drawing-legend").textContent = layer === "layout"
+    ? "Синие линии — оси дополнительных стержней. Светлая подложка — исходная сетка КЭ. " +
+      (result.output_kind === "boundary-trimmed-physical-bars" ? "Показаны новые физические концы после обрезки; дополнительных масок нет. Чёрным — внешний контур host."
+        : "Границы линий не обрезаны.")
+    : layer === "demand" ? "Цвета исходного DXF — требуемые уровни армирования. Раскладка скрыта только на схеме; нарушения и проверки не меняются."
+    : "Цветные поля — потребность КЭ; линии — оси добавок. Наведите на элемент для параметров.";
+}
 q("#drawing-layers").addEventListener("click", (event) => {
   const button = event.target.closest("button[data-layer]");
   if (!button) return;
   q("#drawing").dataset.layer = button.dataset.layer;
   q("#drawing-layers").querySelectorAll("button").forEach((item) => item.setAttribute("aria-pressed", item === button));
-  q("#drawing-legend").textContent = button.dataset.layer === "layout"
-    ? "Синие линии — оси дополнительных стержней. Светлая подложка — исходная сетка КЭ."
-    : button.dataset.layer === "demand" ? "Цвета исходного DXF — требуемые уровни армирования. Раскладка скрыта только на схеме."
-    : "Цветные поля — потребность КЭ; линии — оси добавок. Наведите на элемент для параметров.";
+  renderDrawingLegend();
 });
 q("#zoom-in").addEventListener("click", () => setZoom(zoom + .5));
 q("#zoom-out").addEventListener("click", () => setZoom(zoom - .5));
@@ -178,6 +279,7 @@ async function runAnalysis(url, options) {
   q("#run").disabled = true;
   q("#run-demo").disabled = true;
   q("#run-engineering-example").disabled = true;
+  q("#run-boundary-trim").disabled = true;
   const startedAt = Date.now();
   const updateProgress = () => {
     const message = `Рассчитываем четыре направления · ${Math.floor((Date.now() - startedAt) / 1000)} с. Проверяем покрытие и всю партию. Не закрывайте страницу.`;
@@ -197,7 +299,12 @@ async function runAnalysis(url, options) {
     q("#demo-notice").textContent = result.demo ? "ДЕМО, НЕ РЕАЛЬНЫЙ ПРОЕКТ. " + result.demo.description : "";
     q("#result-title").textContent = result.engineering_example?.title || result.case_id || "Раскладка всей плиты";
     q("#result-summary").textContent = `Вариантов всей плиты: ${result.front.length} · исходная потребность сохранена ${result.source_demand_preserved === true ? "полностью" : "— не подтверждено"}. ` +
-      (result.output_kind === "normalized-physical-bars" ? "Показана физическая партия после обработки. Исходный вариант выбран по массе с ограничением количества стержней." : "Выбор учитывает массу и позиции спецификации.");
+      (isPhysicalResult() ? "Доступны исходные изополя с зонами и отдельная физическая партия после обработки. Проверки её фактической геометрии и анкеровки приведены раздельно." : "Выбор учитывает массу и позиции спецификации.");
+    if (result.output_kind === "boundary-trimmed-physical-bars") {
+      q("#result-summary").textContent = "Исходные КЭ не удалены. После обработки геометрически не покрыто: " +
+        `${fmt(result.boundary_trim.geometric_presence.uncovered_cell_count, 0)} КЭ; с контрольными 40d: ` +
+        `${fmt(result.boundary_trim.coverage_with_control_40d.uncovered_cell_count, 0)} КЭ. Сохранение входа не означает выполнения покрытия.`;
+    }
     q("#full-result-warning").textContent = result.warning;
     q("#candidate").innerHTML = result.front.map((point, i) => `<option value="${i}">Вариант ${i + 1}: ${fmt(point.additional_mass_kg)} кг / ` +
       `${point.position_count} позиций / ${point.physical_bar_count} стержней</option>`).join("");
@@ -205,6 +312,7 @@ async function runAnalysis(url, options) {
     q("#candidate").disabled = !result.front.length;
     q("#output").hidden = false;
     activeDirection = 0;
+    drawingView = "source";
     zoom = 1;
     renderPoint();
     q("#progress").textContent = result.front.length ? "Расчёт закончен. Проверки размещения показаны отдельно." : "Полного решения не найдено. Смотрите причины по направлениям.";
@@ -217,6 +325,7 @@ async function runAnalysis(url, options) {
     clearInterval(progressTimer); document.body.classList.remove("is-calculating");
     busy = false; q("#run").disabled = false; q("#run-demo").disabled = false;
     q("#run-engineering-example").disabled = !(await window.engineeringExampleReady);
+    q("#run-boundary-trim").disabled = !(await window.engineeringExampleReady);
     if (url.startsWith("/api/engineering-examples/")) q("#example-status").textContent = q("#progress").textContent;
   }
 }
@@ -242,6 +351,15 @@ q("#run-engineering-example").addEventListener("click", async () => {
   const example = await window.engineeringExampleReady;
   if (example) runAnalysis(`/api/engineering-examples/${encodeURIComponent(example.id)}/analyze`, {method: "POST"});
 });
+q("#boundary-trim-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const example = await window.engineeringExampleReady;
+  if (!example) return;
+  const data = new FormData(event.currentTarget);
+  if (!data.get("working_host")?.size || data.get("host_xy_confirmed") !== "true") return;
+  await runAnalysis(`/api/engineering-examples/${encodeURIComponent(example.id)}/boundary-trim`, {method: "POST", body: data});
+});
+window.engineeringExampleReady.then((example) => { q("#run-boundary-trim").disabled = !example; });
 q("#open-custom-inputs").addEventListener("click", () => { q("#custom-inputs").open = true; });
 if (window.location.hash === "#custom-inputs") q("#custom-inputs").open = true;
 function download(value, filename) {
@@ -250,12 +368,20 @@ function download(value, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 q("#download-report").addEventListener("click", () => { if (result) download(result, "composite-plate-report.json"); });
+q("#download-source").addEventListener("click", () => {
+  if (hasSelectedSourceGraphics()) download(result.source_graphics, "source-isofields-zones.json");
+});
 q("#download-selected").addEventListener("click", () => {
   const point = selectedPoint();
   if (!point) return;
+  if (result.output_kind === "boundary-trimmed-physical-bars") {
+    if (result.graphic_bar_plan_draft) download(result.graphic_bar_plan_draft, "graphic-bar-plan-draft.json");
+    return;
+  }
   if (result.output_kind === "normalized-physical-bars") {
     download({schema_version: "physical-layout-web-review/v1", units: "mm", placement_eligible: false,
       warning: result.warning, engineering_example: result.engineering_example,
+      source_graphics: result.source_graphics, original_source_zones: result.original_source_zones,
       physical_review: result.physical_review, diagnostic_rollback_packet: result.physical_trial_packet,
       directions: result.directions.map((direction) => ({direction: direction.direction,
         physical_bars: direction.candidates[0].physical_bars}))}, "physical-layout-REVIEW.json");

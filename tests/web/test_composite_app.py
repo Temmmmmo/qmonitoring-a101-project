@@ -54,6 +54,10 @@ def test_one_click_demo_runs_without_upload_and_does_not_approve_project_setting
     assert [d["source_cell_count"] for d in report["directions"]] == [96, 96, 96, 96]
     assert report["maximum_cutting_overhead_pct"] == 5 and report["host_envelope"] is None
     assert all(d["settings"]["background_origin_mm"] == 0 and "DEMO" in d["settings"]["source"] for d in report["directions"])
+    for direction in report["directions"]:
+        for candidate in direction["candidates"]:
+            assert 'class="source-zones"' in candidate["svg"]
+            assert candidate["svg"].count('data-zone-id=') == len(candidate["zone_drafts"])
 
 
 def test_real_multipart_to_four_direction_core_and_temporary_cleanup(composite_plate_sources, monkeypatch):

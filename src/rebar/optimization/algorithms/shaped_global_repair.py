@@ -18,7 +18,7 @@ from .shaped_translation_candidates import straight_translation_candidates
 from ..services.opening_relocation import coverage_from_offers, lane_map
 from ..services.shaped_collisions import check_shaped_collisions
 from ..services.shaped_fe_repair import (
-    ResearchLayerProfile, exterior_edge_choices, layer_elevations, shaped_service_offers,
+    ResearchLayerProfile, exterior_edge_choices, layer_elevations, shaped_service_offers, SOURCE_REQUIRED_SERVICE,
 )
 from ..services.shaped_geometry import (
     _analytic_bounds, build_u_edge_bar, check_shaped_host, straight_bar_from_physical,
@@ -56,10 +56,11 @@ def _candidate_clear(candidate, current, bounds):
         *report["proven_collision_pairs"], *report["uncertain_pairs"]))
 
 
-def _required_without(bar, current, sources, original):
+def _required_without(bar, current, sources, original, *, longitudinal_service_policy=SOURCE_REQUIRED_SERVICE):
     """Search-only necessary regions; final source checker reruns every FE."""
     other_offers = [offer for key, value in current.items() if value.direction == bar.direction
-                    and key != _key(bar) for offer in shaped_service_offers(value, sources)]
+                    and key != _key(bar) for offer in shaped_service_offers(value, sources,
+                        longitudinal_service_policy=longitudinal_service_policy)]
     result = []
     for level in original.demand.levels:
         if not level.recipe.additions:

@@ -15,7 +15,7 @@ from .shaped_global_repair import _axis_choices, _body_bounds, _candidate_clear,
 from ..contracts.physical import PhysicalBar
 from ..services.opening_relocation import lane_map
 from ..services.shaped_collisions import check_shaped_collisions
-from ..services.shaped_fe_repair import shaped_service_offers
+from ..services.shaped_fe_repair import ACTUAL_CORE_SERVICE, SOURCE_REQUIRED_SERVICE, shaped_service_offers
 from ..services.shaped_global_coverage import _offers, _problem, _shape_batch, _strict_coverage
 from ..services.tz_outer_scope import (
     TZ_OUTER_SCOPE, check_tz_outer_bar, outer_scope_domain, outer_start_intervals,
@@ -26,7 +26,10 @@ from ..services.tz_outer_scope import (
 def propose_tz_outer_repair(before, lanes, problem, actual_host, *,
                             mode="preserve-demand", allow_transverse=False,
                             repair_collisions=False,
-                            maximum_candidates=20000, time_limit_s=120):
+                            maximum_candidates=20000, time_limit_s=120,
+                            longitudinal_service_policy=SOURCE_REQUIRED_SERVICE):
+    if longitudinal_service_policy not in (SOURCE_REQUIRED_SERVICE, ACTUAL_CORE_SERVICE):
+        raise ValueError("Explicit supported longitudinal service policy required")
     if (mode not in ("geometry-first", "preserve-demand")
             or type(allow_transverse) is not bool or type(repair_collisions) is not bool):
         raise ValueError("Explicit TZ fitting mode and transverse boolean required")
@@ -75,7 +78,8 @@ def propose_tz_outer_repair(before, lanes, problem, actual_host, *,
         if allow_transverse:
             axes, cut = _axis_choices(proxy, sources, domain, 300., 128)
             truncated |= cut
-        required = (_required_without(current[key], current, sources, problem.problem(original.direction))
+        required = (_required_without(current[key], current, sources, problem.problem(original.direction),
+                    longitudinal_service_policy=longitudinal_service_policy)
                     if mode == "preserve-demand" else ())
         own_reasons, attempts, any_geometry = Counter(), 0, False
         moved = None
@@ -106,7 +110,7 @@ def propose_tz_outer_repair(before, lanes, problem, actual_host, *,
                         continue
                     any_geometry = True
                     if mode == "preserve-demand":
-                        offered = shaped_service_offers(candidate, sources)
+                        offered = shaped_service_offers(candidate, sources, longitudinal_service_policy=longitudinal_service_policy)
                         if any(shape.difference(unary_union([p for d, s, p in offered
                             if d >= diameter and s <= step])).area > 0
                             for diameter, step, shape in required):
@@ -116,7 +120,8 @@ def propose_tz_outer_repair(before, lanes, problem, actual_host, *,
                             own_reasons["new_or_changed_bar_3d_conflict"] += 1
                             continue
                         trial = {**current, key: candidate}
-                        if _strict_coverage(problem, _offers(tuple(trial.values()), sources))["status"] != "pass":
+                        if _strict_coverage(problem, _offers(tuple(trial.values()), sources,
+                                longitudinal_service_policy=longitudinal_service_policy))["status"] != "pass":
                             own_reasons["full_original_FE_loss"] += 1
                             continue
                     moved = candidate
@@ -140,6 +145,7 @@ def propose_tz_outer_repair(before, lanes, problem, actual_host, *,
             break
     return tuple(current[b.direction, b.id] for b in before), {
         "policy": TZ_OUTER_SCOPE, "mode": mode, "allow_transverse": allow_transverse,
+        "longitudinal_service_policy": longitudinal_service_policy,
         "repair_existing_collisions": repair_collisions,
         "transverse_limit_mm": 300 if allow_transverse else 0,
         "candidate_checks": checked, "maximum_candidates": maximum_candidates,

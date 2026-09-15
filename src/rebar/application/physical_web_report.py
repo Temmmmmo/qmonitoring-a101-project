@@ -5,10 +5,19 @@ import math
 from rebar.optimization.services.bar_schedule import BarScheduleGroup, build_bar_schedule
 from rebar.reporting.composite_svg import render_composite_svg
 from rebar.reporting.serialization import to_jsonable
+from rebar.reporting.source_graphics import build_source_graphics, render_source_graphics_svg
 
 
 def physical_web_report(problem, recovery) -> dict:
     report = deepcopy(recovery.patterned_report)
+    source_graphics = build_source_graphics(problem, report) if report.get("front") else None
+    report["default_drawing_view"] = "source"
+    report["source_graphics"] = source_graphics
+    report["source_graphics_candidate_index"] = report.get("selected_index")
+    if source_graphics:
+        for direction, source in zip(report["directions"], source_graphics["directions"]):
+            direction["source_svg"] = render_source_graphics_svg(source)
+            direction["source_zone_drafts"] = deepcopy(source["zone_drafts"])
     report["warning"] = ("Исследовательская раскладка по исходным DXF. Никакие КЭ не отброшены. "
         "Приняты явные фазы и замена одиночной добавки на более сильную с повторной проверкой покрытия. "
         "Фактические границы, проёмы, высоты и 3D-коллизии в Revit не проверены; размещение не разрешено.")
@@ -49,7 +58,7 @@ def physical_web_report(problem, recovery) -> dict:
     if count != expected["physical_bar_count"] or abs(math.fsum(masses) - expected["additional_mass_kg"]) > 1e-6:
         raise ValueError("Displayed physical inventory differs from independent count/mass verification")
     report.update(output_kind="normalized-physical-bars", status=recovery.status,
-        selected_index=0, front=[{"direction_candidate_indexes": [0] * 4,
+        selected_index=0, source_graphics_candidate_index=0, front=[{"direction_candidate_indexes": [0] * 4,
             "zone_count": expected["source_zone_count"], "physical_bar_count": expected["physical_bar_count"],
             "position_count": expected["position_count"], "additional_mass_kg": expected["additional_mass_kg"],
             "bar_schedule": deepcopy(review["bar_schedule"]), "stock_cutting": deepcopy(review["stock_cutting"])}],
@@ -59,7 +68,14 @@ def physical_web_report(problem, recovery) -> dict:
         physical_review=deepcopy(review),
         normalization_status=recovery.normalization_report["status"],
         diagnostic_front_before_cutting=[], length_balance_attempts=[])
+    report["original_source_zones"] = deepcopy(recovery.packet["source_zones"])
+    report["source_zone_metrics"] = {"source_zone_count": expected["source_zone_count"],
+        "physical_bar_count_before_normalization": sum(c["bar_count"] for direction in source_graphics["directions"]
+            for zone in direction["zone_drafts"] for c in zone["components"]),
+        "additional_mass_kg_before_normalization": math.fsum(c["mass_kg"] for direction in source_graphics["directions"]
+            for zone in direction["zone_drafts"] for c in zone["components"])}
     # The physical packet is diagnostic rollback-only, never an apply command.
     report["physical_trial_packet"] = deepcopy(recovery.packet)
-    report["warning"] += " Схема и ведомость показывают одну и ту же проверенную физическую партию после обработки."
+    report["warning"] += " Физический вид и общая ведомость показывают одну и ту же партию после обработки. "\
+        "Исходные изополя и зоны показаны отдельно и не заменяют физический результат."
     return report

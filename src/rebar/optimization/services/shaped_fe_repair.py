@@ -88,8 +88,21 @@ def exterior_edge_choices(host, direction, q, diameter):
     return tuple(sorted(choices))
 
 
-def shaped_service_offers(bar, sources):
-    """Actual main-leg geometry intersected with unchanged finite owner lanes."""
+SOURCE_REQUIRED_SERVICE = "source-required-interval"
+ACTUAL_CORE_SERVICE = "actual-main-leg-minus-control-40d"
+
+
+def shaped_service_offers(bar, sources, *, longitudinal_service_policy=SOURCE_REQUIRED_SERVICE):
+    """Actual main-leg geometry and unchanged finite transverse service lanes.
+
+    Legacy: intersect with the old owner's longitudinal demand rectangle.
+    Explicit actual-core mode: the uniform bar can also serve another required
+    region along its actual main leg, but still NOT the straight control40d
+    ends or any return/arc. Old owners remain provenance, not a material change
+    halfway along the bar. No weak As summation or transverse width enlargement.
+    """
+    if longitudinal_service_policy not in (SOURCE_REQUIRED_SERVICE, ACTUAL_CORE_SERVICE):
+        raise ValueError("Explicit supported longitudinal service policy required")
     interval = main_horizontal_interval_mm(bar)
     along = 0 if bar.direction.axis is Axis.X else 1
     across = 1-along
@@ -112,7 +125,10 @@ def shaped_service_offers(bar, sources):
     offers = []
     for diameter, step, original in service_boxes(proxy, sources):
         bounds = list(original.bounds)
-        bounds[along], bounds[along+2] = max(bounds[along], low), min(bounds[along+2], high)
+        if longitudinal_service_policy == ACTUAL_CORE_SERVICE:
+            bounds[along], bounds[along+2] = low, high
+        else:
+            bounds[along], bounds[along+2] = max(bounds[along], low), min(bounds[along+2], high)
         if bounds[along] < bounds[along+2]:
             offers.append((diameter, step, box(*bounds)))
     return tuple(offers)

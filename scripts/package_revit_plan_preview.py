@@ -10,7 +10,7 @@ import hashlib
 import json
 from pathlib import Path
 import sys
-from zipfile import ZIP_DEFLATED, ZipFile
+from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 from package_revit_physical_trial import MAX_REVIEW_BYTES, NEW_FILES as PHYSICAL_FILES, _validate_review
 from package_revit_plate_trial import NEW_FILES as PLATE_FILES, _read_bounded
@@ -18,7 +18,39 @@ from package_revit_probe import FILES as PROBE_FILES, SOURCE
 
 BUTTON = "QMonitoring.extension/QMonitoring.tab/Diagnostics.panel/PlanPreview.pushbutton"
 PREVIEW_FILES = ("QMonitoring.extension/lib/qm_revit_plan_preview.py",
+                 "QMonitoring.extension/lib/qm_revit_source_preview.py",
                  f"{BUTTON}/script.py", f"{BUTTON}/bundle.yaml", "GRAPHIC_PREVIEW_README.md")
+
+CODE_ONLY_MODULES = ("qm_probe_geometry.py", "qm_revit_probe.py", "qm_trial_geometry.py",
+    "qm_trial_input.py", "qm_core_trial.py", "qm_plate_packet.py", "qm_physical_packet.py",
+    "qm_revit_trial.py", "qm_trial_worksharing.py", "qm_revit_plan_preview.py", "qm_revit_source_preview.py")
+
+
+def build_code_only_package(output):
+    """Deterministic public code-only bundle; separate extension, no case input."""
+    sys.path.insert(0, str(SOURCE / "QMonitoring.extension/lib"))
+    from qm_revit_plan_preview import VERSION
+    contents = {}
+    for name in CODE_ONLY_MODULES:
+        contents["QMonitoringPreview.extension/lib/"+name] = (SOURCE / "QMonitoring.extension/lib" / name).read_bytes()
+    for name in ("script.py", "bundle.yaml"):
+        contents["QMonitoringPreview.extension/QMonitoringPreview.tab/Diagnostics.panel/PlanPreview.pushbutton/"+name] = (SOURCE / BUTTON / name).read_bytes()
+    contents["GRAPHIC_PREVIEW_README.md"] = (SOURCE / "GRAPHIC_PREVIEW_README.md").read_bytes()
+    manifest = {"schema_version": "qmonitoring-graphic-preview-code-package/v1", "version": VERSION,
+        "code_only": True, "placement_eligible": False, "engineering_approval": False,
+        "supported_input_schemas": ["source-isofields-zones/v1", "physical-bar-plan-trial/v1", "physical-bar-relocation-draft/v1", "graphic-bar-plan-draft/v1"],
+        "files": [{"path": name, "bytes": len(value), "sha256": hashlib.sha256(value).hexdigest()}
+                  for name, value in sorted(contents.items())]}
+    contents["manifest.json"] = json.dumps(manifest, ensure_ascii=False, allow_nan=False, sort_keys=True, indent=2).encode("utf-8")
+    output = Path(output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with ZipFile(output, "x", compression=ZIP_DEFLATED, compresslevel=9) as archive:
+        for name, value in sorted(contents.items()):
+            info = ZipInfo(name, (2026, 1, 1, 0, 0, 0))
+            info.compress_type = ZIP_DEFLATED
+            info.external_attr = 0o100644 << 16
+            archive.writestr(info, value)
+    return output
 
 
 def _json(content):
@@ -105,7 +137,10 @@ def build_package(output, packet_path, *, review_path, relocation_draft_path=Non
 Подробная инструкция: `GRAPHIC_PREVIEW_README.md`.
 В 0.1.0 Revit создал вид, но IronPython упал при подсчёте статусов; операция откатилась.
 В 0.1.1 этот участок и аналогичная вложенность в readback заменены явными циклами.
-Архив проверен локально; успешный запуск исправленной версии в Windows/Revit ещё требуется.
+Версия 0.1.1 успешно прочитала обратно 902/902 графических линий в настоящем Revit.
+Новый исходный режим 0.2.0 (FilledRegion + зоны) пока проверен локально; его первый
+запуск в Windows/Revit ещё требуется. Установка без исходных материалов доступна
+через отдельный --code-only архив QMonitoringPreview.extension.
 """
     contents.append(("README.md", readme.encode("utf-8")))
     names = [name for name, _ in contents]
@@ -126,13 +161,21 @@ def build_package(output, packet_path, *, review_path, relocation_draft_path=Non
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--packet", type=Path, required=True)
-    parser.add_argument("--review", type=Path, required=True)
+    parser.add_argument("--packet", type=Path)
+    parser.add_argument("--review", type=Path)
+    parser.add_argument("--code-only", action="store_true")
     parser.add_argument("--relocation-draft", type=Path)
     parser.add_argument("--relocation-review", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     try:
+        if args.code_only:
+            if any((args.packet, args.review, args.relocation_draft, args.relocation_review)):
+                raise ValueError("Code-only mode cannot include case inputs or private reviews")
+            print(build_code_only_package(args.output))
+            return
+        if args.packet is None or args.review is None:
+            raise ValueError("Legacy case package requires both --packet and --review; use --code-only for installation")
         print(build_package(args.output, args.packet, review_path=args.review,
             relocation_draft_path=args.relocation_draft, relocation_review_path=args.relocation_review))
     except (ValueError, OSError) as error:

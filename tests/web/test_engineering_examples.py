@@ -1,6 +1,8 @@
 """Private source delivery/one-click contract; miniature bytes test transport, not engineering."""
 import hashlib
+import json
 from pathlib import Path
+import runpy
 from types import SimpleNamespace
 from zipfile import ZipFile
 
@@ -141,4 +143,69 @@ def test_concurrent_requests_are_bounded_and_lock_recovers(monkeypatch):
         assert response.status_code == 409
     monkeypatch.delenv(example.ENV_NAME, raising=False)
     assert client.post(f"/api/engineering-examples/{example.EXAMPLE_ID}/analyze").status_code == 503
+    assert not endpoint._calculation_lock.locked()
+
+
+@pytest.fixture
+def working_host_bytes():
+    fixture = runpy.run_path(str(Path(__file__).parents[1]/"application/test_working_solid_host.py"))
+    return json.dumps(fixture["stepped_snapshot"]()).encode()
+
+
+def test_boundary_trim_transport_requires_actual_host_and_exact_identity_confirmation(monkeypatch,working_host_bytes):
+    calls = []
+    monkeypatch.setattr(endpoint,"_analyze",lambda example_id,**kwargs: calls.append((example_id,kwargs)) or
+                        {"transport_test_only":True,"placement_eligible":False})
+    response = client.post(f"/api/engineering-examples/{example.EXAMPLE_ID}/boundary-trim",
+        files={"working_host":("host.json",working_host_bytes,"application/json")},data={"host_xy_confirmed":"true"})
+    assert response.status_code == 200,response.text
+    assert calls == [(example.EXAMPLE_ID,{"working_host_bytes":working_host_bytes,"confirm_identity_xy":True})]
+    assert not response.json()["placement_eligible"]
+
+
+@pytest.mark.parametrize("kind",["missing_confirm","false_confirm","wrong_confirm","bad_host","wrong_extension",
+    "extra_field","duplicate_file","missing_host","old_reference_without_solid"])
+def test_boundary_trim_upload_rejects_ambiguous_or_invalid_inputs_before_calculation(monkeypatch,working_host_bytes,kind):
+    calls = []
+    monkeypatch.setattr(endpoint,"_analyze",lambda *args,**kwargs: calls.append(True))
+    files = [("working_host",("host.json",working_host_bytes,"application/json"))]
+    data = {"host_xy_confirmed":"true"}
+    if kind == "missing_confirm":
+        data = {}
+    elif kind == "false_confirm":
+        data["host_xy_confirmed"] = "false"
+    elif kind == "wrong_confirm":
+        data["host_xy_confirmed"] = "1"
+    elif kind == "bad_host":
+        files = [("working_host",("host.json",b'{"units":"mm","units":"m"}',"application/json"))]
+    elif kind == "wrong_extension":
+        files = [("working_host",("host.txt",working_host_bytes,"text/plain"))]
+    elif kind == "extra_field":
+        data["offset_x_mm"] = "100"
+    elif kind == "duplicate_file":
+        files *= 2
+    elif kind == "missing_host":
+        files = [("wrong",("host.json",working_host_bytes,"application/json"))]
+    else:
+        files = [("working_host",("host.json",b'{"schema_version":"revit-reference-probe/v1"}',"application/json"))]
+    response = client.post(f"/api/engineering-examples/{example.EXAMPLE_ID}/boundary-trim",files=files,data=data)
+    assert response.status_code == 422,response.text
+    assert not calls
+
+
+@pytest.mark.parametrize("content_length,status",[(str(33*1024*1024),413),("-1",422),("wat",422)])
+def test_boundary_trim_wire_limit_is_checked_before_multipart_parse(content_length,status):
+    response = client.post(f"/api/engineering-examples/{example.EXAMPLE_ID}/boundary-trim",content=b"not a multipart",
+        headers={"Content-Type":"multipart/form-data; boundary=xyz","Content-Length":content_length})
+    assert response.status_code == status
+
+
+def test_boundary_trim_missing_originals_and_concurrency_remain_fail_closed(monkeypatch,working_host_bytes):
+    args = {"files":{"working_host":("host.json",working_host_bytes,"application/json")},
+            "data":{"host_xy_confirmed":"true"}}
+    url = f"/api/engineering-examples/{example.EXAMPLE_ID}/boundary-trim"
+    with endpoint._calculation_lock:
+        assert client.post(url,**args).status_code == 409
+    monkeypatch.delenv(example.ENV_NAME,raising=False)
+    assert client.post(url,**args).status_code == 503
     assert not endpoint._calculation_lock.locked()

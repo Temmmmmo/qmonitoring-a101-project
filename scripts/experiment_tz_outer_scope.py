@@ -20,10 +20,19 @@ from rebar.application.assistant_inputs import source_record, verify_source_reco
 from rebar.application.physical_layout_recovery import _bytes
 from rebar.models import Axis, Direction, Layer
 from rebar.optimization.algorithms.tz_outer_repair import propose_tz_outer_repair
+from rebar.optimization.algorithms.tz_outer_lengths import propose_tz_outer_length_exchanges
 from rebar.optimization.contracts.shaped_physical import Arc3D, Line3D, ShapedPhysicalBar
 from rebar.optimization.services.shaped_geometry import check_shaped_host
 from rebar.optimization.services.shaped_global_coverage import check_shaped_global_repair
-from rebar.optimization.services.tz_outer_scope import TZ_OUTER_SCOPE, check_tz_outer_batch
+from rebar.optimization.services.shaped_fe_repair import ACTUAL_CORE_SERVICE, SOURCE_REQUIRED_SERVICE
+from rebar.optimization.services.tz_outer_scope import check_tz_outer_batch
+
+EXECUTION_FILES = (
+    "scripts/experiment_tz_outer_scope.py", "src/rebar/optimization/services/tz_outer_scope.py",
+    "src/rebar/optimization/algorithms/tz_outer_repair.py", "src/rebar/optimization/algorithms/tz_outer_lengths.py",
+    "src/rebar/optimization/algorithms/shaped_global_repair.py",
+    "src/rebar/optimization/services/shaped_global_coverage.py", "src/rebar/optimization/services/shaped_fe_repair.py",
+)
 
 
 def decode_shaped_bars(records):
@@ -54,6 +63,8 @@ def decode_shaped_bars(records):
 def run(args):
     if args.output.exists():
         raise ValueError("New output path required; do not overwrite evidence")
+    execution_records = [source_record(ROOT/name, role="TZ-scope-experiment-code") for name in EXECUTION_FILES]
+    service_policy = ACTUAL_CORE_SERVICE if args.use_actual_core_service else SOURCE_REQUIRED_SERVICE
     with args.candidate.open("rb") as stream:
         content = stream.read(32*1024*1024+1)
     if len(content) > 32*1024*1024:
@@ -70,6 +81,7 @@ def run(args):
     # and upstream proof files must still match byte-for-byte. Record both code
     # revisions explicitly instead of passing archived claims as current proof.
     archived_code = [r for r in raw["source_files"] if r["role"] == "global-shape-experiment-code"]
+    fresh_shape_records = [source_record(Path(r["path"]), role="fresh-shape-code") for r in archived_code]
     candidate_data = [r for r in raw["source_files"] if r["role"] != "global-shape-experiment-code"]
     verify_source_records(candidate_data)
     inputs = load_fe_research_inputs(shifted_dir=args.shifted_dir, snapshot=args.snapshot,
@@ -87,14 +99,26 @@ def run(args):
     print({"stage": "fresh_source_and_candidate_checked", "bars": len(bars),
            "historical_full_host_failures": historical["shaped_host_not_proven_after"]}, flush=True)
     before_check = check_tz_outer_batch(bars, bars, inputs.lanes, inputs.problem, inputs.host,
-                                       stock_time_limit_s=args.stock_time_limit_s)
+                                       stock_time_limit_s=args.stock_time_limit_s,
+                                       longitudinal_service_policy=service_policy)
     print({"stage": "new_scope_before", "outer_failures": before_check["external_boundary_failures_after"]}, flush=True)
     after, search = propose_tz_outer_repair(bars, inputs.lanes, inputs.problem, inputs.host,
         mode=args.mode, allow_transverse=args.allow_transverse,
         repair_collisions=args.repair_collisions,
-        maximum_candidates=args.maximum_candidates, time_limit_s=args.time_limit_s)
+        maximum_candidates=args.maximum_candidates, time_limit_s=args.time_limit_s,
+        longitudinal_service_policy=service_policy)
+    length_search = None
+    if args.reassign_lengths:
+        if args.mode != "preserve-demand":
+            raise ValueError("Length exchanges require the unchanged original FE certificate")
+        after, length_search = propose_tz_outer_length_exchanges(after, inputs.lanes, inputs.problem, inputs.host,
+            allow_transverse=args.allow_transverse,
+            maximum_candidates=args.maximum_candidates, time_limit_s=args.time_limit_s,
+            longitudinal_service_policy=service_policy)
     checked = check_tz_outer_batch(bars, after, inputs.lanes, inputs.problem, inputs.host,
-                                  stock_time_limit_s=args.stock_time_limit_s)
+                                  stock_time_limit_s=args.stock_time_limit_s,
+                                  allow_length_reassignment=args.reassign_lengths,
+                                  longitudinal_service_policy=service_policy)
     actual_failures = [(str(b.direction), b.id) for b in after
                        if check_shaped_host(b, inputs.host)["status"] != "pass"]
     physical = []
@@ -105,18 +129,16 @@ def run(args):
             segment["kind"] = type(original).__name__
         physical.append(record)
     records = [*inputs.source_files, *candidate_data, source_record(args.candidate, role="shaped-incumbent")]
-    records.extend(source_record(Path(r["path"]), role="fresh-shape-code") for r in archived_code)
-    records.extend(source_record(ROOT/name, role="TZ-scope-experiment-code") for name in (
-        "scripts/experiment_tz_outer_scope.py", "src/rebar/optimization/services/tz_outer_scope.py",
-        "src/rebar/optimization/algorithms/tz_outer_repair.py"))
-    report = {"schema_version": "tz-outer-scope-experiment/v1", "units": "mm", "policy": TZ_OUTER_SCOPE,
+    records.extend((*fresh_shape_records, *execution_records))
+    report = {"schema_version": "tz-outer-scope-experiment/v1", "units": "mm", "policy": checked["policy"],
         "case_id": inputs.problem.case_id, "candidate_id": args.candidate_id,
         "source_candidate_sha256": hashlib.sha256(content).hexdigest(),
         "source_snapshot_sha256": inputs.loaded.source_sha256,
         "source_host_report_sha256": raw["source_host_report_sha256"], "source_files": records,
         "archived_solver_code_records_not_reused_as_proof": archived_code,
         "incumbent_revalidated_with_current_code": True,
-        "before_TZ_scope": before_check, "checks": checked, "search": search, "physical_bars": physical,
+        "before_TZ_scope": before_check, "checks": checked, "search": search,
+        "length_exchange_search": length_search, "physical_bars": physical,
         "historical_full_host_failures_not_TZ_failures": historical["shaped_host_not_proven_after"],
         "actual_Revit_host_check_not_a_TZ_gate": {"failures_after": len(actual_failures), "ids": actual_failures},
         "placement_eligible": False, "engineering_approval": False, "structural_placement_supported": False,
@@ -132,7 +154,9 @@ def run(args):
         "outer_after": checked["external_boundary_failures_after"], "changes": checked["changed_bar_count"],
         "uncovered_FE": checked["source_coverage"]["uncovered_cell_count"],
         "collision_pairs": checked["collisions"]["proven_collision_pair_count"],
-        "blockers": checked["tz_blockers"], "budget_exhausted": search["budget_exhausted"]}, flush=True)
+        "blockers": checked["tz_blockers"],
+        "budget_exhausted": search["budget_exhausted"] or bool(length_search and length_search["budget_exhausted"]),
+        "length_exchange_budget_exhausted": bool(length_search and length_search["budget_exhausted"])}, flush=True)
     return report
 
 
@@ -145,6 +169,10 @@ def main(argv=None):
     parser.add_argument("--mode", choices=("geometry-first", "preserve-demand"), default="preserve-demand")
     parser.add_argument("--allow-transverse", action="store_true")
     parser.add_argument("--repair-collisions", action="store_true")
+    parser.add_argument("--reassign-lengths", action="store_true",
+                        help="Also try atomic complete catalogue-length exchanges with unchanged stock inventory")
+    parser.add_argument("--use-actual-core-service", action="store_true",
+                        help="Serve the actual full main-leg core, retaining40d and original transverse lanes")
     parser.add_argument("--maximum-candidates", type=int, default=20000)
     parser.add_argument("--time-limit-s", type=float, default=120)
     parser.add_argument("--stock-time-limit-s", type=float, default=30)

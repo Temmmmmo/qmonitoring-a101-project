@@ -7,12 +7,16 @@ from rebar.optimization.services.axis_patterns import pattern_coordinates
 from .svg import ZONE_COLORS, _aci_hex
 
 
-def render_composite_svg(demand, zones, *, host_envelope=None, outline_cell_ids=(), physical_bars=None) -> str:
+def render_composite_svg(demand, zones, *, host_envelope=None, outline_cell_ids=(), physical_bars=None,
+                         host_rings_mm=()) -> str:
     if physical_bars is not None and zones:
         raise ValueError("Render physical bars or source zones, not both inventories at once")
     boxes = [demand.bbox]
     if host_envelope is not None:
         boxes.append(host_envelope.outer_mm)
+    for ring in host_rings_mm:
+        boxes.append((min(p[0] for p in ring), min(p[1] for p in ring),
+                      max(p[0] for p in ring), max(p[1] for p in ring)))
     outlined = frozenset(outline_cell_ids)
     lines = []
     for zone in zones:
@@ -50,6 +54,35 @@ def render_composite_svg(demand, zones, *, host_envelope=None, outline_cell_ids=
                     f'stroke="{color}" stroke-width="1" vector-effect="non-scaling-stroke"><title>'
                     f'{html.escape(title)}</title></line>')
     contours = []
+    for ring in host_rings_mm:
+        points = " ".join(f"{x-xmin:.3f},{ymax-y:.3f}" for x, y in ring)
+        contours.append(f'<polygon points="{points}" fill="none" stroke="#111827" stroke-width="2" '
+                        'vector-effect="non-scaling-stroke"><title>Внешний контур сечения рабочего host; '
+                        'замкнутые проёмы и защитный слой исключены из обрезки</title></polygon>')
+    source_zones = []
+    source_envelopes = []
+    for index, zone in enumerate(zones, 1):
+        for component in zone.components:
+            start, end = component.longitudinal_interval_mm
+            axes = pattern_coordinates(component.placement, component.axis_window_mm)
+            bx1, by1, bx2, by2 = ((start, axes[0], end, axes[-1]) if demand.direction.axis is Axis.X
+                                  else (axes[0], start, axes[-1], end))
+            source_envelopes.append(f'<rect data-component-index="{component.component_index}" '
+                f'x="{bx1-xmin:.3f}" y="{ymax-by2:.3f}" width="{bx2-bx1:.3f}" height="{by2-by1:.3f}" '
+                f'fill="none" stroke="#7b426f" stroke-dasharray="5 4" stroke-width="1" '
+                f'vector-effect="non-scaling-stroke"><title>Z{index} / {component.component_index+1}; '
+                f'исходная огибающая осей после40d/раскроя, не AreaBoundary и не нормализованная партия; '
+                f'Ø{component.rebar.diameter}; L={component.installed_length_mm:.3f} мм; '
+                f'условный шаг {component.rebar.step}; {component.bar_count} шт.</title></rect>')
+        x1, y1, x2, y2 = zone.demand_bbox
+        source_zones.append(f'<g data-zone-id="{html.escape(zone.id, quote=True)}">'
+            f'<rect x="{x1-xmin:.3f}" y="{ymax-y2:.3f}" width="{x2-x1:.3f}" height="{y2-y1:.3f}" '
+            f'fill="none" stroke="#173f61" stroke-width="1.8" vector-effect="non-scaling-stroke">'
+            f'<title>Z{index} · {html.escape(zone.id)}; исходный demand_bbox '
+            f'{x2-x1:.3f} × {y2-y1:.3f} мм; не физический контур стали</title></rect>'
+            f'<text x="{x1-xmin:.3f}" y="{ymax-y2:.3f}" font-size="{max(width, height)*.009:.3f}" '
+            f'fill="#173f61" paint-order="stroke" stroke="white" '
+            f'stroke-width="{max(width, height)*.0015:.3f}">Z{index}</text></g>')
     if host_envelope is not None:
         for i, (x1, y1, x2, y2) in enumerate((host_envelope.outer_mm, *host_envelope.openings_mm)):
             contours.append(f'<rect x="{x1-xmin:.3f}" y="{ymax-y2:.3f}" width="{x2-x1:.3f}" height="{y2-y1:.3f}" '
@@ -59,4 +92,6 @@ def render_composite_svg(demand, zones, *, host_envelope=None, outline_cell_ids=
     return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width:.3f} {height:.3f}" role="img" '
             f'aria-label="{label} {html.escape(str(demand.direction))}">'
             f'<g class="cells">{"".join(cells)}</g><g class="bar-axes">{"".join(bars)}</g>'
+            f'<g class="source-component-envelopes">{"".join(source_envelopes)}</g>'
+            f'<g class="source-zones">{"".join(source_zones)}</g>'
             f'<g class="host-contours">{"".join(contours)}</g></svg>')

@@ -27,6 +27,10 @@ button:disabled { cursor: wait; opacity: .55; }
 button[aria-pressed=true] { background: #234f60; color: #fff; border-color: #234f60; }
 .custom-inputs { margin: 24px 0; background: #fff; border: 1px solid #d2dfe4; border-radius: 10px; }
 .custom-inputs > summary { padding: 20px 24px; font-weight: 650; cursor: pointer; color: #315c70; }
+.boundary-trim-options { margin-top: 20px; border-top: 1px solid #d2dfe4; padding-top: 16px; }
+.boundary-trim-options summary { cursor: pointer; font-weight: 650; color: #315c70; }
+.boundary-trim-options form { padding-top: 18px; }
+.boundary-trim-options p { font-size: 13px; }
 #composite-form { padding: 0 24px 24px; }
 #composite-form > section, .custom-parameters section { padding: 4px 0 24px; }
 #composite-form h2 { font-size: 20px; }
@@ -73,9 +77,20 @@ legend { font-weight: 650; padding: 0 7px; color: #356476; }
 .segmented button:last-child { border-radius: 0 6px 6px 0; }
 #drawing { margin-top: 14px; border: 1px solid #d4e1e6; border-radius: 8px; background: #fff; height: clamp(420px, 52vw, 700px); overflow: auto; }
 #drawing svg { display: block; width: 100%; padding: 20px; min-height: 100%; }
-#drawing[data-layer=layout] .cells polygon { fill: #e7eef0; fill-opacity: .55; }
-#drawing[data-layer=layout] .bar-axes line { stroke: #245f79; stroke-width: 1.25; }
-#drawing[data-layer=demand] .bar-axes { display: none; }
+#drawing[data-view=physical][data-layer=layout] .cells polygon { fill: #e7eef0; fill-opacity: .55; }
+#drawing[data-view=physical][data-layer=layout] .bar-axes line { stroke: #245f79; stroke-width: 1.25; }
+#drawing[data-view=physical][data-layer=demand] .bar-axes { display: none; }
+#drawing[data-view=source] .bar-axes, #drawing[data-view=physical] .source-zones { display: none; }
+#drawing[data-envelopes=hidden] .source-component-envelopes,
+#drawing[data-view=physical] .source-component-envelopes { display: none; }
+#drawing[data-view=source] .cells polygon { fill-opacity: .55; }
+.drawing-views { margin-top: 18px; flex-wrap: wrap; gap: 6px; }
+.drawing-views button { font-size: 14px; padding: 12px 16px; border-radius: 6px !important; }
+.metrics-scope { margin-top: -12px; font-size: 12px; }
+.source-legend { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 12px; font-size: 12px; }
+.source-legend span { display: inline-flex; align-items: center; gap: 7px; }
+.source-legend i { display: inline-block; width: 14px; height: 14px; border: 1px solid #6f8087; }
+#source-zone-details p { max-width: 1050px; }
 .drawing-footer { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
 .drawing-footer p { margin: 12px 0; font-size: 12px; max-width: 780px; }
 .zoom-controls { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
