@@ -81,7 +81,7 @@ def _positions(template, sources, target, material, maximum_shift_mm):
         yield value
 
 
-def _candidates(templates, sources, missing, domain, maximum_shift_mm):
+def _candidates(templates, sources, missing, domain, maximum_shift_mm, cut_lengths):
     serial, seen = 0, set()
     materials = {}
     tasks = sorted(((key, part) for key, region in missing.items() for part in _parts(region)),
@@ -110,7 +110,7 @@ def _candidates(templates, sources, missing, domain, maximum_shift_mm):
                     a, b = max(run_low, target.bounds[along]), min(run_high, target.bounds[along+2])
                     if b <= a:
                         continue
-                    sizes = [v for v in PLATE_11700_CUT_LENGTHS_MM if v <= run_high-run_low]
+                    sizes = [v for v in cut_lengths if v <= run_high-run_low]
                     for requested in (b-a, b-a+80*template.diameter_mm):
                         chosen = [v for v in sizes if v >= requested][:2] or sizes[-1:]
                         for length in chosen:
@@ -156,7 +156,7 @@ def _separated(candidate, remaining):
 
 def rebuild_trimmed_zones(before, templates, lanes, problem, actual_host, *, maximum_mass_kg,
                           maximum_shift_mm=150., maximum_candidates=12000, maximum_additions=128,
-                          time_limit_s=60., stock_time_limit_s=10.):
+                          time_limit_s=60., stock_time_limit_s=10., additional_cut_lengths_mm=()):
     """Greedy positive-area repair; final whole-batch proof is independent.
 
 Retaining failed baseline coverage is not called success. New bars must fit the
@@ -170,6 +170,12 @@ The initial finite candidate pool and time/budget exhaustion are reported.
     if (type(maximum_candidates) is not int or not 1 <= maximum_candidates <= 100000
             or type(maximum_additions) is not int or not 0 <= maximum_additions <= 1000):
         raise ValueError("Bounded integer candidate/addition budgets required")
+    if (not isinstance(additional_cut_lengths_mm, tuple) or len(additional_cut_lengths_mm) > 32
+            or any(isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v)
+                   or not 100 <= v <= 11700 or abs(11700/v-round(11700/v)) > 1e-9
+                   for v in additional_cut_lengths_mm)):
+        raise ValueError("Additional research lengths must be explicit bounded divisors of 11700")
+    cut_lengths = tuple(sorted(set(PLATE_11700_CUT_LENGTHS_MM+additional_cut_lengths_mm)))
     sources, regions = lane_map(lanes), demand_regions(problem)
     if validate_rebuilt_bars(before, sources, actual_host):
         raise ValueError("Repair must start from a complete host-contained trimmed batch")
@@ -181,7 +187,7 @@ The initial finite candidate pool and time/budget exhaustion are reported.
     missing = {k: region.difference(offered[k]) for k, region in regions.items()}
     # Physical presence first. A later independent pass can target anchorage.
     candidates, exhausted, generated = [], False, 0
-    for candidate in _candidates(templates, sources, missing, domain, maximum_shift_mm):
+    for candidate in _candidates(templates, sources, missing, domain, maximum_shift_mm, cut_lengths):
         if generated >= maximum_candidates or time.monotonic()-started >= time_limit_s*.6:
             exhausted = True
             break
@@ -239,5 +245,6 @@ The initial finite candidate pool and time/budget exhaustion are reported.
         "maximum_additions": maximum_additions, "time_limit_s": time_limit_s,
         "elapsed_s": time.monotonic()-started, "maximum_mass_kg": maximum_mass_kg,
         "maximum_shift_mm": maximum_shift_mm, "global_infeasibility_proven": False,
-        "length_policy": "existing-A101-11700-catalogue; batch-zero-waste-separately-checked"}
+        "additional_research_cut_lengths_mm": list(additional_cut_lengths_mm),
+        "length_policy": "existing-catalogue-plus-explicit-research-divisors; batch-zero-waste-separately-checked"}
     return result, checked

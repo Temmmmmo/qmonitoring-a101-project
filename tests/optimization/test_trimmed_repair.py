@@ -83,3 +83,11 @@ def test_zero_additions_keeps_entire_original_inventory_and_does_not_claim_pass(
     assert before == after
     assert report["geometric_presence"]["status"] == "fail"
     assert report["search"]["global_infeasibility_proven"] is False
+
+
+@pytest.mark.parametrize("lengths", [(True,), (float("nan"),), (0,), (700,), [650]])
+def test_experimental_lengths_need_explicit_bounded_stock_divisors(lengths):
+    templates, before, lanes, problem, host = _fixture()
+    with pytest.raises(ValueError, match="divisors"):
+        rebuild_trimmed_zones(before, templates, lanes, problem, host,
+            maximum_mass_kg=20, additional_cut_lengths_mm=lengths)
