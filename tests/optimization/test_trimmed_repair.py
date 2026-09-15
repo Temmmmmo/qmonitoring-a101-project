@@ -1,13 +1,13 @@
 from dataclasses import replace
 
 import pytest
-from shapely.geometry import Polygon, box
+from shapely.geometry import GeometryCollection, LineString, Polygon, box
 
 from rebar.optimization.algorithms.trimmed_repair import rebuild_trimmed_zones
 from rebar.optimization.algorithms.tz_boundary_trim import trim_straight_bars_to_outer_boundary
 from rebar.optimization.contracts.shaped_physical import Line3D
 from rebar.optimization.services.solid_host import SolidHostSection
-from rebar.optimization.services.trimmed_repair import check_rebuilt_trimmed_bars
+from rebar.optimization.services.trimmed_repair import check_rebuilt_trimmed_bars, positive_area_geometry
 from test_shaped_global_coverage import _case, _shapes
 
 
@@ -19,6 +19,14 @@ def _fixture():
     host = replace(host, sections=(SolidHostSection(0, 200, material),), volume_mm3=material.area*200)
     trimmed, _ = trim_straight_bars_to_outer_boundary(before, host, respect_openings=True)
     return before, trimmed, lanes, problem, host
+
+
+def test_mixed_contact_geometry_keeps_every_positive_area_without_snap_or_buffer():
+    tiny = box(0, 0, .000001, .000001)
+    mixed = GeometryCollection((tiny, LineString(((1, 1), (2, 2)))))
+    actual = positive_area_geometry(mixed)
+    assert actual.equals_exact(tiny, 0)
+    assert actual.area == tiny.area and actual.area > 0
 
 
 def test_rebuilt_candidate_repairs_hole_cut_without_losing_already_covered_area():

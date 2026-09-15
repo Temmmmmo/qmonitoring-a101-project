@@ -24,6 +24,22 @@ from .tz_boundary_trim import geometry_presence_offers, trimming_domain
 POLICY = "rebuild-cut-bars-original-FE-finite-lanes/separate-40d/v1"
 
 
+def positive_area_geometry(shape):
+    """Keep exact polygon components; boundary-only lines carry no FE area.
+
+Do not buffer/snap the source. Mixed polygon/line collections produced by exact
+boundary contacts can fail a subsequent GEOS overlay even with valid polygons.
+"""
+    if isinstance(shape, Polygon):
+        return shape
+    polygons = []
+    for child in getattr(shape, "geoms", ()):
+        value = positive_area_geometry(child)
+        if not value.is_empty:
+            polygons.append(value)
+    return unary_union(polygons)
+
+
 def demand_regions(problem):
     """Group ORIGINAL demanded polygons by direction and sufficient recipe."""
     _problem(problem)
@@ -42,8 +58,9 @@ def demand_regions(problem):
 
 def offered_regions(regions, offers):
     """Only independently sufficient offers contribute; weak As never sums."""
-    return {key: region.intersection(unary_union([p for d, s, p in offers.get(key[0], ())
-             if d >= key[1] and s <= key[2]])) for key, region in regions.items()}
+    return {key: positive_area_geometry(region.intersection(unary_union([
+        p for d, s, p in offers.get(key[0], ()) if d >= key[1] and s <= key[2]])))
+        for key, region in regions.items()}
 
 
 def batch_regions(bars, sources, regions, *, anchored=False):
