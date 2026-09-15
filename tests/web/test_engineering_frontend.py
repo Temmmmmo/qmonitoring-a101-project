@@ -39,7 +39,8 @@ def test_start_is_real_one_click_and_old_workspace_remains_available():
     for key in ("analysis-form", "demo-select", "algorithm-list", "results", "example-files"):
         assert key in page.ids
     html = (STATIC / "index.html").read_text(encoding="utf-8")
-    assert "Рассчитать плиту К09" in html
+    assert "Рассчитать плиту" in html
+    assert 'id="example-selector"' in html
     assert html.index('id="run-engineering-example"') < html.index('id="analysis-form"')
     assert 'href="/composite#custom-inputs"' in html
 
@@ -70,8 +71,10 @@ def node(script, *args):
     executable = shutil.which("node")
     if executable is None:
         pytest.skip("Node unavailable; browser smoke is separate")
-    return subprocess.run([executable, "-e", script, *map(str, args)],
-        text=True, capture_output=True, check=True, timeout=10)
+    completed = subprocess.run([executable, "-e", script, *map(str, args)],
+        text=True, capture_output=True, check=False, timeout=10)
+    assert completed.returncode == 0, completed.stderr
+    return completed
 
 
 @pytest.mark.parametrize("file", ["engineering-example.js", "home.js", "composite.js"])
@@ -86,14 +89,14 @@ def test_javascript_syntax(file):
 def test_catalog_start_uses_actual_files_and_never_synthetic_fallback(state):
     script = r"""
 const fs=require('fs'), vm=require('vm'), assert=require('assert');
-class Element {constructor(){this.textContent='';this.disabled=true;this.children=[];}append(...items){this.children.push(...items);}replaceChildren(...items){this.children=items;}}
+class Element {constructor(){this.textContent='';this.disabled=true;this.children=[];}append(...items){this.children.push(...items);}replaceChildren(...items){this.children=items;}addEventListener(){}}
 const elements=new Map();const get=id=>{if(!elements.has(id))elements.set(id,new Element());return elements.get(id);};
 const example={id:'k09-typical-3-14',is_available:true,source_kind:'real_engineering_files',title:'Real plate',
 profile:{engineering_approval:false,note:'Chosen research phases, not approved'},
 reference:{mass_kg:100,physical_bar_count:30,position_count:4,scope:'Full engineer scope',note:'Not an approval'},
 sources:[{direction:{layer:'bottom',axis:'X'},dxf_filename:'Настоящая нижняя.dxf',shk_filename:null,mapping_label:'Проверенная шкала'}]};
 const state=process.argv[2];if(state==='unavailable'){example.is_available=false;example.status='Actual source checksum mismatch';}if(state==='synthetic')example.source_kind='synthetic';if(state==='bad-id')example.id='../secret';
-const context={window:{location:{search:''}},document:{getElementById:get,createElement:()=>new Element()},URLSearchParams,Intl,
+const context={window:{location:{search:''}},document:{getElementById:get,createElement:()=>new Element(),querySelector:()=>null},URLSearchParams,Intl,
 fetch:async url=>{assert.equal(url,'/api/engineering-examples');return {ok:state!=='api-error',json:async()=>({examples:state==='missing'?[]:[example]})};}};
 vm.createContext(context);vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),context);
 context.window.engineeringExampleReady.then(value=>{assert.equal(get('run-engineering-example').disabled,state!=='available');
@@ -103,6 +106,61 @@ context.window.engineeringExampleReady.then(value=>{assert.equal(get('run-engine
 }).catch(error=>{console.error(error);process.exitCode=1;});
 """
     node(script, STATIC / "engineering-example.js", state)
+
+
+def test_default_s1_unavailable_keeps_available_k09_visible_without_auto_substitution():
+    script = r"""
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+class Element {constructor(){this.textContent='';this.disabled=true;this.children=[];}replaceChildren(...x){this.children=x;}addEventListener(){}append(...x){this.children.push(...x);}}
+const items=new Map();const get=id=>{if(!items.has(id))items.set(id,new Element());return items.get(id);};
+const s1={id:'legacy-s1-t800',title:'С1',is_available:false,source_kind:'real_engineering_files',
+ status:'S1 sources not installed',reference:{mass_kg:null},sources:[]};
+const k09={id:'k09-typical-3-14',title:'К09',is_available:true,source_kind:'real_engineering_files',sources:[]};
+const context={window:{location:{search:''}},document:{getElementById:get,createElement:()=>new Element(),querySelector:()=>null},
+ URLSearchParams,Intl,fetch:async()=>({ok:true,json:async()=>({default_example_id:s1.id,examples:[k09,s1]})})};
+vm.createContext(context);vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),context);
+context.window.engineeringExampleReady.then(value=>{
+ assert.equal(value,null);assert.equal(get('run-engineering-example').disabled,true);
+ assert.equal(get('example-selector').children.length,2);
+ assert.equal(get('example-selector').children[1].selected,true);
+ assert(get('example-status').textContent.includes('Доступен К09'));
+ assert(get('example-reference-note').textContent.includes('нет отдельного сопоставимого эталона'));
+}).catch(error=>{console.error(error);process.exitCode=1;});
+"""
+    node(script, STATIC / "engineering-example.js")
+
+
+def test_s1_mvp_cards_keep_presence_40d_and_stock_distinct_from_outer_pass():
+    script = r"""
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const nodes=new Map();const make=()=>({innerHTML:'',textContent:'',value:'0',disabled:false,hidden:false,dataset:{},style:{},
+ addEventListener(){},querySelectorAll(){return[];},setAttribute(){}});
+const q=id=>{if(!nodes.has(id))nodes.set(id,make());return nodes.get(id);};
+const context={document:{querySelector:q,body:{classList:{add(){},remove(){}}}},window:{location:{search:'',hash:''},engineeringExampleReady:Promise.resolve(null)},
+ URLSearchParams,Intl,console,setTimeout,clearTimeout,setInterval,clearInterval};
+vm.createContext(context);vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),context);
+const candidate={svg:'<svg/>',coverage:{uncovered_cell_count:0},geometric_presence:{uncovered_cell_count:0},
+ zone_drafts:[],installation_notes:[]};
+const point={additional_mass_kg:99,physical_bar_count:12,position_count:4,zone_count:3,bar_schedule:[],
+ direction_candidate_indexes:[0,0,0,0],stock_cutting:{status:'fail',groups:[]}};
+context.payload={output_kind:'boundary-trimmed-physical-bars',front:[point],
+ directions:Array.from({length:4},()=>({candidates:[candidate],source_zone_drafts:[]})),blocking_check_ids:[],
+ engineering_example:{reference:{mass_kg:null,physical_bar_count:null,position_count:null}},
+ mvp_checks:{outer_boundary:'pass',original_demand_presence:'fail',control_40d:'fail',stock_11700:'fail',
+ openings:'out_of_scope',cover:'out_of_scope',actual_Revit_geometry:'not_checked'},
+ boundary_trim:{external_boundary_failures_after:0,geometric_presence:{status:'fail',uncovered_cell_count:38},
+ coverage_with_control_40d:{status:'fail',uncovered_cell_count:552},collisions:{proven_collision_pair_count:2,uncertain_pair_count:0},
+ stock_cutting:{status:'fail'},actual_Revit_host_informational_failures:undefined}};
+vm.runInContext('result=payload;renderPoint()',context);
+const cards=q('#check-summary').innerHTML;
+const found=[cards.includes('Внешний контур плиты'),cards.includes('0 физических стержней'),
+ cards.includes('38 КЭ'),cards.includes('число проваленных тестов'),cards.includes('552 КЭ'),
+ cards.includes('Раскрой всей партии'),cards.includes('2 пересечений'),cards.includes('Не факт открытого Revit')];
+if(!found.every(Boolean))throw new Error('checks:'+found.join(','));
+assert.equal(q('#engineer-comparison').hidden,true);
+assert(q('#mvp-scope').textContent.includes('отверстия, перепады высоты и защитный слой'));
+"""
+    node(script, STATIC / "composite.js")
 
 
 def test_result_draw_modes_separate_metrics_comparison_and_unknown_checks():
@@ -225,6 +283,29 @@ assert.equal(context.window.downloaded.value.schema_version,'graphic-bar-plan-dr
 assert.equal(context.window.downloaded.value.physical_trial_packet,undefined);
 assert.equal(context.window.downloaded.filename,'graphic-bar-plan-draft.json');
 context.payload.graphic_bar_plan_draft=null;context.window.downloaded=null;
+vm.runInContext('renderPoint()',context);assert.equal(q('#download-selected').disabled,true);
+q('#download-selected').callbacks.click();assert.equal(context.window.downloaded,null);
+// A pruned batch has a NEW wrapper, not an incomplete exact-trim inventory.
+context.payload.output_kind='pruned-trimmed-physical-bars';
+context.payload.trimmed_cleanup={accepted_nonregression:true,removed_bar_count:2,
+ physical_metrics_before:{physical_bar_count:12},physical_metrics:{physical_bar_count:10},
+ coverage_after:{geometric_presence:{status:'fail',uncovered_cell_count:3},control_40d:{status:'fail',uncovered_cell_count:8}},
+ stock_cutting:{status:'fail'},collisions:{proven_collision_pair_count:2,uncertain_pair_count:0},material_boundary_failures_after:0};
+context.payload.graphic_bar_plan_pruned={schema_version:'graphic-bar-plan-pruned/v1',placement_eligible:false,
+ source_trim_packet:{history:true},retained_bar_ids:[{direction:'top-X',bar_id:'retained'}]};
+const historical=JSON.stringify(context.payload.boundary_trim);
+vm.runInContext('renderPoint()',context);
+assert.equal(q('#download-selected').disabled,false);
+assert(q('#check-summary').innerHTML.includes('удалено 2'));
+assert(q('#check-summary').innerHTML.includes('3 КЭ'));
+assert(q('#check-summary').innerHTML.includes('2 пересечений'));
+assert(q('#check-summary').innerHTML.includes('Старый счётчик защитного слоя'));
+assert.equal(JSON.stringify(context.payload.boundary_trim),historical);
+q('#download-selected').callbacks.click();
+assert.equal(context.window.downloaded.filename,'graphic-bar-plan-pruned.json');
+assert.equal(context.window.downloaded.value.source_trim_packet.history,true);
+context.window.downloaded=null;
+context.payload.graphic_bar_plan_pruned.schema_version='graphic-bar-plan-draft/v1';
 vm.runInContext('renderPoint()',context);assert.equal(q('#download-selected').disabled,true);
 q('#download-selected').callbacks.click();assert.equal(context.window.downloaded,null);
 """

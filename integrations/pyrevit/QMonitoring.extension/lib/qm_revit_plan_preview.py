@@ -24,8 +24,9 @@ from qm_trial_worksharing import classify_document
 from qm_revit_source_preview import (SCHEMA as SOURCE_SCHEMA, build_source_primitives,
     draw_source_views, readback_source_views, source_graphic_types, _finite_tree, _normal_text)
 
-VERSION = "0.2.2"
+VERSION = "0.2.3"
 GRAPHIC_BAR_SCHEMA = "graphic-bar-plan-draft/v1"
+PRUNED_BAR_SCHEMA = "graphic-bar-plan-pruned/v1"
 REPORT_SCHEMA = "revit-graphic-plan-preview-report/v1"
 DISCLAIMER = "GRAPHIC PREVIEW / НЕ АРМАТУРА / НЕ ВЫДАЧА"
 COLORS = {"contained": (40, 100, 190), "outside": (210, 35, 35),
@@ -50,6 +51,9 @@ def build_preview_primitives(packet, offset_x_mm, offset_y_mm):
     """
     if isinstance(packet, dict) and packet.get("schema_version") == SOURCE_SCHEMA:
         return build_source_primitives(packet, offset_x_mm, offset_y_mm)
+    if isinstance(packet, dict) and packet.get("schema_version") == PRUNED_BAR_SCHEMA:
+        from qm_revit_pruned_preview import build_pruned_primitives
+        return build_pruned_primitives(packet, offset_x_mm, offset_y_mm)
     if isinstance(packet, dict) and packet.get("schema_version") == GRAPHIC_BAR_SCHEMA:
         return _graphic_bar_primitives(packet, offset_x_mm, offset_y_mm)
     if isinstance(packet, dict) and packet.get("schema_version") == "physical-bar-relocation-draft/v1":
@@ -380,6 +384,7 @@ def _graphic_bar_primitives(packet, offset_x_mm, offset_y_mm):
         "source_blockers": ["physical-cut-draft-not-engineering-acceptance"], "intersection_pair_count": pair_count,
         "graphic_input": copy.deepcopy(packet),
         "trim_graphics": {"checks": copy.deepcopy(packet["checks"]), "coverage_policy": packet["coverage_policy"],
+            "binding_source": packet["binding_source"],
             "crop_policy_id": packet["crop_policy_id"], "source_report_sha256": packet["source_report_sha256"],
             "source_host_report_sha256": packet["source_host_report_sha256"], "before_count": len(before),
             "before_mass_kg": _graphic_mass(before), "physically_cut_piece_count": cut_count,
@@ -538,6 +543,11 @@ def _validate_primitives(primitives):
         if rebuilt != primitives:
             raise ValueError("Original source preview primitives changed after validation")
         return primitives
+    if isinstance(primitives, dict) and primitives.get("input_schema") == PRUNED_BAR_SCHEMA:
+        from qm_revit_pruned_preview import build_pruned_primitives
+        rebuilt = build_pruned_primitives(primitives["pruned_input"], *primitives["offset_xy_mm"])
+        if rebuilt != primitives:
+            raise ValueError("Pruned graphic primitives changed after selection validation")
     if isinstance(primitives, dict) and primitives.get("input_schema") == GRAPHIC_BAR_SCHEMA:
         rebuilt = _graphic_bar_primitives(primitives["graphic_input"], *primitives["offset_xy_mm"])
         if rebuilt != primitives:
@@ -614,6 +624,12 @@ def _trim_caption(primitives):
         trim["removed_wholly_external_bar_count"])
     text += "\n3D по профилю backend: {0}; доказанных пар: {1}; непроверенных пар: {2}. Это НЕ проверка существующей арматуры RVT.".format(
         checks["collisions_3d"]["status"], checks["collisions_3d"]["proven_pair_count"], checks["collisions_3d"]["uncertain_pair_count"])
+    if "cleanup_removed_count" in trim:
+        text += "\nУДАЛЕНИЕ ИЗБЫТОЧНЫХ ЧАСТЕЙ: из {0} обрезанных отрезков исключено {1}; остальные геометрически не изменены. Все исключённые ID сохранены. По backend прежнее покрытие сохранено; это не устранение исходного недопокрытия.".format(
+            trim["cleanup_source_piece_count"], trim["cleanup_removed_count"])
+    source_binding = trim.get("binding_source", "")
+    if "MVP FLAT DXF EXTERIOR" in source_binding:
+        text += "\nПРИВЯЗКА FLAT MVP: внешний контур DXF; отверстия, перепады высоты и защитный слой не учтены. Это НЕ измеренная геометрия Revit. XY требует проверки на текущей модели."
     if not trim["recorded_binding_matches_entered"]:
         text += "\nВНИМАНИЕ: введённый XY отличается от привязки расчёта; его контурные/3D-статусы на этот вид не переносятся."
     return text+"\nОтрезков со сдвигом оси ровно D/2: {0}. Это отдельно от укорачивания; None = не проверено, не ноль.".format(

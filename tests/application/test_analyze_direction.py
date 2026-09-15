@@ -60,6 +60,7 @@ def test_manual_mapping_catalog_is_explicit():
     assert available_mapping_ids() == (
         "k09-above-3-d10-v1",
         "k09-minus-2-d12-v1",
+        "legacy-s1-t800-d18-v1",
         "plate-zero-d12-v1",
     )
     assert available_cutting_profile_ids() == ("continuous", "plate-11700")

@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#263643">
     <title>Rebar Layout · инженерный расчёт</title>
     <link rel="stylesheet" href="/static/styles.css?v=web-mvp-7">
-    <link rel="stylesheet" href="/static/engineering-start.css?v=1">
+    <link rel="stylesheet" href="/static/engineering-start.css?v=2">
   </head>
   <body>
     <header class="app-header">
@@ -27,18 +27,22 @@
     <main class="engineering-start" aria-labelledby="start-title">
       <p class="start-eyebrow">QMonitoring × A101 · помощник конструктора</p>
       <h1 id="start-title">От изополей к понятной раскладке арматуры</h1>
-      <p class="start-description">Начните с настоящей плиты: данные уже выбраны. Рассчитайте варианты,
-        посмотрите схему и сравните массу, число стержней и позиций с инженерной выдачей.</p>
+      <p class="start-description">Выберите реальный комплект, запустите расчёт и проверьте вместе исходные изополя,
+        зоны, физические стержни и незакрытые условия. Для С1 отдельного сопоставимого эталона нет.</p>
+      <ol class="start-steps"><li><strong>1. Выберите плиту</strong><span>Четыре исходных DXF проверяются на сервере.</span></li>
+        <li><strong>2. Рассчитайте</strong><span>Новый результат откроется на странице всей плиты.</span></li>
+        <li><strong>3. Проверьте и выгрузите</strong><span>JSON для просмотра в Revit — графика, не выпуск Rebar.</span></li></ol>
       <article class="example-card">
         <div><span class="example-tag">Настоящий инженерный пример</span>
-          <h2 id="example-title">К09 · плита над 3–14 этажами</h2>
+          <h2 id="example-title">Загружаем каталог плит…</h2>
           <p id="example-description" class="example-description">Четыре направления дополнительного армирования из материалов проекта.</p>
           <div id="example-facts" class="example-facts"><span>4 направления</span><span>Файлы и шкалы уже выбраны</span></div>
           <details class="example-profile"><summary>Параметры примера и ограничения</summary><p id="example-profile-note">Загружаем описание выбранного профиля…</p></details>
-          <button id="run-engineering-example" type="button" class="start-primary" disabled>Рассчитать плиту К09</button>
+          <label>Инженерный комплект <select id="example-selector" aria-label="Инженерный комплект"></select></label>
+          <button id="run-engineering-example" type="button" class="start-primary" disabled>Рассчитать плиту</button>
           <p id="example-status" class="example-status" role="status" aria-live="polite">Проверяем наличие исходных данных…</p>
         </div>
-        <aside class="example-reference"><h3>С чем сравниваем · инженерная выдача</h3>
+        <aside class="example-reference"><h3>Эталон сравнения, если сопоставим</h3>
           <dl><dt>Масса арматуры</dt><dd id="example-mass">—</dd><dt>Физические стержни</dt><dd id="example-bars">—</dd><dt>Позиции спецификации</dt><dd id="example-positions">—</dd></dl>
           <p id="example-reference-note">Проверяем состав инженерного эталона…</p>
         </aside>

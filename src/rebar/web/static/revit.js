@@ -14,10 +14,12 @@ function textElement(tag, text, className) {
 function toolCard(tool) {
   const card = document.createElement("article");
   card.className = "tool-card";
-  card.append(textElement("span", tool.mode === "read_only" ? "Только чтение" : "Графический вид, не Rebar", "tool-mode"));
+  const modeLabel = tool.mode === "read_only" ? "Только чтение" :
+    tool.mode === "view_family" ? "Семейства на виде, не Rebar" : "Графический вид, не Rebar";
+  card.append(textElement("span", modeLabel, "tool-mode"));
   card.append(textElement("h3", tool.title));
   card.append(textElement("p", tool.description));
-  card.append(textElement("p", `${tool.tab} → Diagnostics → ${tool.command}`, "command-path"));
+  card.append(textElement("p", `${tool.tab} → ${tool.panel || "Diagnostics"} → ${tool.command}`, "command-path"));
   card.append(textElement("p", `Runtime ${tool.runtime_version} · ${Math.ceil(tool.bytes / 1024)} КБ`, "metadata"));
   const link = textElement("a", "Скачать расширение ZIP", "download");
   const expectedUrl = `/api/revit/tools/${encodeURIComponent(tool.id)}/${encodeURIComponent(tool.version)}/download`;

@@ -9,6 +9,7 @@ from typing import Any
 
 from rebar.dxf_ingest import read_mosaic
 from rebar.models import Mosaic
+from rebar.optimization.mappings.legacy_s1 import LEGACY_S1_D18
 from rebar.optimization import (
     K09_ABOVE_3_D10,
     K09_MINUS_2_D12,
@@ -35,7 +36,7 @@ from rebar.optimization import (
 DEFAULT_ALGORITHMS = ("genetic-pareto",)
 _MAPPINGS: dict[str, RebarMapping] = {
     mapping.id: mapping
-    for mapping in (K09_ABOVE_3_D10, K09_MINUS_2_D12, PLATE_ZERO_D12)
+    for mapping in (K09_ABOVE_3_D10, K09_MINUS_2_D12, PLATE_ZERO_D12, LEGACY_S1_D18)
 }
 _CUTTING_PROFILES: dict[str, tuple[float, ...]] = {
     "continuous": (),

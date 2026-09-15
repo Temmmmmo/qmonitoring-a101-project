@@ -12,7 +12,7 @@ from package_revit_plan_preview import CODE_ONLY_MODULES
 from package_revit_probe import SOURCE
 
 BUTTON = "QMonitoring.extension/QMonitoring.tab/Workflow.panel/SourceWorkflow.pushbutton"
-MODULES = (*CODE_ONLY_MODULES, "qm_workflow_81.py", "qm_workflow_81_native.py")
+MODULES = (*CODE_ONLY_MODULES, "qm_workflow_81.py", "qm_workflow_81_native.py", "qm_workflow_81_transport.py")
 
 
 def build_package(output):

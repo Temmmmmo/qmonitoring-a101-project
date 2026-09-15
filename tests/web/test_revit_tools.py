@@ -27,7 +27,7 @@ def test_revit_page_and_navigation_are_available_without_private_results():
     assert "Подключение Revit" in response.text
     assert "родительскую папку" in response.text
     assert "не является пакетом для Plan Preview" in response.text
-    assert "Автоматического подключения новых снимков" in response.text
+    assert "Source Workflow 8.1" in response.text
     assert response.headers["cache-control"] == "no-store, max-age=0"
     assert 'href="/revit"' in client.get("/").text
     assert 'href="/revit"' in client.get("/composite").text
@@ -40,7 +40,7 @@ def test_revit_page_and_navigation_are_available_without_private_results():
     assert "encodeURIComponent(tool.version)" in javascript
 
 
-def test_catalog_describes_three_data_free_nonstructural_tools_and_missing_features():
+def test_catalog_describes_four_data_free_nonstructural_tools_and_missing_features():
     response = client.get("/api/revit/tools")
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store, max-age=0"
@@ -50,7 +50,7 @@ def test_catalog_describes_three_data_free_nonstructural_tools_and_missing_featu
     assert result["workflow"]["new_forms_structural_export"] == "not_available"
     assert result["workflow"]["snapshot_upload_inspection"] == "available"
     assert {row["id"] for row in result["tools"]} == {
-        "working-host-probe", "working-rebar-probe", "plan-preview"}
+        "working-host-probe", "working-rebar-probe", "plan-preview", "source-workflow-81"}
     for row in result["tools"]:
         assert row["capabilities"]["creates_structural_rebar"] is False
         assert row["capabilities"]["saves_or_syncs_model"] is False
@@ -62,14 +62,16 @@ def test_catalog_describes_three_data_free_nonstructural_tools_and_missing_featu
 
 def test_source_graphics_download_has_matching_new_runtime_and_complete_helper():
     row = next(t for t in client.get("/api/revit/tools").json()["tools"] if t["id"] == "plan-preview")
-    assert row["runtime_version"] == "0.2.2"
+    assert row["runtime_version"] == "0.2.3"
     assert "source-isofields-zones/v1" in row["accepted_input_schemas"]
     assert "graphic-bar-plan-draft/v1" in row["accepted_input_schemas"]
-    assert "первый запуск FilledRegion" in row["verification"]
+    assert "graphic-bar-plan-pruned/v1" in row["accepted_input_schemas"]
+    assert "первый запуск в настоящем Revit" in row["verification"]
     with ZipFile(BytesIO(client.get(row["download_url"]).content)) as archive:
         helper = archive.read("QMonitoringPreview.extension/lib/qm_revit_source_preview.py")
         assert b"source-isofields-zones/v1" in helper
         assert b"readback_source_views" in helper
+        assert b"previously_covered_geometry_lost" in archive.read("QMonitoringPreview.extension/lib/qm_revit_pruned_preview.py")
     assert "Скачать изополя + исходные зоны" in client.get("/revit").text
 
 
@@ -145,7 +147,7 @@ def test_changed_source_produces_new_content_addressed_version(tmp_path):
 def test_installed_resources_serve_without_checkout_or_writes(tmp_path, monkeypatch):
     root = tmp_path / "web"
     outputs = installation.build_distributable_bundles(SOURCE, root / "revit_bundles")
-    assert len(outputs) == 4
+    assert len(outputs) == 5
     monkeypatch.setattr(installation.resources, "files", lambda package: root)
     monkeypatch.setattr(installation, "_development_checkout", lambda: pytest.fail("Installed package cannot need repository"))
     monkeypatch.setattr(Path, "write_bytes", lambda *args: pytest.fail("Runtime must never write"))
@@ -202,7 +204,7 @@ def test_distribution_builder_is_stdlib_only_without_importing_rebar_or_solver(t
 from pathlib import Path
 helpers = runpy.run_path(sys.argv[1])
 files = helpers['build_distributable_bundles'](Path(sys.argv[2]), Path(sys.argv[3]))
-assert len(files) == 4
+assert len(files) == 5
 assert not any(name == 'rebar' or name.startswith('rebar.') or name.startswith('scipy') for name in sys.modules)
 """
     subprocess.run([sys.executable, "-I", "-S", "-c", code, str(Path(installation.__file__)),
@@ -215,7 +217,7 @@ def test_sdist_manifest_contains_every_exact_public_dependency_without_private_g
         for name in tool["modules"]:
             assert "include integrations/pyrevit/QMonitoring.extension/lib/" + name in manifest
         for name in ("script.py", "bundle.yaml"):
-            relative = f"integrations/pyrevit/QMonitoring.extension/QMonitoring.tab/Diagnostics.panel/{tool['button']}.pushbutton/{name}"
+            relative = f"integrations/pyrevit/QMonitoring.extension/QMonitoring.tab/{tool.get('panel', 'Diagnostics')}.panel/{tool['button']}.pushbutton/{name}"
             assert "include " + relative in manifest
     assert "recursive-include" not in manifest and "artifacts" not in manifest
 

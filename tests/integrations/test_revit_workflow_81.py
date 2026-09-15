@@ -234,7 +234,7 @@ def test_native_preflight_rejects_central_template_and_nonplan(native, monkeypat
 def test_python2_grammar_and_no_structural_mutations(module):
     from lib2to3.refactor import RefactoringTool
     root = Path(module.__file__).parent
-    for name in ("qm_workflow_81.py", "qm_workflow_81_native.py"):
+    for name in ("qm_workflow_81.py", "qm_workflow_81_native.py", "qm_workflow_81_transport.py"):
         source = (root/name).read_text()
         RefactoringTool([]).refactor_string(source, name)
         assert "DB.Structure.Rebar" not in source
@@ -264,3 +264,47 @@ def test_workflow_code_only_archive_is_deterministic_complete_and_separate(modul
             assert hashlib.sha256(data).hexdigest() == record["sha256"]
     with pytest.raises(FileExistsError):
         packager.build_package(first)
+
+
+@pytest.mark.parametrize("url", ["", "http://example.com", "https://user:secret@example.com", "https://example.com?token=secret", "file:///etc/passwd", "https://example.com#fragment", "https://example.com\nheader"])
+def test_transport_rejects_implicit_or_unsafe_server(module, url):
+    transport = importlib.import_module("qm_workflow_81_transport")
+    with pytest.raises(ValueError):
+        transport.server_endpoint(url)
+
+
+def test_transport_requires_consent_before_dotnet_or_network(module):
+    transport = importlib.import_module("qm_workflow_81_transport")
+    assert transport.server_endpoint("http://127.0.0.1:8000") == "http://127.0.0.1:8000/api/revit/workflow/analyze"
+    with pytest.raises(ValueError, match="consent"):
+        transport.post_calculation("https://example.com", b"{}", {})
+
+
+def test_actual_single_dxf_result_passes_native_adapter_and_rejects_tamper(module, tmp_path):
+    from rebar.application.demo import write_demo_dxf
+    from rebar.application.revit_workflow import analyze_workflow
+    transport = importlib.import_module("qm_workflow_81_transport")
+    path = tmp_path/"Нижняя по оси X.dxf"
+    write_demo_dxf("irregular-plate-x", path)
+    sources = {"dxf": transport.read_source(str(path), ".dxf")}
+    request_bytes = transport.calculation_request("bottom-X", module.settings(background_diameter_mm=12, algorithm="bsp"),
+        {"background_origin_mm": 0, "first_300_offset_mm": 100, "contact_side": "left", "steel_class": "A500"},
+        "plate-zero-d12-v1", sources)
+    result = analyze_workflow(path, request_bytes)
+    loaded = transport.decode_analysis(json.dumps(result).encode(), request_bytes)
+    rows = module.source_components(loaded, "bottom-X")
+    assert len(rows) == result["metrics"]["source_zone_count"]
+    assert all("СТО-покрытие" in row["annotation"] for row in rows)
+    assert sum(row["bar_count"] for row in rows) == result["metrics"]["physical_bar_count"]
+    changed = copy.deepcopy(result)
+    changed["metrics"]["physical_bar_count"] -= 1
+    with pytest.raises(ValueError, match="count"):
+        module.source_components(changed, "bottom-X")
+    changed = copy.deepcopy(result)
+    changed["source"]["cells"].pop()
+    with pytest.raises(ValueError, match="counts"):
+        module.source_components(changed, "bottom-X")
+    changed = copy.deepcopy(result)
+    changed["request_sha256"] = "0"*64
+    with pytest.raises(ValueError, match="exact"):
+        transport.decode_analysis(json.dumps(changed).encode(), request_bytes)

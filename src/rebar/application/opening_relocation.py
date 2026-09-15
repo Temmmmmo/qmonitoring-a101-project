@@ -30,6 +30,11 @@ def source_service_lanes(report, problem, *, candidate_index=0):
     digest = hashlib.sha256(_bytes(report)).hexdigest()
     sources = _source_bars(report, problem, candidate_index, digest)
     _, _, _, retained, _ = _revalidate_sources(report, problem, candidate_index, digest)
+    return _lanes_from_source_geometry(sources, retained)
+
+
+def _lanes_from_source_geometry(sources, retained):
+    """Internal conversion from freshly checked original axes and periodic patterns."""
     drafts = {(row["direction"], z["source_zone_id"]): z for row in retained for z in row["zone_drafts"]}
     result = []
     for source in sources:

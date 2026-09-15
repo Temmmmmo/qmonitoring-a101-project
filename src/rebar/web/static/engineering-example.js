@@ -13,18 +13,34 @@ window.engineeringExampleReady = (async () => {
     if (!response.ok) throw new Error(typeof payload.detail === "string" ? payload.detail : "Каталог примеров недоступен.");
     if (!Array.isArray(payload.examples)) throw new Error("Неверный формат каталога примеров.");
     const requested = new URLSearchParams(window.location.search).get("example");
-    const example = requested ? payload.examples.find((item) => item.id === requested) : payload.examples[0];
+    const chosen = requested || payload.default_example_id || payload.examples[0]?.id;
+    const example = payload.examples.find((item) => item.id === chosen);
     if (!example || !/^[a-zA-Z0-9_-]+$/.test(example.id)) throw new Error("Инженерный пример не найден в этой поставке.");
-    get("example-title").textContent = example.title || "К09 · инженерный пример";
+    get("example-title").textContent = example.title || "Инженерный пример";
+    const selector = get("example-selector");
+    if (selector) {
+      selector.replaceChildren(...payload.examples.map((item) => {
+        const option = document.createElement("option"); option.value = item.id;
+        option.textContent = item.title; option.selected = item.id === example.id; return option;
+      }));
+      selector.addEventListener("change", () => {
+        const url = new URL(window.location.href); url.searchParams.set("example", selector.value);
+        url.searchParams.delete("run"); window.location.assign(url);
+      });
+    }
+    button.textContent = example.id === "legacy-s1-t800" ? "Рассчитать С1 · плоский MVP" : "Рассчитать плиту К09";
+    const hostOptions = document.querySelector(".boundary-trim-options");
+    if (hostOptions) hostOptions.hidden = example.supports_working_host_trim === false;
     get("example-description").textContent = example.description || "Настоящий комплект четырёх направлений армирования.";
     const facts = get("example-facts");
-    const items = ["4 направления", "Реальный DXF-комплект", "A500", "Пруток 11,7 м"];
+    const items = ["4 направления", "Оригинальные DXF", "Новый расчёт по выбранному комплекту"];
     facts.replaceChildren(...items.map((text) => { const span = document.createElement("span"); span.textContent = text; return span; }));
     const reference = example.reference || {};
     get("example-mass").textContent = number(reference.mass_kg, " кг");
     get("example-bars").textContent = number(reference.physical_bar_count, " шт.");
     get("example-positions").textContent = number(reference.position_count, " поз.");
-    get("example-reference-note").textContent = [reference.scope, reference.note].filter(Boolean).join(" ") || "Эталон из инженерной выдачи. Сравнение не заменяет проверку безопасности.";
+    get("example-reference-note").textContent = [reference.scope, reference.note].filter(Boolean).join(" ") ||
+      "Для этого комплекта нет отдельного сопоставимого эталона. Проверяйте исходную потребность и гейты результата.";
     get("example-profile-note").textContent = example.profile?.note || "Описание профиля не передано. Выбранные фазы и высоты не считаются инженерным согласованием.";
     const files = get("example-files");
     if (files && Array.isArray(example.sources)) {
@@ -38,8 +54,11 @@ window.engineeringExampleReady = (async () => {
       }));
     }
     if (example.is_available !== true || example.source_kind !== "real_engineering_files") {
-      throw new Error(example.unavailable_reason || (example.status !== "ready" ? example.status : null)
-        || "Материалы этого примера не включены в текущую поставку.");
+      const alternative = payload.examples.find((item) => item.id !== example.id && item.is_available === true &&
+        item.source_kind === "real_engineering_files");
+      throw new Error((example.unavailable_reason || (example.status !== "ready" ? example.status : null)
+        || "Материалы этого примера не включены в текущую поставку.") +
+        (alternative ? ` Доступен ${alternative.title}: выберите его в списке.` : ""));
     }
     button.disabled = false;
     status.textContent = "Данные предзаполнены. Кнопка запускает новый расчёт, а не готовую картинку.";

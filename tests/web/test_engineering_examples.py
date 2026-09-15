@@ -10,6 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from rebar.application import engineering_example as example
+from rebar.application import s1_example
 from rebar.web import engineering_examples as endpoint
 from rebar.web.app import app
 
@@ -46,6 +47,46 @@ def test_original_archive_preserves_bytes_names_and_can_be_reused(original_trans
     assert not metadata["profile"]["engineering_approval"]
     assert all(s["mapping_id"] == example.MAPPING_ID and s["shk_filename"] is None for s in metadata["sources"])
     assert str(root) not in response.text
+
+
+def test_s1_is_catalog_default_but_unavailable_does_not_replace_it_with_k09(original_transport):
+    archive, root, _ = original_transport
+    example.install_original_archive(archive, root)
+    catalog = client.get("/api/engineering-examples").json()
+    assert catalog["default_example_id"] == s1_example.EXAMPLE_ID
+    assert catalog["examples"][0]["id"] == example.EXAMPLE_ID
+    assert catalog["examples"][0]["is_available"] is True
+    assert catalog["examples"][1]["id"] == s1_example.EXAMPLE_ID
+    assert catalog["examples"][1]["is_available"] is False
+    assert catalog["examples"][1]["reference"]["mass_kg"] is None
+    assert client.post(f"/api/engineering-examples/{s1_example.EXAMPLE_ID}/analyze").status_code == 503
+
+
+def test_s1_installer_uses_separate_whitelist_and_sha_without_touching_k09(original_transport,
+                                                                           monkeypatch, tmp_path):
+    k09_archive, root, k09_contents = original_transport
+    example.install_original_archive(k09_archive, root)
+    contents = {name: ("s1-transport-only:" + name).encode() for _, _, name, _ in s1_example.SOURCES}
+    monkeypatch.setattr(s1_example, "SOURCES", tuple(
+        (layer, axis, name, hashlib.sha256(contents[name]).hexdigest())
+        for layer, axis, name, _ in s1_example.SOURCES))
+    archive = tmp_path / "s1.zip"
+    with ZipFile(archive, "w") as bundle:
+        for name, data in contents.items():
+            bundle.writestr(name, data)
+    example.install_original_archive(archive, root, example_id=s1_example.EXAMPLE_ID)
+    assert all((root / s1_example.EXAMPLE_ID / name).read_bytes() == data for name, data in contents.items())
+    assert all((root / example.EXAMPLE_ID / name).read_bytes() == data for name, data in k09_contents.items())
+    catalog = client.get("/api/engineering-examples").json()
+    assert catalog["examples"][1]["is_available"] is True
+    assert catalog["examples"][1]["source_kind"] == "real_engineering_files"
+    with ZipFile(archive, "w") as bundle:
+        for name, data in list(contents.items())[:-1]:
+            bundle.writestr(name, data)
+        bundle.writestr("unapproved.dxf", b"wrong")
+    with pytest.raises(ValueError):
+        example.install_original_archive(archive, root, example_id=s1_example.EXAMPLE_ID)
+    assert all((root / s1_example.EXAMPLE_ID / name).read_bytes() == data for name, data in contents.items())
 
 
 @pytest.mark.parametrize("kind", ["missing", "corrupt", "extra", "traversal", "duplicate"])

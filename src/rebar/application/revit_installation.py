@@ -55,23 +55,44 @@ TOOLS = (
         "verification": "Новая команда проверена offline-тестами; её первый реальный запуск Revit ещё требуется.",
     },
     {
-        "id": "plan-preview", "title": "Изополя, зоны и раскладка в Revit", "runtime_version": "0.2.2",
+        "id": "plan-preview", "title": "Изополя, зоны и раскладка в Revit", "runtime_version": "0.2.3",
         "button": "PlanPreview", "command": "Plan Preview", "extension": "QMonitoringPreview",
         "mode": "graphic_preview", "description": "Исходные изополя и прямоугольные зоны в четырёх новых видах; физические стержни — отдельный режим. Графика, не арматура.",
         "report_schema": "revit-graphic-plan-preview-report/v1",
-        "input_schemas": ["source-isofields-zones/v1", "graphic-bar-plan-draft/v1", "physical-bar-plan-trial/v1", "physical-bar-relocation-draft/v1"],
+        "input_schemas": ["source-isofields-zones/v1", "graphic-bar-plan-draft/v1", "graphic-bar-plan-pruned/v1", "physical-bar-plan-trial/v1", "physical-bar-relocation-draft/v1"],
         "runtime_module": "qm_revit_plan_preview.py",
         "modules": ("qm_probe_geometry.py", "qm_revit_probe.py", "qm_trial_geometry.py", "qm_trial_input.py",
             "qm_core_trial.py", "qm_plate_packet.py", "qm_physical_packet.py", "qm_revit_trial.py",
-            "qm_trial_worksharing.py", "qm_revit_plan_preview.py", "qm_revit_source_preview.py"),
+            "qm_trial_worksharing.py", "qm_revit_plan_preview.py", "qm_revit_source_preview.py", "qm_revit_pruned_preview.py"),
         "steps": (
             "Открой файловую локальную либо отсоединённую модель с сохранёнными worksets. Центральная/облачная модель этой командой не поддержана.",
             "В расчёте плиты нажми «Скачать изополя + исходные зоны». В Revit выдели одну плиту, нажми Plan Preview и выбери source-isofields-zones.json. Совместимый физический JSON открывается отдельно.",
             "Укажи новое имя отчёта и осознанно подтверди перенос XY. Ноль не является универсальной привязкой.",
             "Подтверди создание четырёх новых исходных видов (либо одного физического). Они могут попасть в центральную модель при твоей дальнейшей синхронизации. При ошибке чтения результата вся группа новых видов откатывается.",
         ),
-        "limits": "Исходный режим сохраняет каждый КЭ, пятно demand_bbox, границы наборов после40d/раскроя и параметры. Это не физическая ведомость и не AreaReinforcement. Обрезанная партия передаётся отдельным graphic-bar-plan-draft с новыми длинами и явными статусами покрытия/40d/раскроя. Revit ничего не обрезает сам. Общий composite JSON не является входом.",
-        "verification": "Прежний физический режим 0.1.1 проверен в Revit: 902/902 линии, допуск 0,01 мм. Новый исходный режим 0.2 прошёл локальную адаптацию реальных 7948 КЭ / 139 зон; первый запуск FilledRegion и нового графического пакета обрезки в настоящем Revit ещё требуется. Это графика, не инженерная приёмка.",
+        "limits": "Исходный режим сохраняет каждый КЭ, пятно demand_bbox, границы наборов после40d/раскроя и параметры. Это не физическая ведомость и не AreaReinforcement. Обрезанная и удалённая избыточная партии передаются отдельными graphic-bar-plan-draft/pruned с явными статусами покрытия/40d/раскроя. Flat MVP привязан к внешнему DXF без отверстий, перепадов и cover, не к измеренной Revit-геометрии. Revit ничего не обрезает сам. Общий composite JSON не является входом.",
+        "verification": "Прежний физический режим 0.1.1 проверен в Revit: 902/902 линии, допуск 0,01 мм. Исходный и pruned-режимы 0.2.3 проверены offline, в том числе реальный JSON 975 стержней; их первый запуск в настоящем Revit ещё требуется. Покрытие/40d/раскрой с fail остаются fail. Это графика, не инженерная приёмка.",
+    },
+    {
+        "id": "source-workflow-81", "title": "Доп. поля · выбранные семейства на плане", "runtime_version": "0.1.1",
+        "button": "SourceWorkflow", "command": "Source Workflow", "extension": "QMonitoringWorkflow",
+        "panel": "Workflow", "mode": "view_family", "description": "Один DXF → подтверждённая HTTPS-передача → новый расчёт → выбранные загруженные семейства элементов узлов и аннотаций на текущем виде. Не Rebar.",
+        "report_schema": "qmonitoring-workflow-8-1-report/v1",
+        "input_schemas": ["source-isofields-zones/v1", "qmonitoring-workflow-analysis/v1"],
+        "runtime_module": "qm_workflow_81.py",
+        "modules": ("qm_probe_geometry.py", "qm_revit_probe.py", "qm_trial_geometry.py", "qm_trial_input.py",
+            "qm_core_trial.py", "qm_plate_packet.py", "qm_physical_packet.py", "qm_revit_trial.py",
+            "qm_trial_worksharing.py", "qm_revit_plan_preview.py", "qm_revit_source_preview.py", "qm_revit_pruned_preview.py",
+            "qm_workflow_81.py", "qm_workflow_81_native.py", "qm_workflow_81_transport.py"),
+        "steps": (
+            "Открой локальный горизонтальный план и штатно подгрузи DXF; проверь единицы, оси и масштаб 1:1.",
+            "Выбери направление и настройки расчёта. Выбери исходный DXF и совместимый SHK либо явный mapping.",
+            "Укажи доверенный HTTPS-сервер (HTTP разрешён только для localhost), прочитай список передаваемых файлов и отдельно согласись на upload. Без согласия запрос не отправляется.",
+            "Проверь возвращённый расчёт и гейты, затем выбери уже загруженные семейства элементов узлов и аннотаций и их реальные параметры экземпляров.",
+            "Подтверди вставку на текущий вид, проверь внешний вид и пришли JSON-отчёт. Ошибка readback откатывает группу новых экземпляров.",
+        ),
+        "limits": "Один DXF/направление; PNG не оцифровывается. Размещаются только view-family экземпляры исходных зон, не конструктивная арматура и не обрезанная физическая партия. Фон/настройки не отменяют существующие fail-гейты. Семейство, 3D и полный ТЗ-workflow требуют проверки в Revit.",
+        "verification": "HTTP/request binding, параметры, readback и rollback проверены offline-тестами. Первый запуск всей цепочки в настоящем Revit ещё не выполнен.",
     },
 )
 
@@ -95,7 +116,7 @@ def _readme(tool: dict) -> bytes:
 2. Распакуй ZIP в новую папку. В pyRevit → Settings → Custom Extension Directories добавь
    папку, ВНУТРИ которой лежит `{tool['extension']}.extension`, и нажми Reload.
    Выбирается путь к папке, не script.py, не ZIP и не сама папка .extension.
-3. Открой новую вкладку **{tool['extension']} → Diagnostics → {tool['command']}**.
+3. Открой новую вкладку **{tool['extension']} → {tool.get('panel', 'Diagnostics')} → {tool['command']}**.
    Старые QMonitoring-вкладки останутся на месте; отключать их не требуется.
 4. Для обновления ЭТОГО инструмента убери из списка только предыдущий путь с той же
    `{tool['extension']}.extension`, добавь новый и нажми Reload. Две версии одной
@@ -113,7 +134,9 @@ def _readme(tool: dict) -> bytes:
 
 Все инструменты не сохраняют и не синхронизируют RVT автоматически. Читающие кнопки
 не меняют модель и не открывают worksets. Plan Preview только после подтверждения
-создаёт новый графический вид, который НЕ является конструктивной арматурой.
+создаёт новый графический вид; Source Workflow после отдельного согласия на upload,
+выбора семейства и подтверждения создаёт экземпляры на текущем виде. Ни то, ни другое
+НЕ является конструктивной арматурой.
 Ни один пакет не разрешает размещение, не генерирует новые загибы/муфты и не
 объявляет пройденными анкеровку, покрытие, коллизии или инженерные гейты.
 
@@ -137,8 +160,9 @@ def _entries(tool: dict, source_root: Path) -> list[tuple[str, bytes]]:
     for module in tool["modules"]:
         requested.append((f"{SOURCE_EXTENSION}/lib/{module}", f"{extension}/lib/{module}"))
     for name in ("script.py", "bundle.yaml"):
-        source = f"{SOURCE_EXTENSION}/{SOURCE_TAB}/Diagnostics.panel/{tool['button']}.pushbutton/{name}"
-        target = f"{extension}/{tab}/Diagnostics.panel/{tool['button']}.pushbutton/{name}"
+        panel = tool.get("panel", "Diagnostics")
+        source = f"{SOURCE_EXTENSION}/{SOURCE_TAB}/{panel}.panel/{tool['button']}.pushbutton/{name}"
+        target = f"{extension}/{tab}/{panel}.panel/{tool['button']}.pushbutton/{name}"
         requested.append((source, target))
     entries = []
     for source, target in requested:
@@ -158,13 +182,15 @@ def _metadata(tool: dict) -> dict:
     return {"id": tool["id"], "title": tool["title"], "description": tool["description"],
         "runtime_version": tool["runtime_version"], "mode": tool["mode"],
         "extension_directory": tool["extension"] + ".extension", "tab": tool["extension"],
-        "command": tool["command"], "steps": list(tool["steps"]), "limitations": tool["limits"],
+        "command": tool["command"], "panel": tool.get("panel", "Diagnostics"),
+        "steps": list(tool["steps"]), "limitations": tool["limits"],
         "verification": tool["verification"], "report_schema": tool["report_schema"],
         "archive_format": "zip-stored-fixed-1980/v1",
         "accepted_input_schemas": list(tool["input_schemas"]),
         "compatibility": {"revit_major_versions": ["2024"], "runner": "pyRevit", "python": "IronPython 2.7"},
         "capabilities": {"read_only": tool["mode"] == "read_only",
             "creates_new_graphic_view": tool["mode"] == "graphic_preview",
+            "creates_view_family_instances": tool["mode"] == "view_family",
             "creates_structural_rebar": False, "modifies_existing_elements": False,
             "saves_or_syncs_model": False, "includes_project_data": False,
             "placement_eligible": False, "engineering_approval": False}}

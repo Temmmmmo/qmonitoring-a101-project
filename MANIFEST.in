@@ -14,9 +14,15 @@ include integrations/pyrevit/QMonitoring.extension/lib/qm_revit_trial.py
 include integrations/pyrevit/QMonitoring.extension/lib/qm_trial_worksharing.py
 include integrations/pyrevit/QMonitoring.extension/lib/qm_revit_plan_preview.py
 include integrations/pyrevit/QMonitoring.extension/lib/qm_revit_source_preview.py
+include integrations/pyrevit/QMonitoring.extension/lib/qm_revit_pruned_preview.py
+include integrations/pyrevit/QMonitoring.extension/lib/qm_workflow_81.py
+include integrations/pyrevit/QMonitoring.extension/lib/qm_workflow_81_native.py
+include integrations/pyrevit/QMonitoring.extension/lib/qm_workflow_81_transport.py
 include integrations/pyrevit/QMonitoring.extension/QMonitoring.tab/Diagnostics.panel/WorkingHostProbe.pushbutton/script.py
 include integrations/pyrevit/QMonitoring.extension/QMonitoring.tab/Diagnostics.panel/WorkingHostProbe.pushbutton/bundle.yaml
 include integrations/pyrevit/QMonitoring.extension/QMonitoring.tab/Diagnostics.panel/WorkingRebarProbe.pushbutton/script.py
 include integrations/pyrevit/QMonitoring.extension/QMonitoring.tab/Diagnostics.panel/WorkingRebarProbe.pushbutton/bundle.yaml
 include integrations/pyrevit/QMonitoring.extension/QMonitoring.tab/Diagnostics.panel/PlanPreview.pushbutton/script.py
 include integrations/pyrevit/QMonitoring.extension/QMonitoring.tab/Diagnostics.panel/PlanPreview.pushbutton/bundle.yaml
+include integrations/pyrevit/QMonitoring.extension/QMonitoring.tab/Workflow.panel/SourceWorkflow.pushbutton/script.py
+include integrations/pyrevit/QMonitoring.extension/QMonitoring.tab/Workflow.panel/SourceWorkflow.pushbutton/bundle.yaml

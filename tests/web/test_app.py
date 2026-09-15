@@ -117,6 +117,7 @@ def test_landing_health_and_options_are_available():
         "auto",
         "k09-above-3-d10-v1",
         "k09-minus-2-d12-v1",
+        "legacy-s1-t800-d18-v1",
         "plate-zero-d12-v1",
     }
     assert mappings["k09-above-3-d10-v1"]["title"] == "Плита над 3 этажом · ⌀10"

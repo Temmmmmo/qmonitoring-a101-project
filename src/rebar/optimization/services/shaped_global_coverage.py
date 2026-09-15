@@ -33,6 +33,9 @@ from .shaped_geometry import (
 from .stock_cutting import check_stock_cutting
 
 POLICY = "global-original-FE-union-finite-source-lanes-qshift-exterior-U/research-v1"
+# Resource bound, not an engineering acceptance condition. S1 has 4*3680 FE;
+# the former K09-only total of 10000 rejected it before inspecting any geometry.
+MAX_SOURCE_FE_COUNT = 25000
 _COLLISION_OPTIONS = frozenset((
     "maximum_chord_error_mm", "maximum_refinements", "maximum_bars",
     "maximum_candidate_pairs", "maximum_chord_pair_checks", "maximum_chords_per_bar",
@@ -52,7 +55,7 @@ class NecessarySourceRegion:
 def _problem(problem):
     if (not isinstance(problem, PlateProblem) or len(problem.direction_problems) != 4
             or {p.demand.direction for p in problem.direction_problems} != set(PLATE_DIRECTIONS)
-            or sum(len(p.demand.cells) for p in problem.direction_problems) > 10000
+            or sum(len(p.demand.cells) for p in problem.direction_problems) > MAX_SOURCE_FE_COUNT
             or sum(len(c.poly) for p in problem.direction_problems for c in p.demand.cells) > 100000):
         raise ValueError("Bounded complete ORIGINAL four-direction FE problem required")
     # Shared validation inspects even background FE polygons, all IDs and levels.

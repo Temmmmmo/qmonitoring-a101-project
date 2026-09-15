@@ -11,14 +11,14 @@ import math
 import re
 
 from qm_revit_probe import element_id, element_name, text_type
-from qm_revit_source_preview import DIRECTIONS, build_source_primitives, _finite_tree
+from qm_revit_source_preview import DIRECTIONS, build_source_primitives, _finite_tree, _polygon, _bbox, _integer, _text
 from qm_trial_input import number
 
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 REQUEST_SCHEMA = "qmonitoring-workflow-request/v1"
 REPORT_SCHEMA = "qmonitoring-workflow-view-families/v1"
 DISCLAIMER = "ИСХОДНЫЕ ПАРАМЕТРИЧЕСКИЕ ЗОНЫ / НЕ ФИЗИЧЕСКАЯ ПАРТИЯ / НЕ REBAR"
-ALGORITHMS = ("genetic-pareto", "composite-pool", "finite-cover")
+ALGORITHMS = ("genetic-pareto", "bsp", "greedy-priority")
 LENGTH_FIELDS = ("length_mm", "width_mm", "diameter_mm", "step_mm")
 ZONE_FIELDS = LENGTH_FIELDS + ("bar_count", "source_id")
 MAX_COMPONENTS = 4000
@@ -70,11 +70,11 @@ def make_request(packet_sha256, direction, config, underlay, document_identity):
 
 def source_components(packet, direction, offset_xy_mm=(0, 0)):
     """Use original component extents, not demand_bbox and not trimmed bar totals."""
-    build_source_primitives(packet, *offset_xy_mm)
+    sources = source_rows(packet, offset_xy_mm)
     if direction not in DIRECTIONS:
         raise ValueError("Select one direction")
     rows = []
-    for source in packet["directions"]:
+    for source in sources:
         key = source["direction"]["layer"]+"-"+source["direction"]["axis"]
         if key != direction:
             continue
@@ -101,10 +101,104 @@ def source_components(packet, direction, offset_xy_mm=(0, 0)):
                     "{7}. Не AreaBoundary; не обрезанные стержни.").format(
                         identity, key, row["length_mm"], row["width_mm"], row["diameter_mm"],
                         row["step_mm"], row["bar_count"], DISCLAIMER)
+                if packet.get("schema_version") == "qmonitoring-workflow-analysis/v1":
+                    row["annotation"] += "\n"+analysis_caption(packet)
                 rows.append(row)
     if not rows or len(rows) > MAX_COMPONENTS:
         raise ValueError("Selected direction is empty or exceeds the component resource cap")
     return rows
+
+
+def analysis_caption(packet):
+    checks = packet["checks"]
+    return ("СТО-покрытие: {0}; раскрой: {1}; пары в одной плоскости: {2}. "
+        "Host/Z/Revit: НЕ ПРОВЕРЕНЫ. Исходные КЭ не удалены.").format(
+            checks["coverage"]["status"], checks["stock_cutting"]["status"],
+            checks["same_plane_conflicts"]["body_intersection_count"])
+
+
+def source_rows(packet, offset_xy_mm=(0, 0)):
+    """Separate one-direction result adapter; never invent three missing sources."""
+    if packet.get("schema_version") != "qmonitoring-workflow-analysis/v1":
+        build_source_primitives(packet, *offset_xy_mm)
+        return packet["directions"]
+    from qm_workflow_81_transport import decode_analysis
+    import json
+    decode_analysis(json.dumps(packet, ensure_ascii=False, allow_nan=False).encode("utf-8"))
+    if len(offset_xy_mm) != 2:
+        raise ValueError("Expected XY offset")
+    for value in offset_xy_mm:
+        number(value, -1e8, 1e8)
+    if packet.get("source_stage") != "original-parametric-zones-before-physical-normalization":
+        raise ValueError("Not original source components")
+    row = packet["source"]
+    direction = row["direction"]["layer"]+"-"+row["direction"]["axis"]
+    if direction not in DIRECTIONS or direction != packet["request"]["direction"]:
+        raise ValueError("Analysis direction differs from the request")
+    _bbox(row["source_bbox_mm"])
+    cells, zones, legend = row["cells"], row["zone_drafts"], row["legend"]
+    if (not isinstance(cells, list) or not 1 <= len(cells) <= 12000
+            or not isinstance(zones, list) or len(zones) > 1000
+            or not isinstance(legend, list) or not 1 <= len(legend) <= 256):
+        raise ValueError("Analysis source resource cap exceeded")
+    levels, ids = {}, set()
+    for band in legend:
+        index = _integer(band["level_index"], 0, 10000)
+        if index in levels:
+            raise ValueError("Duplicate source level")
+        levels[index] = band["aci"]
+    for cell in cells:
+        identifier = _text(text_type(cell["cell_id"]))
+        if identifier in ids or cell["level_index"] not in levels or cell["aci"] != levels[cell["level_index"]]:
+            raise ValueError("Duplicate FE or mismatched legend")
+        ids.add(identifier)
+        _polygon(cell["polygon_mm"])
+    if len(cells) != packet["source_cell_count"] or len(zones) != packet["metrics"]["source_zone_count"]:
+        raise ValueError("Full source counts differ")
+    zone_ids, count, mass, positions = set(), 0, 0, set()
+    for zone in zones:
+        identity = _text(zone["source_zone_id"])
+        if (identity in zone_ids or zone["direction"] != row["direction"]
+                or zone["schema_version"] != "reinforcement-zone-revit/v2" or zone["units"] != "mm"):
+            raise ValueError("Duplicate/invalid parametric zone identity")
+        zone_ids.add(identity)
+        _bbox(zone["demand_bbox_mm"])
+        if zone["level_index"] not in levels or len(zone["components"]) != 1:
+            raise ValueError("Workflow v1 requires a single original addition per zone")
+        for part in zone["components"]:
+            _integer(part["component_index"], 0, 1000)
+            n = _integer(part["bar_count"], 1, 20000)
+            axes, bounds = part["axis_coordinates_mm"], part["bar_axis_bbox_mm"]
+            d, length = part["diameter_mm"], part["installed_length_mm"]
+            number(d, 1, 100)
+            number(length, .001, 11700.001)
+            number(part["nominal_step_mm"], 1, 10000)
+            if not isinstance(axes, list) or len(axes) != n or not isinstance(bounds, list) or len(bounds) != 4:
+                raise ValueError("Original component axes/count missing")
+            prior = None
+            for value in axes:
+                number(value, -1e8, 1e8)
+                if prior is not None and value <= prior:
+                    raise ValueError("Nonincreasing original axes")
+                prior = value
+            for value in bounds:
+                number(value, -1e8, 1e8)
+            along = 0 if direction.endswith("X") else 1
+            if (abs(bounds[along+2]-bounds[along]-length) > .001
+                    or abs(bounds[1-along]-axes[0]) > .001 or abs(bounds[3-along]-axes[-1]) > .001):
+                raise ValueError("Source component envelope differs from axes/length")
+            count += n
+            # Same published kernel convention as bar_schedule/bar_mass_kg:
+            # 0.006165*d^2 kg/m. Do not silently substitute a different density
+            # formula or loosen the independently checked mass tolerance.
+            mass += n*length/1000*.006165*d*d
+            positions.add((d, round(length, 6)))
+    if (count != packet["metrics"]["physical_bar_count"] or count > 100000
+            or abs(mass-packet["metrics"]["additional_mass_kg"]) > .01
+            or len(positions) != packet["metrics"]["position_count"]):
+        raise ValueError("Full source component mass/count/positions differ")
+    analysis_caption(packet)  # Required failure statuses are not optional annotations.
+    return [row]
 
 
 def symbol_catalog(document, DB, role):

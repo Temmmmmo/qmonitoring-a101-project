@@ -87,17 +87,29 @@ def example_metadata(*, available: bool, status: str) -> dict:
 
 
 def engineering_example_catalog() -> dict:
+    from . import s1_example
     try:
         _source_bytes()
     except EngineeringFilesUnavailableError as error:
         entry = example_metadata(available=False, status=str(error))
     else:
         entry = example_metadata(available=True, status="ready")
-    return {"examples": [entry]}
+    try:
+        s1_example.source_bytes()
+    except EngineeringFilesUnavailableError as error:
+        s1 = s1_example.metadata(available=False, status=str(error))
+    else:
+        s1 = s1_example.metadata(available=True, status="ready")
+    return {"examples": [entry, s1], "default_example_id": s1_example.EXAMPLE_ID}
 
 
 def analyze_engineering_example(example_id: str, *, working_host_bytes: bytes | None = None,
                                 confirm_identity_xy: bool = False) -> dict:
+    from . import s1_example
+    if example_id == s1_example.EXAMPLE_ID:
+        if working_host_bytes is not None or confirm_identity_xy:
+            raise ValueError("С1 MVP использует плоский контур DXF, не снимок другой Revit-плиты")
+        return s1_example.analyze_s1_example()
     if example_id != EXAMPLE_ID:
         raise KeyError(example_id)
     if (working_host_bytes is not None) != (confirm_identity_xy is True):
@@ -125,22 +137,26 @@ def analyze_engineering_example(example_id: str, *, working_host_bytes: bytes | 
             source_provenance=provenance)
         report = (physical_web_report(source.problem, recovery) if working_host_bytes is None else
             boundary_trim_web_report(source.problem, recovery, working_host_bytes,
-                                     confirm_identity_xy=confirm_identity_xy))
+                                     confirm_identity_xy=confirm_identity_xy, cleanup_redundant=True))
     report["engineering_example"] = example_metadata(available=True, status="ready")
     return report
 
 
-def install_original_archive(archive: Path, destination: Path) -> None:
+def install_original_archive(archive: Path, destination: Path, *, example_id: str = EXAMPLE_ID) -> None:
     """Operator-only deployment: copy exactly the original verified DXFs from ZIP.
 
     Not a seed or a data generator. Reject arbitrary members and altered sources before
     writing anything. Refuse to replace an existing different file in the data volume.
     """
-    members = {name: digest for _, _, name, digest in SOURCES}
+    from . import s1_example
+    if example_id not in (EXAMPLE_ID, s1_example.EXAMPLE_ID):
+        raise ValueError("Unknown original DXF package")
+    sources = SOURCES if example_id == EXAMPLE_ID else s1_example.SOURCES
+    members = {name: digest for _, _, name, digest in sources}
     with ZipFile(archive) as bundle:
         infos = bundle.infolist()
         if len(infos) != len(members) or {info.filename for info in infos} != set(members):
-            raise ValueError("Archive must contain exactly the four original K09 DXFs")
+            raise ValueError("Archive must contain exactly the four original DXFs for the selected case")
         contents = {}
         for info in infos:
             if info.file_size > MAX_SOURCE_BYTES:
@@ -150,7 +166,7 @@ def install_original_archive(archive: Path, destination: Path) -> None:
                 raise ValueError("Original DXF checksum mismatch")
             contents[info.filename] = data
     destination.mkdir(parents=True, exist_ok=True)
-    base = destination.resolve() / EXAMPLE_ID
+    base = destination.resolve() / example_id
     if base.is_symlink():
         raise ValueError("Symlink destination is not supported")
     for name, digest in members.items():
@@ -174,6 +190,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Install the four original K09 DXFs, byte-for-byte")
     parser.add_argument("archive", type=Path)
     parser.add_argument("destination", type=Path)
+    parser.add_argument("--example-id", default=EXAMPLE_ID, choices=(EXAMPLE_ID, "legacy-s1-t800"))
     arguments = parser.parse_args()
-    install_original_archive(arguments.archive, arguments.destination)
+    install_original_archive(arguments.archive, arguments.destination, example_id=arguments.example_id)
     print("Verified and installed four original DXF files; no synthetic data generated.")

@@ -2,6 +2,11 @@
 .engineering-start .start-eyebrow { color: #397179; font-size: 12px; font-weight: 750; letter-spacing: .11em; text-transform: uppercase; margin: 0 0 12px; }
 .engineering-start h1 { max-width: 840px; font-size: clamp(28px, 4.1vw, 44px); line-height: 1.16; letter-spacing: -.035em; color: #16313d; margin: 0 0 18px; }
 .engineering-start .start-description { max-width: 790px; font-size: 18px; color: #586f79; margin: 0 0 28px; }
+.start-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 0; margin: 0 0 22px; list-style: none; }
+.start-steps li { padding: 11px 13px; border: 1px solid #dce8e9; border-radius: 7px; background: #f4f8f8; font-size: 13px; }
+.start-steps strong, .start-steps span { display: block; }
+.start-steps strong { color: #265568; }
+.start-steps span { color: #667e87; }
 .example-card { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(250px, 1fr); gap: 36px; padding: 30px; background: #fff; border: 1px solid #d1dfe3; border-radius: 14px; box-shadow: 0 8px 28px #203a4310; }
 .example-card h2 { font-size: 24px; line-height: 1.25; margin: 10px 0 12px; color: #16313d; }
 .example-tag { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: #347063; font-weight: 750; }
@@ -37,4 +42,5 @@
 .legacy-workspace .panel-heading h2 { margin: 0; font-size: 19px; }
 .app-header .header-context a { color: #d4e4e9; }
 @media(max-width: 720px) { .engineering-start { margin-top: 28px; padding: 0 18px; } .example-card { grid-template-columns: 1fr; padding: 22px; gap: 24px; } .example-reference { border-left: 0; border-top: 1px solid #dce5e8; padding: 20px 0 0; } .start-primary { width: 100%; } .legacy-workspace { padding: 0 12px; } }
+@media(max-width: 720px) { .start-steps { grid-template-columns: 1fr; } }
 @media(max-width: 520px) { .example-files { grid-template-columns: 1fr; } }

@@ -73,6 +73,11 @@ def _source_bars(report, problem, candidate_index, source_hash):
     """Extract only from independently reconstructed source zones and original FE."""
     certificates, _refs, _coverage, retained, _expected = _revalidate_sources(
         report, problem, candidate_index, source_hash)
+    return _bars_from_source_geometry(certificates, retained)
+
+
+def _bars_from_source_geometry(certificates, retained):
+    """Internal typed conversion; callers must independently validate the geometry."""
     drafts = {(row["direction"], z["source_zone_id"]): z
               for row in retained for z in row["zone_drafts"]}
     directions = {str(d): d for d in PLATE_DIRECTIONS}

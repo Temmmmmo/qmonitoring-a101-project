@@ -91,6 +91,16 @@ def _revalidate_sources(report, problem, candidate_index, source_hash):
     # Existing exporter checks every selected source count/axis/mass and all four
     # directions. Its return value is deliberately NOT our physical transport.
     legacy_source = build_full_plate_trial(report, candidate_index, source_hash)
+    certificates, source_refs, checks, retained = _revalidate_source_geometry(report, problem, candidate_index)
+    return certificates, source_refs, checks, retained, legacy_source["expected"]
+
+
+def _revalidate_source_geometry(report, problem, candidate_index):
+    """Original FE/zone/axis proof only; does NOT authorise a stock or Revit packet."""
+    if (type(candidate_index) is not int or not 0 <= candidate_index < len(report.get("front", ()))
+            or len(report.get("directions", ())) != 4
+            or len(report["front"][candidate_index].get("direction_candidate_indexes", ())) != 4):
+        raise ValueError("Exactly four selected source directions required")
     if report.get("coverage_policy") != MONOTONE_SINGLE_STO_COVERAGE_POLICY:
         raise ValueError("Explicit monotone-single STO source policy required")
     if report.get("averaging") != "not_applied" or report.get("case_id") != problem.case_id:
@@ -161,7 +171,7 @@ def _revalidate_sources(report, problem, candidate_index, source_hash):
         retained.append({"direction": str(direction), "zone_drafts": deepcopy(candidate["zone_drafts"])})
     if not 1 <= len(source_refs) <= MAX_BARS or len(certificates) > 512:
         raise ValueError("Source certificate exceeds complete-plan budget")
-    return certificates, source_refs, checks, retained, legacy_source["expected"]
+    return certificates, source_refs, checks, retained
 
 
 def _validate_bars(raw_by_direction, source_refs):

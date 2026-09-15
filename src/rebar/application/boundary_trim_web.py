@@ -120,28 +120,47 @@ def _graphic_packet(problem, before, after, checks, source_sha, host_sha, zone_c
 
 
 def boundary_trim_web_report(problem, recovery, working_host_bytes, *, confirm_identity_xy,
-                             stock_time_limit_s=30, respect_openings=True):
+                             stock_time_limit_s=30, respect_openings=True, cleanup_redundant=False):
+    if type(cleanup_redundant) is not bool or (cleanup_redundant and respect_openings is not True):
+        raise ValueError("Cleanup requires explicit holes-trim mode")
     if confirm_identity_xy is not True:
         raise ValueError("Подтвердите совпадение XY исходных DXF и плиты; автоматической привязки нет")
     snapshot = load_working_host_json(working_host_bytes, maximum_bytes=MAX_WORKING_REPORT_BYTES)
     host, host_check = inspect_working_solid(snapshot)
+    return _trim_web_report(problem, recovery, host, host_check, working_host_bytes,
+        profile=ResearchLayerProfile(), elevations=layer_elevations,
+        stock_time_limit_s=stock_time_limit_s, respect_openings=respect_openings,
+        cleanup_redundant=cleanup_redundant)
+
+
+def _trim_web_report(problem, recovery, host, host_check, domain_bytes, *, profile, elevations,
+                     stock_time_limit_s=30, respect_openings=True, cleanup_redundant=False):
+    """Shared calculation; the caller must label the measured or assumed domain."""
     raw, source_sha = _fresh_recovery(recovery, problem, stock_time_limit_s)
     lanes = source_service_lanes(recovery.patterned_report, problem,
                                 candidate_index=recovery.patterned_report["selected_index"])
-    profile = ResearchLayerProfile()
+    return _render_trimmed_report(problem, physical_web_report(problem, recovery), raw, lanes, source_sha,
+        host, host_check, domain_bytes, profile=profile, elevations=elevations,
+        stock_time_limit_s=stock_time_limit_s, respect_openings=respect_openings,
+        cleanup_redundant=cleanup_redundant)
+
+
+def _render_trimmed_report(problem, report, raw, lanes, source_sha, host, host_check, domain_bytes, *,
+                           profile, elevations, stock_time_limit_s=30, respect_openings=True,
+                           cleanup_redundant=False):
+    """Shared presentation after an independent source-geometry proof by the caller."""
     physical = tuple(PhysicalBar(row["id"], direction, row["steel_class"], row["diameter_mm"],
         row["coordinate_mm"], tuple(row["longitudinal_mm"]), tuple(row["source_bar_ids"]))
         for direction in PLATE_DIRECTIONS for row in raw[str(direction)])
     before = tuple(straight_bar_from_physical(bar,
-        axis_z_mm=layer_elevations(host, bar.direction, bar.diameter_mm, profile)[0],
+        axis_z_mm=elevations(host, bar.direction, bar.diameter_mm, profile)[0],
         placement_profile_id=profile.id) for bar in physical)
     after, mapping = trim_straight_bars_to_outer_boundary(before, host, lanes=lanes, nudge_edge_axis=True,
         discard_empty_intersections=True, respect_openings=respect_openings)
     checks = check_boundary_trim(before, after, mapping, lanes, problem, host,
                                  stock_time_limit_s=stock_time_limit_s, nudge_edge_axis=True,
                                  discard_empty_intersections=True, respect_openings=respect_openings)
-    report = physical_web_report(problem, recovery)
-    host_sha = hashlib.sha256(working_host_bytes).hexdigest()
+    host_sha = hashlib.sha256(domain_bytes).hexdigest()
     zone_count = report["front"][0]["zone_count"]
     graphic = _graphic_packet(problem, before, after, checks, source_sha, host_sha, zone_count)
     # Keep all section outlines, not the bounding box or a fabricated hole-free rectangle.
@@ -201,4 +220,8 @@ def boundary_trim_web_report(problem, recovery, working_host_bytes, *, confirm_i
             "Стержни без пересечения с материалом плиты не оставляют отрезков; их список сохранён отдельно, "
             "а исходная потребность проверена без удаления КЭ. "
             "существующий фон Revit и инженерная пригодность не подтверждены. Старый пакет размещения не применяется.")
+    if cleanup_redundant:
+        from .trimmed_cleanup_web import pruned_trimmed_web_report
+        return pruned_trimmed_web_report(report, after, lanes, problem, host,
+                                         stock_time_limit_s=min(stock_time_limit_s, 60))
     return report

@@ -75,6 +75,23 @@ def test_global_reassignment_preserves_FE_without_old_owner_fragment_gate():
     assert not report["placement_eligible"]
 
 
+def test_original_mesh_budget_accepts_four_large_directions_without_skipping_cells():
+    from rebar.optimization.services.shaped_global_coverage import _problem, MAX_SOURCE_FE_COUNT
+    _, _, problem, _ = _case()
+    expanded = []
+    for p in problem.direction_problems:
+        cell = p.demand.cells[0]
+        cells = tuple(replace(cell, id=i, poly=((i, 0), (i+1, 0), (i+1, 1), (i, 1)),
+                              centroid=(i+.5, .5)) for i in range(3680))
+        expanded.append(replace(p, demand=replace(p.demand, cells=cells, bbox=(0, 0, 3680, 1))))
+    _problem(replace(problem, direction_problems=tuple(expanded)))
+    assert 14720 < MAX_SOURCE_FE_COUNT
+    oversized = replace(expanded[0], demand=replace(expanded[0].demand,
+        cells=expanded[0].demand.cells * 7))
+    with pytest.raises(ValueError, match="Bounded complete"):
+        _problem(replace(problem, direction_problems=(oversized, *expanded[1:])))
+
+
 def test_necessary_regions_are_all_original_demand_minus_other_current_supply():
     before, lanes, problem, host = _case()
     initial = _shapes(before, host)

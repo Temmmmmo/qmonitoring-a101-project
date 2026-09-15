@@ -56,6 +56,7 @@ from rebar.application.revit_installation import (
 )
 from rebar.web.revit_inspection import router as revit_inspection_router
 from rebar.web.engineering_examples import router as engineering_examples_router
+from rebar.web.revit_workflow import router as revit_workflow_router
 
 STATIC_DIR = Path(__file__).with_name("static")
 MAX_UPLOAD_BYTES = 30 * 1024 * 1024
@@ -108,6 +109,10 @@ ALGORITHM_INFO = {
 }
 
 MAPPING_INFO = {
+    "legacy-s1-t800-d18-v1": {
+        "title": "С1 · фундаментная плита · ⌀18",
+        "description": "Явная шкала реального комплекта С1 t800; применять только к проверенным DXF этого комплекта.",
+    },
     "k09-above-3-d10-v1": {
         "title": "Плита над 3 этажом · ⌀10",
         "description": "Таблица из собственной PNG-легенды комплекта над 3 этажом.",
@@ -130,6 +135,7 @@ app = FastAPI(
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.include_router(revit_inspection_router)
 app.include_router(engineering_examples_router)
+app.include_router(revit_workflow_router)
 
 
 @app.get("/composite")
