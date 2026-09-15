@@ -51,3 +51,10 @@ jobs:
 
       - name: Build production image
         run: docker build --tag qmonitoring-a101-web:ci .
+
+      - name: Check isolated input installer entry point
+        run: >-
+          docker run --rm --user 0:0 --workdir /tmp --read-only --network none
+          --cap-drop ALL --security-opt no-new-privileges:true
+          qmonitoring-a101-web:ci
+          python -m rebar.application.engineering_example --help
