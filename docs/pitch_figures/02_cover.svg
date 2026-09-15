@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="425" viewBox="0 0 1200 425" role="img" aria-label="02_cover">
+<rect width="100%" height="100%" fill="white"/>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#5B6E7E"/></marker></defs>
+<text x="290" y="34" fill="#163042" font-family="DejaVu Sans, Arial, sans-serif" font-size="27" text-anchor="middle" dominant-baseline="middle" font-weight="700">Одна сильная зона</text>
+<rect x="50" y="100" width="115" height="120" rx="0" fill="#CDEBE7" stroke="white" stroke-width="2"/>
+<text x="107.5" y="158" fill="#087E8B" font-family="DejaVu Sans, Arial, sans-serif" font-size="30" text-anchor="middle" dominant-baseline="middle" font-weight="700">1</text>
+<rect x="165" y="100" width="115" height="120" rx="0" fill="#CDEBE7" stroke="white" stroke-width="2"/>
+<text x="222.5" y="158" fill="#087E8B" font-family="DejaVu Sans, Arial, sans-serif" font-size="30" text-anchor="middle" dominant-baseline="middle" font-weight="700">1</text>
+<rect x="280" y="100" width="115" height="120" rx="0" fill="#CDEBE7" stroke="white" stroke-width="2"/>
+<text x="337.5" y="158" fill="#087E8B" font-family="DejaVu Sans, Arial, sans-serif" font-size="30" text-anchor="middle" dominant-baseline="middle" font-weight="700">1</text>
+<rect x="395" y="100" width="115" height="120" rx="0" fill="#FFE1BC" stroke="white" stroke-width="2"/>
+<text x="452.5" y="158" fill="#D47732" font-family="DejaVu Sans, Arial, sans-serif" font-size="30" text-anchor="middle" dominant-baseline="middle" font-weight="700">2</text>
+<line x1="50" y1="110" x2="510" y2="110" stroke="#D47732" stroke-width="1"/>
+<line x1="50" y1="134" x2="510" y2="134" stroke="#D47732" stroke-width="1"/>
+<line x1="50" y1="158" x2="510" y2="158" stroke="#D47732" stroke-width="1"/>
+<line x1="50" y1="182" x2="510" y2="182" stroke="#D47732" stroke-width="1"/>
+<line x1="50" y1="206" x2="510" y2="206" stroke="#D47732" stroke-width="1"/>
+<text x="222" y="245" fill="#5B6E7E" font-family="DejaVu Sans, Arial, sans-serif" font-size="22" text-anchor="middle" dominant-baseline="middle">3000 мм</text>
+<text x="455" y="245" fill="#5B6E7E" font-family="DejaVu Sans, Arial, sans-serif" font-size="22" text-anchor="middle" dominant-baseline="middle">1000 мм</text>
+<text x="895" y="34" fill="#163042" font-family="DejaVu Sans, Arial, sans-serif" font-size="27" text-anchor="middle" dominant-baseline="middle" font-weight="700">Две зоны по спросу</text>
+<rect x="655" y="100" width="115" height="120" rx="0" fill="#CDEBE7" stroke="white" stroke-width="2"/>
+<text x="712.5" y="158" fill="#087E8B" font-family="DejaVu Sans, Arial, sans-serif" font-size="30" text-anchor="middle" dominant-baseline="middle" font-weight="700">1</text>
+<rect x="770" y="100" width="115" height="120" rx="0" fill="#CDEBE7" stroke="white" stroke-width="2"/>
+<text x="827.5" y="158" fill="#087E8B" font-family="DejaVu Sans, Arial, sans-serif" font-size="30" text-anchor="middle" dominant-baseline="middle" font-weight="700">1</text>
+<rect x="885" y="100" width="115" height="120" rx="0" fill="#CDEBE7" stroke="white" stroke-width="2"/>
+<text x="942.5" y="158" fill="#087E8B" font-family="DejaVu Sans, Arial, sans-serif" font-size="30" text-anchor="middle" dominant-baseline="middle" font-weight="700">1</text>
+<rect x="1000" y="100" width="115" height="120" rx="0" fill="#FFE1BC" stroke="white" stroke-width="2"/>
+<text x="1057.5" y="158" fill="#D47732" font-family="DejaVu Sans, Arial, sans-serif" font-size="30" text-anchor="middle" dominant-baseline="middle" font-weight="700">2</text>
+<line x1="655" y1="110" x2="1115" y2="110" stroke="#DDE5EA" stroke-width="1"/>
+<line x1="655" y1="134" x2="1115" y2="134" stroke="#DDE5EA" stroke-width="1"/>
+<line x1="655" y1="158" x2="1115" y2="158" stroke="#DDE5EA" stroke-width="1"/>
+<line x1="655" y1="182" x2="1115" y2="182" stroke="#DDE5EA" stroke-width="1"/>
+<line x1="655" y1="206" x2="1115" y2="206" stroke="#DDE5EA" stroke-width="1"/>
+<text x="827" y="245" fill="#5B6E7E" font-family="DejaVu Sans, Arial, sans-serif" font-size="22" text-anchor="middle" dominant-baseline="middle">3000 мм</text>
+<text x="1060" y="245" fill="#5B6E7E" font-family="DejaVu Sans, Arial, sans-serif" font-size="22" text-anchor="middle" dominant-baseline="middle">1000 мм</text>
+<rect x="48" y="97" width="464" height="126" rx="0" fill="none" stroke="#D47732" stroke-width="2"/>
+<rect x="653" y="97" width="349" height="126" rx="0" fill="none" stroke="#087E8B" stroke-width="2"/>
+<rect x="1004" y="97" width="117" height="126" rx="0" fill="none" stroke="#D47732" stroke-width="2"/>
+<text x="280" y="300" fill="#163042" font-family="DejaVu Sans, Arial, sans-serif" font-size="25" text-anchor="middle" dominant-baseline="middle" font-weight="700">1 зона · 5 стержней</text>
+<text x="280" y="341" fill="#D47732" font-family="DejaVu Sans, Arial, sans-serif" font-size="31" text-anchor="middle" dominant-baseline="middle" font-weight="700">41,67 кг</text>
+<text x="890" y="300" fill="#163042" font-family="DejaVu Sans, Arial, sans-serif" font-size="25" text-anchor="middle" dominant-baseline="middle" font-weight="700">2 зоны · 8 стержней</text>
+<text x="890" y="341" fill="#087E8B" font-family="DejaVu Sans, Arial, sans-serif" font-size="31" text-anchor="middle" dominant-baseline="middle" font-weight="700">28,54 кг</text>
+<text x="600" y="398" fill="#5B6E7E" font-family="DejaVu Sans, Arial, sans-serif" font-size="22" text-anchor="middle" dominant-baseline="middle">Ширина спроса 600 мм; уровень 1: Ø12@300, уровень 2: Ø16@150</text>
+</svg>

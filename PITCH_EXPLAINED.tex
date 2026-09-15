@@ -1,0 +1,1588 @@
+% !TeX program = pdflatex
+% Standalone Overleaf source. No external images, data files, or shell escape.
+% Snapshot: 2026-09-09, base commit 1940faf plus local Revit work.
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=23mm,headheight=15pt]{geometry}
+% pdfLaTeX: UTF-8 input, Cyrillic text fonts, searchable/copyable PDF text.
+\usepackage{cmap}
+\usepackage[T1,T2A]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[russian]{babel}
+\usepackage{amsmath,amssymb,mathtools}
+% Explicit mappings also apply to labels inside TikZ and PGFPlots.
+\DeclareUnicodeCharacter{00B1}{\ensuremath{\pm}}
+\DeclareUnicodeCharacter{00B2}{\ensuremath{{}^2}}
+\DeclareUnicodeCharacter{00B7}{\ensuremath{\cdot}}
+\DeclareUnicodeCharacter{00D7}{\ensuremath{\times}}
+\DeclareUnicodeCharacter{00D8}{{\fontencoding{T1}\selectfont\O}}
+\DeclareUnicodeCharacter{0394}{\ensuremath{\Delta}}
+\DeclareUnicodeCharacter{03B1}{\ensuremath{\alpha}}
+\DeclareUnicodeCharacter{03B7}{\ensuremath{\eta}}
+\DeclareUnicodeCharacter{03BB}{\ensuremath{\lambda}}
+\DeclareUnicodeCharacter{2113}{\ensuremath{\ell}}
+\DeclareUnicodeCharacter{2192}{\ensuremath{\rightarrow}}
+\DeclareUnicodeCharacter{2212}{\ensuremath{-}}
+\DeclareUnicodeCharacter{2264}{\ensuremath{\leq}}
+\usepackage{booktabs,longtable,array}
+\usepackage{enumitem,fancyvrb}
+\usepackage{tikz,pgfplots}
+\usetikzlibrary{arrows.meta,positioning,calc}
+\usepgfplotslibrary{groupplots}
+\pgfplotsset{compat=1.18}
+\usepackage{xcolor,graphicx,float,needspace}
+\definecolor{Ink}{HTML}{163042}
+\definecolor{Teal}{HTML}{087E8B}
+\definecolor{Blue}{HTML}{386CB0}
+\definecolor{Orange}{HTML}{D47732}
+\usepackage{xurl}
+\usepackage[unicode,colorlinks=true,linkcolor=Teal,urlcolor=Teal]{hyperref}
+\usepackage{fancyhdr,titlesec}
+\hypersetup{pdftitle={Qmonitoring x A101: математика, устройство и результаты},pdfauthor={Обзор проекта для защиты хакатона}}
+\pagestyle{fancy}\fancyhf{}
+\fancyhead[L]{\small\sffamily Qmonitoring × A101}
+\fancyhead[R]{\small\sffamily Математика и эксперимент}
+\fancyfoot[C]{\small\thepage}
+\renewcommand{\headrulewidth}{0.3pt}
+\titleformat{\section}{\Large\sffamily\bfseries\color{Ink}}{\thesection}{0.7em}{}
+\titleformat{\subsection}{\large\sffamily\bfseries\color{Ink}}{\thesubsection}{0.7em}{}
+\titlespacing*{\section}{0pt}{22pt}{10pt}
+\titlespacing*{\subsection}{0pt}{15pt}{7pt}
+\setlength{\parindent}{0pt}\setlength{\parskip}{6pt}
+\setlength{\emergencystretch}{3em}
+\linespread{1.04}
+\setlist{itemsep=3pt,topsep=4pt,leftmargin=1.5em}
+\setlength{\LTpre}{5pt}\setlength{\LTpost}{8pt}
+\renewcommand{\arraystretch}{1.2}
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\setcounter{tocdepth}{2}
+\begin{document}
+\begin{titlepage}
+\color{Ink}
+{\sffamily\large ИНЖЕНЕРНЫЙ ПОМОЩНИК / ХАКАТОН\par}
+\vspace{2cm}
+{\sffamily\fontsize{32}{38}\selectfont\bfseries Qmonitoring × A101\par}
+\vspace{0.7cm}
+{\sffamily\fontsize{24}{31}\selectfont Математика, устройство\newline и результаты проекта\par}
+\vspace{1cm}
+{\large От расчётного изополя к вариантам\newline дополнительного армирования плиты\par}
+\vspace{1.5cm}
+\begin{tikzpicture}[x=0.72cm,y=0.72cm]
+\foreach \x in {0,...,11} {\foreach \y in {0,...,3} {\fill[Teal!12] (\x,\y) rectangle +(0.95,0.95);}}
+\foreach \x in {4,...,7} {\foreach \y in {1,2} {\fill[Orange!40] (\x,\y) rectangle +(0.95,0.95);}}
+\draw[Teal,line width=1.5pt] (0,0) rectangle (4,4);
+\draw[Orange,line width=1.5pt] (4,0) rectangle (8,4);
+\draw[Teal,line width=1.5pt] (8,0) rectangle (12,4);
+\end{tikzpicture}
+\vfill
+{\sffamily\large 9 сентября 2026\par}
+\smallskip
+{\small Срез локального кода и сохранённых экспериментов.\newline Подготовка к защите; область проверки результатов указана явно.\par}
+\end{titlepage}
+\tableofcontents
+\clearpage
+
+
+Документ для подготовки к защите хакатона. Срез локального проекта на \textbf{9 сентября 2026 года}; базовый commit {\small\nolinkurl{1940faf}} и присутствующие в рабочем дереве изменения интеграции Revit. Это объяснение реализованной модели и сохранённых экспериментов, а не расчётная записка для выпуска строительной документации.
+
+
+\textbf{Как читать.} Разделы 1–3 дают общую картину; 4–9 объясняют математику и алгоритмы; 10–12 разбирают доказательства и интеграцию; 13–15 помогают решить, что делать дальше и что говорить на защите. В конце — карта кода, источники и команды воспроизведения.
+
+
+\textbf{Overleaf.} В корне лежит самостоятельный {\small\nolinkurl{PITCH_EXPLAINED.tex}}: скопировать его содержимое целиком в {\small\nolinkurl{main.tex}} либо загрузить и назначить главным файлом; компилятор — \textbf{pdfLaTeX}. Рисунки и данные графиков встроены в LaTeX через TikZ/PGFPlots; внешние изображения, приватные DXF/PDF и библиография {\small\nolinkurl{.bib}} для сборки не нужны. Markdown-версия содержит тот же основной текст, а её SVG-иллюстрации находятся в {\small\nolinkurl{docs/pitch_figures/}}.
+
+
+\Needspace{6\baselineskip}\section{Что мы на самом деле делаем}
+
+ЛИРА-САПР уже рассчитала железобетонную плиту и выдала мозаику: для каждого конечного элемента известно, какое армирование требуется. Инженер должен превратить эту подробную карту в конструктивные группы стержней. Наш проект автоматизирует именно переход от карты требований к вариантам раскладки \textbf{дополнительной} арматуры.
+
+
+Фоновые стержни считаются заданными. Мы не пересчитываем нагрузки, напряжения, прогибы или несущую способность плиты средствами МКЭ. Поэтому качество нашего покрытия и корректность исходного расчёта ЛИРА — разные вопросы.
+
+
+Одна плита приходит четырьмя направлениями: нижнее X, нижнее Y, верхнее X, верхнее Y. В нынешнем оптимизаторе они решаются геометрически независимо. Затем их варианты комбинируются в общеплитный фронт по суммарной массе и выбранной мере сложности. Физическое согласование высот X/Y в Revit остаётся отдельной задачей.
+
+
+Выход ядра — параметрическая прямоугольная зона: положение, направление, диаметр, шаг, первая ось, количество и установленная длина стержней. Полный список объектов Revit для поиска не нужен: линии восстанавливаются из параметров.
+
+
+\textbf{Конфликт целей.} Крупная зона проще для чтения и размещения, но может протянуть сильную арматуру через слабые участки. Мелкие зоны точнее следуют спросу, но размножают группы, стержни и повторные выпуски анкеровки. Поэтому полезен набор компромиссов, среди которых выбирает конструктор.
+
+
+\begin{quote}\color{Teal}Фраза для питча: «Мы превращаем расчётные изополя в несколько проверяемых вариантов дополнительного армирования и показываем цену компромисса между расходом стали и сложностью раскладки».\end{quote}
+
+\Needspace{6\baselineskip}\section{Состояние проекта: три разных уровня готовности}
+
+{\small\setlength{\tabcolsep}{4pt}
+\begin{longtable}{@{}L{41.178mm}L{63.351mm}L{53.848mm}@{}}
+\toprule
+\textbf{Уровень} & \textbf{Что уже есть} & \textbf{Что это подтверждает} \\
+\midrule\endfirsthead
+\toprule
+\textbf{Уровень} & \textbf{Что уже есть} & \textbf{Что это подтверждает} \\
+\midrule\endhead
+\bottomrule\endfoot
+Основной core/web & DXF-ingest, mapping, четыре направления, GA, независимый 2D-валидатор, Парето, SVG и JSON & Работающий сценарий построения исследовательских раскладок для поддерживаемых входов \\
+Усиленный исследовательский профиль H7 & GA + локальный поиск + новые геометрии + MILP & Дополнительный выигрыш на трёх комплектах за дополнительный вычислительный бюджет \\
+Интеграционный трек Revit & Реальные чтение, создание, Commit, повторное чтение и откат; перенос одной синтетической зоны ядра & Работоспособность узких API-сценариев; полного применения оптимизированной плиты ещё нет \\
+\end{longtable}}
+
+H7 включается явно. Наличие SciPy не включает его автоматически. Web по умолчанию использует GA с 16 особями, 30 поколениями, seed 42 и UCB1; общая реализация уже включает {\small\nolinkurl{demand_fragments}} и четыре прохода локального поиска. MILP и геометрическое расширение H7 по умолчанию выключены. Главные эксперименты H7 ниже используют \textbf{8 особей, 3 поколения, uniform и три seed}, поэтому их нельзя выдавать за замер web-default. {\color{Teal}\small[\hyperlink{S2}{S2}, \hyperlink{S5}{S5}]}
+
+
+Есть и вторая граница моделей: обычный {\small\nolinkurl{LayoutZone}} использует один дополнительный набор с равномерным шагом. Новый {\small\nolinkurl{CompositeLayoutZone}} хранит несколько наборов и периодические оси. Парсер уже сохраняет составные схемы, но старый {\small\nolinkurl{LayoutProblem}} явно отклоняет уровни с несколькими добавками. Полноценного составного GA пока нет. {\color{Teal}\small[\hyperlink{S7}{S7}]}
+
+
+\Needspace{6\baselineskip}\section{Пайплайн: от файла до выбранного варианта}
+
+\begin{figure}[H]\centering
+\definecolor{CF3F7FA}{HTML}{F3F7FA}
+\definecolor{C087E8B}{HTML}{087E8B}
+\definecolor{C163042}{HTML}{163042}
+\definecolor{C5B6E7E}{HTML}{5B6E7E}
+\definecolor{CFFF4E7}{HTML}{FFF4E7}
+\definecolor{CD47732}{HTML}{D47732}
+\begin{tikzpicture}[x=0.013cm,y=-0.013cm,>=Latex]
+\path[use as bounding box] (0,0) rectangle (1200,465);
+\draw[fill=CF3F7FA,draw=C087E8B,line width=0.6pt,rounded corners=3pt] (30,40) rectangle (300,155);
+\node[anchor=center,text=C163042,inner sep=0pt,font={\sffamily\fontsize{10.26}{12.31}\selectfont\bfseries}] at (165,76) {DXF + шкала};
+\node[anchor=center,text=C5B6E7E,inner sep=0pt,font={\sffamily\fontsize{7.98}{9.58}\selectfont}] at (165,118) {KLEENKA, мм, mapping};
+\draw[fill=CF3F7FA,draw=C087E8B,line width=0.6pt,rounded corners=3pt] (465,40) rectangle (735,155);
+\node[anchor=center,text=C163042,inner sep=0pt,font={\sffamily\fontsize{10.26}{12.31}\selectfont\bfseries}] at (600,76) {DemandMap};
+\node[anchor=center,text=C5B6E7E,inner sep=0pt,font={\sffamily\fontsize{7.98}{9.58}\selectfont}] at (600,118) {уровни + протокол КЭ};
+\draw[fill=CF3F7FA,draw=C087E8B,line width=0.6pt,rounded corners=3pt] (900,40) rectangle (1170,155);
+\node[anchor=center,text=C163042,inner sep=0pt,font={\sffamily\fontsize{10.26}{12.31}\selectfont\bfseries}] at (1035,76) {Пул зон};
+\node[anchor=center,text=C5B6E7E,inner sep=0pt,font={\sffamily\fontsize{7.98}{9.58}\selectfont}] at (1035,118) {геометрии и стоимость};
+\draw[fill=CF3F7FA,draw=C087E8B,line width=0.6pt,rounded corners=3pt] (900,220) rectangle (1170,335);
+\node[anchor=center,text=C163042,inner sep=0pt,font={\sffamily\fontsize{10.26}{12.31}\selectfont\bfseries}] at (1035,256) {Поиск};
+\node[anchor=center,text=C5B6E7E,inner sep=0pt,font={\sffamily\fontsize{7.98}{9.58}\selectfont}] at (1035,298) {GA / local / MILP};
+\draw[fill=CF3F7FA,draw=C087E8B,line width=0.6pt,rounded corners=3pt] (465,220) rectangle (735,335);
+\node[anchor=center,text=C163042,inner sep=0pt,font={\sffamily\fontsize{10.26}{12.31}\selectfont\bfseries}] at (600,256) {Общая проверка};
+\node[anchor=center,text=C5B6E7E,inner sep=0pt,font={\sffamily\fontsize{7.98}{9.58}\selectfont}] at (600,298) {40d, оси, union, масса};
+\draw[fill=CF3F7FA,draw=C087E8B,line width=0.6pt,rounded corners=3pt] (30,220) rectangle (300,335);
+\node[anchor=center,text=C163042,inner sep=0pt,font={\sffamily\fontsize{10.26}{12.31}\selectfont\bfseries}] at (165,256) {Четыре фронта};
+\node[anchor=center,text=C5B6E7E,inner sep=0pt,font={\sffamily\fontsize{7.98}{9.58}\selectfont}] at (165,298) {сумма → Pareto → UI};
+\draw[draw=C5B6E7E,line width=0.56pt,->] (300,97) -- (455,97);
+\draw[draw=C5B6E7E,line width=0.56pt,->] (735,97) -- (890,97);
+\draw[draw=C5B6E7E,line width=0.56pt,->] (1035,155) -- (1035,211);
+\draw[draw=C5B6E7E,line width=0.56pt,->] (900,277) -- (745,277);
+\draw[draw=C5B6E7E,line width=0.56pt,->] (465,277) -- (310,277);
+\draw[fill=CFFF4E7,draw=CD47732,line width=0.6pt,rounded corners=3pt] (320,384) rectangle (880,436);
+\node[anchor=center,text=CD47732,inner sep=0pt,font={\sffamily\fontsize{8.74}{10.49}\selectfont}] at (600,410) {PDF инженера → только внешняя оценка};
+\draw[draw=C5B6E7E,line width=0.56pt,->,dashed] (320,410) -- (160,340);
+\end{tikzpicture}
+\caption{Пайплайн. Контур проверки используется для всех алгоритмов; инженерский эталон поступает только во внешний эксперимент.}\label{fig:01_pipeline}
+\end{figure}
+
+\begin{enumerate}
+\item {\small\nolinkurl{read_mosaic}} читает из DXF только {\small\nolinkurl{3DFACE}} слоя {\small\nolinkurl{KLEENKA}}. Служебные копии {\small\nolinkurl{PLAST}} отбрасываются; повторная четвёртая вершина треугольника удаляется.
+\item Единицы приводятся к миллиметрам: по заголовку DXF, а при отсутствии надёжных единиц — по геометрической эвристике. Способ и масштаб сохраняются в метаданных.
+\item Порядок полос и границы шкалы связываются с совместимым {\small\nolinkurl{.shk}} либо явно выбранным mapping. Цвет ACI сам по себе не определяет универсальное значение армирования.
+\item Адаптер создаёт {\small\nolinkurl{DemandMap}} и {\small\nolinkurl{LayoutProblem}}; отдельная предобработка протоколирует разрешённые понижения одиночных КЭ.
+\item Алгоритм выбирает прямоугольники. Общий конструктор считает их физические параметры и стоимость; GA использует эти стоимости уже при поиске.
+\item Финальные варианты проходят подбор фаз, пересчёт и независимый {\small\nolinkurl{evaluate_layout}}. Ошибочные варианты исключаются перед внешним Парето-фильтром.
+\item Четыре фронта комбинируются в {\small\nolinkurl{PlateParetoFront}}. UI показывает альтернативы, исходную мозаику, зоны, стержни, массу и диагностику.
+\item Выбранный кандидат можно выгрузить в draft JSON. Реальное размещение требует дополнительных проверок и согласования с Revit-host.
+\end{enumerate}
+
+Постобработка стоит после геометрического выбора логически, но стоимость кандидата \textbf{сразу} включает её результат. Иначе оптимизатор предпочитал бы фиктивно дешёвые зоны без анкеровки.
+
+
+Web и CLI вызывают application-слой, а не собственные версии parser/optimizer. Upload живёт во временном каталоге; БД и очереди для этого сценария не используются. Публичное демо создаёт DXF на 96 КЭ и проходит тот же путь. PNG-ingest остаётся заготовкой. {\color{Teal}\small[\hyperlink{S1}{S1}, \hyperlink{S2}{S2}]}
+
+
+\Needspace{6\baselineskip}\section{Математическая постановка одного направления}
+
+\Needspace{5\baselineskip}\subsection{Вход и обозначения}
+
+Зафиксируем направление d из множества четырёх направлений. Для X координата u идёт вдоль стержня, v — поперёк; для Y они меняются ролями.
+
+
+{\small\setlength{\tabcolsep}{4pt}
+\begin{longtable}{@{}L{41.178mm}L{63.351mm}L{53.848mm}@{}}
+\toprule
+\textbf{Обозначение} & \textbf{Значение} & \textbf{Единицы} \\
+\midrule\endfirsthead
+\toprule
+\textbf{Обозначение} & \textbf{Значение} & \textbf{Единицы} \\
+\midrule\endhead
+\bottomrule\endfoot
+P\_i & Полигон i-го входного КЭ & мм² для площади \\
+q\_i & Требуемый индекс полосы после предобработки & порядковый уровень \\
+A\_s & Интенсивность армирования из шкалы & см²/м \\
+R\_j & Логический прямоугольник спроса зоны j & координаты в мм \\
+k\_j & Назначенный уровень зоны & порядковый уровень \\
+d\_j, s\_j & Диаметр и номинальный шаг одной добавки & мм \\
+N\_j, L\_j, M\_j & Число стержней, установленная длина, масса & шт., мм, кг \\
+Z, B, M & Число зон, физических стержней и масса решения & шт., шт., кг \\
+\end{longtable}}
+
+Для текущей однокомпонентной модели mapping задаёт дискретное предписание:
+
+
+\[
+k\longmapsto (d_k,s_k),\qquad k=1,\ldots,K_{\mathrm{level}}.
+\]
+
+Фон обычно соответствует уровню 0 и не требует добавки. Важна назначенная схема, а не только верхняя числовая граница цветового интервала. Валидатор сравнивает \textbf{индексы уровней}, а не решает заново непрерывную задачу подбора площади стали для каждого КЭ. Применимость и порядок mapping являются частью предпосылок модели.
+
+
+Для равномерного ряда интенсивность можно пояснить через геометрию сечения:
+
+
+\[
+A_s(d,s)=\frac{\pi d^2}{4}\frac{1000}{s}\frac{1}{100}
+=\frac{10\pi d^2}{4s}\quad[\mathrm{cm^2/m}].
+\]
+
+Например, Ø12@300 даёт приблизительно 3,77 см²/м. Это объясняющая формула; текущий solver не подменяет ею утверждённые строки шкалы. В подписи {\small\nolinkurl{s300d12+s150d16}} первое слагаемое — заданный фон, второе — создаваемая добавка. {\color{Teal}\small[\hyperlink{S1}{S1}, \hyperlink{S10}{S10}]}
+
+
+\Needspace{5\baselineskip}\subsection{Что означает полное покрытие}
+
+Пусть I+ — КЭ, которым после предобработки нужна дополнительная арматура. Текущая семантика требует:
+
+
+\[
+\operatorname{area}\!\left(
+P_i\cap\bigcup_{j:\,k_j\ge q_i}R_j
+\right)\ge\operatorname{area}(P_i)-\varepsilon_i,
+\qquad i\in I_+.
+\]
+
+Здесь допуск — техническая защита вычислений с плавающей точкой, а не разрешённый процент недоармирования. Код использует максимум общей численной константы и площади КЭ, умноженной на 10 в степени −8.
+
+
+Формула означает три вещи. Во-первых, сильная зона может закрыть слабый КЭ. Во-вторых, один КЭ может быть закрыт частями нескольких зон. В-третьих, каждая такая зона должна \textbf{сама} иметь достаточный уровень: два слабых набора не складываются в один сильный. Если две зоны покрыли одну и ту же половину КЭ, другая половина остаётся непокрытой.
+
+
+Проверяется геометрическое объединение пересечений с исходным полигоном. Сумма площадей отдельных пересечений дала бы ложный зачёт overlap. Сумма масс, напротив, включает все выбранные стержни: пересечение не делает металл бесплатным.
+
+
+Покрытие проверяется по {\small\nolinkurl{demand_bbox}}. Установленный envelope с анкеровкой и условная область обслуживания используются для других геометрических проверок и диагностики перерасхода. Их нельзя подставлять вместо R\_j и позволять анкерному выпуску автоматически закрывать новый спрос. {\color{Teal}\small[\hyperlink{S10}{S10}]}
+
+
+\Needspace{5\baselineskip}\subsection{Почему обводка цвета — неверная задача}
+
+Точный цвет задаёт локальное требование. Он не является границей допустимого прямоугольника. Можно накрыть одной зоной несколько цветов или промежуток без добавочного спроса, заплатив массой сильной арматуры на лишнем участке.
+
+
+Полезны пороговые множества:
+
+
+\[
+D_k=\bigcup_{i:\,q_i\ge k}P_i.
+\]
+
+Они помогают генерировать кандидатов, но не должны превращаться в независимые обязательные задачи. Связные компоненты точного цвета допустимы как начальные подсказки; запрет объединяться через другой цвет обрезает пространство решений.
+
+
+\begin{figure}[H]\centering
+\definecolor{C163042}{HTML}{163042}
+\definecolor{CCDEBE7}{HTML}{CDEBE7}
+\definecolor{C087E8B}{HTML}{087E8B}
+\definecolor{CFFE1BC}{HTML}{FFE1BC}
+\definecolor{CD47732}{HTML}{D47732}
+\definecolor{C5B6E7E}{HTML}{5B6E7E}
+\definecolor{CDDE5EA}{HTML}{DDE5EA}
+\begin{tikzpicture}[x=0.013cm,y=-0.013cm,>=Latex]
+\path[use as bounding box] (0,0) rectangle (1200,425);
+\node[anchor=center,text=C163042,inner sep=0pt,font={\sffamily\fontsize{10.26}{12.31}\selectfont\bfseries}] at (290,34) {Одна сильная зона};
+\draw[fill=CCDEBE7,draw=white,line width=0.6pt] (50,100) rectangle (165,220);
+\node[anchor=center,text=C087E8B,inner sep=0pt,font={\sffamily\fontsize{11.4}{13.68}\selectfont\bfseries}] at (107.5,158) {1};
+\draw[fill=CCDEBE7,draw=white,line width=0.6pt] (165,100) rectangle (280,220);
+\node[anchor=center,text=C087E8B,inner sep=0pt,font={\sffamily\fontsize{11.4}{13.68}\selectfont\bfseries}] at (222.5,158) {1};
+\draw[fill=CCDEBE7,draw=white,line width=0.6pt] (280,100) rectangle (395,220);
+\node[anchor=center,text=C087E8B,inner sep=0pt,font={\sffamily\fontsize{11.4}{13.68}\selectfont\bfseries}] at (337.5,158) {1};
+\draw[fill=CFFE1BC,draw=white,line width=0.6pt] (395,100) rectangle (510,220);
+\node[anchor=center,text=CD47732,inner sep=0pt,font={\sffamily\fontsize{11.4}{13.68}\selectfont\bfseries}] at (452.5,158) {2};
+\draw[draw=CD47732,line width=0.28pt] (50,110) -- (510,110);
+\draw[draw=CD47732,line width=0.28pt] (50,134) -- (510,134);
+\draw[draw=CD47732,line width=0.28pt] (50,158) -- (510,158);
+\draw[draw=CD47732,line width=0.28pt] (50,182) -- (510,182);
+\draw[draw=CD47732,line width=0.28pt] (50,206) -- (510,206);
+\node[anchor=center,text=C5B6E7E,inner sep=0pt,font={\sffamily\fontsize{8.36}{10.03}\selectfont}] at (222,245) {3000 мм};
+\node[anchor=center,text=C5B6E7E,inner sep=0pt,font={\sffamily\fontsize{8.36}{10.03}\selectfont}] at (455,245) {1000 мм};
+\node[anchor=center,text=C163042,inner sep=0pt,font={\sffamily\fontsize{10.26}{12.31}\selectfont\bfseries}] at (895,34) {Две зоны по спросу};
+\draw[fill=CCDEBE7,draw=white,line width=0.6pt] (655,100) rectangle (770,220);
+\node[anchor=center,text=C087E8B,inner sep=0pt,font={\sffamily\fontsize{11.4}{13.68}\selectfont\bfseries}] at (712.5,158) {1};
+\draw[fill=CCDEBE7,draw=white,line width=0.6pt] (770,100) rectangle (885,220);
+\node[anchor=center,text=C087E8B,inner sep=0pt,font={\sffamily\fontsize{11.4}{13.68}\selectfont\bfseries}] at (827.5,158) {1};
+\draw[fill=CCDEBE7,draw=white,line width=0.6pt] (885,100) rectangle (1000,220);
+\node[anchor=center,text=C087E8B,inner sep=0pt,font={\sffamily\fontsize{11.4}{13.68}\selectfont\bfseries}] at (942.5,158) {1};
+\draw[fill=CFFE1BC,draw=white,line width=0.6pt] (1000,100) rectangle (1115,220);
+\node[anchor=center,text=CD47732,inner sep=0pt,font={\sffamily\fontsize{11.4}{13.68}\selectfont\bfseries}] at (1057.5,158) {2};
+\draw[draw=CDDE5EA,line width=0.28pt] (655,110) -- (1115,110);
+\draw[draw=CDDE5EA,line width=0.28pt] (655,134) -- (1115,134);
+\draw[draw=CDDE5EA,line width=0.28pt] (655,158) -- (1115,158);
+\draw[draw=CDDE5EA,line width=0.28pt] (655,182) -- (1115,182);
+\draw[draw=CDDE5EA,line width=0.28pt] (655,206) -- (1115,206);
+\node[anchor=center,text=C5B6E7E,inner sep=0pt,font={\sffamily\fontsize{8.36}{10.03}\selectfont}] at (827,245) {3000 мм};
+\node[anchor=center,text=C5B6E7E,inner sep=0pt,font={\sffamily\fontsize{8.36}{10.03}\selectfont}] at (1060,245) {1000 мм};
+\draw[fill=none,draw=CD47732,line width=0.6pt] (48,97) rectangle (512,223);
+\draw[fill=none,draw=C087E8B,line width=0.6pt] (653,97) rectangle (1002,223);
+\draw[fill=none,draw=CD47732,line width=0.6pt] (1004,97) rectangle (1121,223);
+\node[anchor=center,text=C163042,inner sep=0pt,font={\sffamily\fontsize{9.5}{11.40}\selectfont\bfseries}] at (280,300) {1 зона · 5 стержней};
+\node[anchor=center,text=CD47732,inner sep=0pt,font={\sffamily\fontsize{11.78}{14.14}\selectfont\bfseries}] at (280,341) {41,67 кг};
+\node[anchor=center,text=C163042,inner sep=0pt,font={\sffamily\fontsize{9.5}{11.40}\selectfont\bfseries}] at (890,300) {2 зоны · 8 стержней};
+\node[anchor=center,text=C087E8B,inner sep=0pt,font={\sffamily\fontsize{11.78}{14.14}\selectfont\bfseries}] at (890,341) {28,54 кг};
+\node[anchor=center,text=C5B6E7E,inner sep=0pt,font={\sffamily\fontsize{8.36}{10.03}\selectfont}] at (600,398) {Ширина спроса 600 мм; уровень 1: Ø12@300, уровень 2: Ø16@150};
+\end{tikzpicture}
+\caption{Учебный пример: сильная общая зона против двух зон по уровням. Числа получены по формулам текущей равномерной модели, включая 40d.}\label{fig:02_cover}
+\end{figure}
+
+В примере спрос занимает 4000 × 600 мм. Первые 3000 мм требуют Ø12@300, последние 1000 мм — Ø16@150. Одна сильная зона даёт 5 стержней длиной 5280 мм и 41,67 кг. Две зоны дают 3 стержня длиной 3960 мм и 5 длиной 2280 мм: всего 8 стержней и 28,54 кг. Стали меньше, зон и стержней больше. Это учебный пример покрытия; физические пересечения выпусков и согласование с фоном требуют отдельной проверки.
+
+
+\Needspace{5\baselineskip}\subsection{Правило одиночного КЭ}
+
+Сначала строится граф соседства по общему ребру. В каждой компоненте одного точного уровня проверяется её размер. Если компонент содержит один КЭ с дополнительным спросом, его уровень понижается на предыдущую полосу:
+
+
+\[
+q_i'=\begin{cases}
+q_i-1,&\text{если одноуровневая компонента состоит из одного КЭ},\\
+q_i,&\text{иначе}.
+\end{cases}
+\]
+
+Понижения выполняются одновременно по исходной карте одного вызова, без каскада. В журнале остаются ID КЭ, исходный и новый уровни; исходный {\small\nolinkurl{Mosaic}} сохраняется. Это конкретная реализация разрешённого правила, а не произвольное сглаживание сильных цветов. «Одиночный» в коде определяется размером компоненты точного уровня; отдельной проверки «сильнее всех соседей» нет.
+
+
+На плите нуля протокол содержит 160 понижений суммарно по четырём картам: 53, 46, 32 и 29. Поэтому «ноль недоармированных КЭ» в отчёте относится к \textbf{задаче после этой предобработки}, при сохранённом протоколе изменения исходного спроса. {\color{Teal}\small[\hyperlink{S3}{S3}, \hyperlink{S10}{S10}]}
+
+
+\Needspace{6\baselineskip}\section{Как прямоугольник превращается в стержни и массу}
+
+\Needspace{5\baselineskip}\subsection{Три геометрии одной зоны}
+
+Нужно различать R\_j, то есть область спроса; envelope осей установленного набора; и габарит тел стержней с учётом радиуса. Ни один из них автоматически не является границей {\small\nolinkurl{AreaReinforcement}} или допустимой областью Revit-host.
+
+
+\begin{figure}[H]\centering
+\definecolor{CCDEBE7}{HTML}{CDEBE7}
+\definecolor{C087E8B}{HTML}{087E8B}
+\definecolor{C386CB0}{HTML}{386CB0}
+\definecolor{CDDE5EA}{HTML}{DDE5EA}
+\definecolor{C5B6E7E}{HTML}{5B6E7E}
+\definecolor{CD47732}{HTML}{D47732}
+\definecolor{C163042}{HTML}{163042}
+\begin{tikzpicture}[x=0.013cm,y=-0.013cm,>=Latex]
+\path[use as bounding box] (0,0) rectangle (1200,450);
+\draw[fill=CCDEBE7,draw=C087E8B,line width=0.6pt] (310,120) rectangle (890,300);
+\draw[fill=none,draw=C386CB0,line width=0.6pt] (120,110) rectangle (1080,310);
+\draw[draw=C386CB0,line width=0.56pt] (120,110) -- (1080,110);
+\draw[draw=C386CB0,line width=0.56pt] (120,150) -- (1080,150);
+\draw[draw=C386CB0,line width=0.56pt] (120,190) -- (1080,190);
+\draw[draw=C386CB0,line width=0.56pt] (120,230) -- (1080,230);
+\draw[draw=C386CB0,line width=0.56pt] (120,270) -- (1080,270);
+\draw[draw=C386CB0,line width=0.56pt] (120,310) -- (1080,310);
+\node[anchor=center,text=C386CB0,inner sep=0pt,font={\sffamily\fontsize{10.26}{12.31}\selectfont\bfseries}] at (600,73) {Установленный envelope осей};
+\node[anchor=center,text=C087E8B,inner sep=0pt,font={\sffamily\fontsize{9.88}{11.86}\selectfont\bfseries}] at (600,208) {R: область спроса};
+\draw[draw=CDDE5EA,line width=0.28pt] (120,317) -- (120,380);
+\draw[draw=CDDE5EA,line width=0.28pt] (310,317) -- (310,380);
+\draw[draw=CDDE5EA,line width=0.28pt] (890,317) -- (890,380);
+\draw[draw=CDDE5EA,line width=0.28pt] (1080,317) -- (1080,380);
+\draw[draw=C5B6E7E,line width=0.56pt] (120,355) -- (310,355);
+\draw[draw=C5B6E7E,line width=0.56pt] (310,355) -- (890,355);
+\draw[draw=C5B6E7E,line width=0.56pt] (890,355) -- (1080,355);
+\node[anchor=center,text=CD47732,inner sep=0pt,font={\sffamily\fontsize{9.12}{10.94}\selectfont\bfseries}] at (215,380) {40d};
+\node[anchor=center,text=C163042,inner sep=0pt,font={\sffamily\fontsize{9.12}{10.94}\selectfont}] at (600,380) {длина спроса ℓ};
+\node[anchor=center,text=CD47732,inner sep=0pt,font={\sffamily\fontsize{9.12}{10.94}\selectfont\bfseries}] at (985,380) {40d};
+\draw[draw=C5B6E7E,line width=0.56pt] (1135,110) -- (1135,310);
+\draw[draw=C5B6E7E,line width=0.56pt] (1120,110) -- (1147,110);
+\draw[draw=C5B6E7E,line width=0.56pt] (1120,310) -- (1147,310);
+\node[anchor=center,text=C386CB0,inner sep=0pt,font={\sffamily\fontsize{9.5}{11.40}\selectfont}] at (1140,345) {W};
+\node[anchor=center,text=C5B6E7E,inner sep=0pt,font={\sffamily\fontsize{9.5}{11.40}\selectfont}] at (600,424) {L = ℓ + 80d до округления длины; N = W / s + 1};
+\end{tikzpicture}
+\caption{Область спроса, продольные выпуски и оси установленной зоны. Ширина W измеряется между крайними осями.}\label{fig:03_zone_geometry}
+\end{figure}
+
+Для R\_j длиной ℓ\_j вдоль стержня и исходной шириной w\_j поперёк код берёт медианный поперечный размер КЭ h. При минимальной ширине r КЭ:
+
+
+\[
+W_{\min}=r h,\qquad
+t_j=\max\!\left(1,\left\lceil\frac{\max(w_j,W_{\min})}{s_j}\right\rceil\right),
+\qquad W_j=t_j s_j,\qquad N_j=t_j+1.
+\]
+
+Записана формула без малой численной поправки перед округлением. По умолчанию r=2; значение настраивается. Перевод «2–3 КЭ» через медиану — явная аппроксимация для нерегулярной сетки, а не измерение двух конкретных соседних элементов у каждой зоны.
+
+
+Если первая ось не задана, набор центрируется относительно поперечного окна спроса:
+
+
+\[
+v_{j,0}=v_{j,\min}-\frac{W_j-w_j}{2},\qquad
+v_{j,n}=v_{j,0}+n s_j,\quad n=0,\ldots,N_j-1.
+\]
+
+Подбор фаз может изменить первую ось, сохранив достаточное обслуживание поперечного интервала. Текущая модель допускает по половине шага за крайними осями при проверке этого обслуживания. Это 2D-политика ядра, а не доказанная глобальная привязка к фону Revit.
+
+
+\Needspace{5\baselineskip}\subsection{Анкеровка и принятая длина}
+
+Профиль текущего проекта задаёт выпуск a\_j=40d\_j с каждой стороны. Через заменяемую политику получается:
+
+
+\[
+L_j^{\min}=\ell_j+2a_j=\ell_j+80d_j.
+\]
+
+Далее действует политика отрезков:
+
+
+\[
+L_j=\begin{cases}
+L_j^{\min},&\text{непрерывная длина},\\
+\min\{l\in\mathcal L:l\ge L_j^{\min}\},&\text{явно задан каталог }\mathcal L.
+\end{cases}
+\]
+
+Если длина превышает каталог, построение отклоняется. В проекте есть отдельный каталог для товарного прутка 11 700 мм. Он не включён универсально: основные приведённые H7-эксперименты используют непрерывную длину, прибавка от округления раскроя в их отчётах равна нулю.
+
+
+Совместная задача закупки и раскроя всех стержней не решается. Мы минимизируем установленную массу; она отличается от массы закупленных прутков и стоимости остатков. Также 40d здесь описывает профиль ТЗ проекта, а не универсальную формулу анкеровки для любых конструкций. {\color{Teal}\small[\hyperlink{S10}{S10}]}
+
+
+\Needspace{5\baselineskip}\subsection{Масса и цена дробления}
+
+Общий расчёт использует коэффициент 0,006165 кг/(м·мм²):
+
+
+\[
+M_j=0{,}006165\,d_j^2\frac{L_j}{1000}N_j,
+\qquad M=\sum_j M_j.
+\]
+
+Например, спрос 3000 × 650 мм, Ø16@150, h=300 мм, r=2: W=750 мм, N=6, выпуск 640 мм с каждого конца, L=4280 мм. Получается M=40,53 кг. Ни один алгоритм не имеет права использовать собственный более выгодный коэффициент или забыть крайний стержень.
+
+
+Массу удобно разложить:
+
+
+\[
+\begin{aligned}
+M_j^{\mathrm{body}}&=0{,}006165\,d_j^2N_j\ell_j/1000,\\
+M_j^{\mathrm{anchor}}&=0{,}006165\,d_j^2N_j(80d_j)/1000,\\
+M_j^{\mathrm{cut}}&=0{,}006165\,d_j^2N_j(L_j-L_j^{\min})/1000,\\
+M_j&=M_j^{\mathrm{body}}+M_j^{\mathrm{anchor}}+M_j^{\mathrm{cut}}.
+\end{aligned}
+\]
+
+Первая часть — масса выбранных рядов на длине спроса, \textbf{не теоретический минимум требуемой стали}: внутри прямоугольника тоже может быть перерасход. Анкерная прибавка пропорциональна кубу диаметра при фиксированном N. Продольное дробление ряда на две зоны повторяет выпуски и может сделать геометрически аккуратное решение тяжелее.
+
+
+В минимальной по массе H7-точке плиты нуля, seed 7, разложение составляет 1923,84 кг + 1229,54 кг + 0 кг = 3153,38 кг. Анкеровка даёт около 39\% установленной массы. Это помогает понять, почему длины и число физических стержней столь существенны для поиска. {\color{Teal}\small[\hyperlink{S5}{S5}]}
+
+
+\Needspace{5\baselineskip}\subsection{Что значит «валидно»}
+
+{\small\nolinkurl{evaluate_layout}} заново проверяет исходные полигоны и параметры зон: достаточность покрытия, известный уровень, соответствие арматуры mapping, ширину и количество, длины, анкеровку, политику отрезков, массу, лимит зон и запрещённые позиции А101. Кэш покрытых КЭ тоже сверяется с геометрией.
+
+
+Но совпадение осей, пересечение установленных envelope и недостаточная раздвижка в research-профиле дают \textbf{WARNING}. Эти предупреждения не превращаются автоматически в hard-error и не заставляют сливать прямоугольники. Неизвестная строка рекомендательной таблицы означает {\small\nolinkurl{not_checked}}, а красная запрещённая строка — hard-error.
+
+
+Следовательно, существуют разные предикаты:
+
+
+\[
+\mathrm{Valid}_{\mathrm{2D}}(S),\qquad
+\mathrm{Checked}_{\mathrm{host}}(S),\qquad
+\mathrm{Approved}_{\mathrm{engineer}}(S).
+\]
+
+Первый не доказывает второй и третий. Простой пример: прямые стержни могут достаточно накрывать спрос в XY, но после 40d выйти за край плиты или пересечь отверстие. Точное размещение тел, cover, фазы фона и порядок высот X/Y требуют дополнительной модели.
+
+
+Важная деталь фактического кода: в draft v1 поле {\small\nolinkurl{export_eligible}} вычисляется по семи подключённым safety-гейтам и может стать {\small\nolinkurl{true}}. Это \textbf{не сертификат Revit-host}; {\small\nolinkurl{contract_status}} остаётся {\small\nolinkurl{draft}}. В отдельном v2 для составной зоны экспортная готовность принудительно остаётся {\small\nolinkurl{false}}. Считать эти два контракта одним уровнем допуска нельзя. {\color{Teal}\small[\hyperlink{S7}{S7}, \hyperlink{S10}{S10}]}
+
+
+\Needspace{6\baselineskip}\section{Многокритериальная цель и общеплитный фронт}
+
+\Needspace{5\baselineskip}\subsection{Три счётчика, которые нельзя смешивать}
+
+\[
+Z=|S|,\qquad B=\sum_{j\in S}N_j,\qquad
+P=\text{число позиций спецификации после группировки}.
+\]
+
+Одна зона может содержать десятки стержней. Одна позиция спецификации может использоваться в разных местах. {\small\nolinkurl{LayoutMetrics.detail_count}} исторически означает Z. Для эталона плиты нуля известны P=79, B=1019 и M=3177,64 кг; число инженерских прямоугольных зон автоматически не извлечено. Поэтому сравнение «наших 171 зон против 79 у инженера» некорректно. {\color{Teal}\small[\hyperlink{S8}{S8}]}
+
+
+\Needspace{5\baselineskip}\subsection{Что такое Парето}
+
+Текущая задача имеет вид:
+
+
+\[
+\min_{S:\,\mathrm{Valid}_{\mathrm{2D}}(S)}(M(S),C(S)),
+\qquad C\in\{Z,B\}.
+\]
+
+Решение S\_1 доминирует S\_2, если не хуже по обоим критериям и строго лучше хотя бы по одному. Недоминируемые варианты образуют фронт. Ни один из них не является автоматически предпочтительным для конструктора.
+
+
+Внутренний поиск и внешний фронт используют одну явно выбранную ось сложности. Помимо неё сохраняется прозрачный вектор: зоны, физические стержни, уникальные диаметры, шаги, длины, сигнатуры и предупреждения. Число сигнатур — технический proxy; оно не выдаётся за число позиций реального КЖ или человеко-часы монтажа.
+
+
+\Needspace{5\baselineskip}\subsection{Зачем несколько ограничений сложности}
+
+Один способ строить компромиссы — epsilon-constraint:
+
+
+\[
+M^*(K)=\min_S M(S)\quad\text{при}\quad C(S)\le K,
+\quad\mathrm{Valid}_{\mathrm{2D}}(S).
+\]
+
+Если множество допустимых решений фиксировано, M*(K) не возрастает с увеличением K. Стохастический поиск может не воспроизвести это свойство своими отдельными запусками, поэтому сохраняются и сравниваются все реально найденные варианты.
+
+
+Скаляризация M+λC полезна как предпочтение, но в дискретной задаче один вес выбирает одну точку, а перебор весов не обязан находить каждый недоминируемый компромисс. В baseline-контракте есть масса плюс штраф за зону; основной GA использует две цели, а H7 добавляет несколько ограничений сложности.
+
+
+«Точка 3» — желаемый компромисс, после которого дальнейшее усложнение даёт мало выигрыша массы. Если точки упорядочить по возрастающей сложности, можно изучать предельную экономию:
+
+
+\[
+\eta_t=\frac{M_t-M_{t+1}}{C_{t+1}-C_t}.
+\]
+
+Единица η — кг на дополнительную зону либо кг на дополнительный стержень. Порог η должен отражать предпочтение или экономику. Общего подтверждённого порога у проекта пока нет; в реализации не найдено автоматически доказанное «правильное колено».
+
+
+\Needspace{5\baselineskip}\subsection{Сборка четырёх направлений}
+
+Пусть F\_d — конечный hard-valid фронт направления d. Тогда:
+
+
+\[
+F_{\mathrm{plate}}=\operatorname{ND}\!\left\{
+\left(\sum_d M(S_d),\sum_d C(S_d)\right):S_d\in F_d
+\right\}.
+\]
+
+Направления могут использовать разные алгоритмы или разные особи GA. После каждого добавленного направления код сразу удаляет доминируемые частичные суммы. При аддитивных M и C и независимости направлений это корректно: к доминируемой сумме добавится та же оставшаяся часть, и она останется доминируемой.
+
+
+Для n переданных двумерных точек фильтрация через сортировку занимает O(n log n). Это сложность этапа фильтрации, а не всего алгоритма или всего произведения вариантов. Промежуточное число комбинаций всё ещё может расти.
+
+
+Нынешняя независимость — предпосылка 2D-модели. Если добавить совместные ограничения X/Y по высоте или закупочный раскрой, простого суммирования независимых направлений может стать недостаточно. {\color{Teal}\small[\hyperlink{S2}{S2}, \hyperlink{S10}{S10}]}
+
+
+\Needspace{5\baselineskip}\subsection{Как сравнивать целые фронты: hypervolume}
+
+HV измеряет площадь, доминируемую фронтом относительно общей опорной точки с заведомо большей массой и сложностью. Для двух минимизируемых критериев:
+
+
+\[
+\operatorname{HV}(F)=
+\frac{\operatorname{area}\!\left(
+\displaystyle\bigcup_{(C,M)\in F}[C,C_{\mathrm{ref}}]\times[M,M_{\mathrm{ref}}]
+\right)}{(C_{\mathrm{ref}}-C_{\mathrm{ideal}})(M_{\mathrm{ref}}-M_{\mathrm{ideal}})}.
+\]
+
+Чем больше HV при одних и тех же границах, тем больше область полезных компромиссов. В отчёте нижние границы берутся по всем сравниваемым точкам, верхние — по максимумам с запасом 10\% размаха, не менее одной единицы. Смена набора сравниваемых запусков меняет нормализацию: HV из разных HTML нельзя напрямую вычитать. В пределах общей шкалы он дополняет minimum mass, поскольку минимум не замечает потерянные точки при малом бюджете сложности.
+
+
+\Needspace{6\baselineskip}\section{Пространство кандидатов: где спрятана трудность}
+
+\Needspace{5\baselineskip}\subsection{Конечный набор прямоугольников}
+
+Геном не хранит произвольные координаты каждого стержня. Сначала строится конечный пул P из m кандидатов. Каждый содержит геометрию, уровень, результат общей детализации, массу и множество покрываемых атомов спроса.
+
+
+Источники пула: регулярная маска геометрии КЭ; несколько траекторий слияния соседей; альтернативные прямоугольники; послойные мосты; исходные зоны сильных baseline {\small\nolinkurl{bsp}}, {\small\nolinkurl{greedy-priority}}, {\small\nolinkurl{agglomerative}}. Номер сеточной клетки служит для соседства и поиска, а фактический bbox остаётся источником геометрии.
+
+
+Даже если полностью перебрать выбор из m кандидатов, это до 2\textasciicircum{}m подмножеств. И такой перебор всё равно ничего не скажет о геометрии, отсутствующей в пуле. На регулярной сетке размера n\_x × n\_y полный каталог осевых прямоугольников содержит:
+
+
+\[
+\frac{n_x(n_x+1)n_y(n_y+1)}{4}
+\]
+
+геометрий до назначения уровней и фильтрации. Поэтому проект разделяет две задачи: \textbf{создать полезные прямоугольники} и \textbf{хорошо выбрать их сочетание}.
+
+
+\Needspace{5\baselineskip}\subsection{Зачем нужны атомы demand\_fragments}
+
+Ранний GA засчитывал покрытие целой плитки по bbox, округлённому наружу до сеточных индексов. Несеточная baseline-зона могла покрыть только часть плитки, но repair считал её закрытой полностью. Внутренний архив тогда мог вытеснить корректный вариант фиктивно дешёвым, который позднее отклонял независимый валидатор.
+
+
+Первое исправление требовало полного вхождения плитки в bbox — безопасно, но слишком консервативно. Текущее уточнение режет плитки по фактическим границам кандидатных bbox. Внутри каждого полученного прямоугольного фрагмента принадлежность любому кандидату постоянна. Требование фрагмента берётся по пересекающим его полигонам КЭ, а не по центроиду.
+
+
+\begin{figure}[H]\centering
+\definecolor{CB64D43}{HTML}{B64D43}
+\definecolor{C087E8B}{HTML}{087E8B}
+\definecolor{CF3F7FA}{HTML}{F3F7FA}
+\definecolor{CDDE5EA}{HTML}{DDE5EA}
+\definecolor{CCDEBE7}{HTML}{CDEBE7}
+\definecolor{C163042}{HTML}{163042}
+\definecolor{C5B6E7E}{HTML}{5B6E7E}
+\begin{tikzpicture}[x=0.013cm,y=-0.013cm,>=Latex]
+\path[use as bounding box] (0,0) rectangle (1200,335);
+\node[anchor=center,text=CB64D43,inner sep=0pt,font={\sffamily\fontsize{9.5}{11.40}\selectfont\bfseries}] at (315,36) {Ложный зачёт целой плитки};
+\node[anchor=center,text=C087E8B,inner sep=0pt,font={\sffamily\fontsize{9.5}{11.40}\selectfont\bfseries}] at (900,36) {Уточнение по фактической границе};
+\draw[fill=CF3F7FA,draw=CDDE5EA,line width=0.6pt] (80,95) rectangle (550,225);
+\draw[fill=CCDEBE7,draw=C087E8B,line width=0.6pt] (80,95) rectangle (174,225);
+\node[anchor=center,text=C163042,inner sep=0pt,font={\sffamily\fontsize{8.74}{10.49}\selectfont}] at (80,255) {500};
+\node[anchor=center,text=C163042,inner sep=0pt,font={\sffamily\fontsize{8.74}{10.49}\selectfont}] at (174,255) {600};
+\node[anchor=center,text=C163042,inner sep=0pt,font={\sffamily\fontsize{8.74}{10.49}\selectfont}] at (550,255) {1000 мм};
+\draw[fill=CF3F7FA,draw=CDDE5EA,line width=0.6pt] (665,95) rectangle (1135,225);
+\draw[fill=CCDEBE7,draw=C087E8B,line width=0.6pt] (665,95) rectangle (759,225);
+\node[anchor=center,text=C163042,inner sep=0pt,font={\sffamily\fontsize{8.74}{10.49}\selectfont}] at (665,255) {500};
+\node[anchor=center,text=C163042,inner sep=0pt,font={\sffamily\fontsize{8.74}{10.49}\selectfont}] at (759,255) {600};
+\node[anchor=center,text=C163042,inner sep=0pt,font={\sffamily\fontsize{8.74}{10.49}\selectfont}] at (1135,255) {1000 мм};
+\draw[draw=CB64D43,line width=0.56pt,dashed] (174,80) -- (174,228);
+\draw[draw=C087E8B,line width=0.56pt,dashed] (759,80) -- (759,228);
+\node[anchor=center,text=CB64D43,inner sep=0pt,font={\sffamily\fontsize{9.5}{11.40}\selectfont}] at (345,160) {не покрыто};
+\node[anchor=center,text=C5B6E7E,inner sep=0pt,font={\sffamily\fontsize{9.5}{11.40}\selectfont}] at (945,160) {отдельный атом};
+\node[anchor=center,text=C5B6E7E,inner sep=0pt,font={\sffamily\fontsize{9.12}{10.94}\selectfont}] at (600,307) {Контакт с частью плитки не означает покрытия всей её площади.};
+\end{tikzpicture}
+\caption{Учебный контрпример: кандидат заканчивается на 600 мм внутри плитки 500–1000 мм. После разреза он покрывает только левый атом.}\label{fig:04_atoms}
+\end{figure}
+
+Для атома a вводится бинарная матрица достаточного покрытия:
+
+
+\[
+A_{aj}=\begin{cases}
+1,&\text{если }R_j\text{ содержит атом и }k_j\ge q_a,\\
+0,&\text{иначе}.
+\end{cases}
+\]
+
+Геометрические вычисления имеют допуски; окончательное покрытие всё равно проверяется по исходным полигонам. После добавления новых геометрий H7 атомы строятся заново и покрытие всех кандидатов пересчитывается. Старые индексы атомов не переносятся вслепую.
+
+
+При превышении 50 000 атомов происходит явный отказ, а не усечение спроса. {\small\nolinkurl{whole_tiles}} сохранён как контрольный режим; основной — {\small\nolinkurl{demand_fragments}}. {\color{Teal}\small[\hyperlink{S4}{S4}, \hyperlink{S10}{S10}]}
+
+
+\Needspace{5\baselineskip}\subsection{Роль замороженных baseline}
+
+{\small\setlength{\tabcolsep}{4pt}
+\begin{longtable}{@{}L{41.178mm}L{63.351mm}L{53.848mm}@{}}
+\toprule
+\textbf{Семейство} & \textbf{Как строит вариант} & \textbf{Для чего оставлено} \\
+\midrule\endfirsthead
+\toprule
+\textbf{Семейство} & \textbf{Как строит вариант} & \textbf{Для чего оставлено} \\
+\midrule\endhead
+\bottomrule\endfoot
+{\small\nolinkurl{bbox}} & Сильный прямоугольник на весь спрос & Грубая контрольная точка \\
+{\small\nolinkurl{bsp}}, {\small\nolinkurl{greedy-priority}} & Последовательные ортогональные разрезы & Полезные начальные геометрии и контроль \\
+{\small\nolinkurl{greedy}}, {\small\nolinkurl{row-run-greedy}} & Полосы и продольные интервалы & Быстрые ограниченные классы решений \\
+{\small\nolinkurl{strip-profile-dp}} & Динамика по последовательным полосам & Точность внутри своего полосового класса \\
+{\small\nolinkurl{agglomerative}} & Укрупнение локальных групп снизу вверх & Другой источник начальных геометрий \\
+{\small\nolinkurl{spatial-partition-greedy}} & Маска КЭ и жадные слияния пространственных прямоугольников & Контроль пространственного представления и траектория компромиссов \\
+\end{longtable}}
+
+Эти методы не выбрасываются. Но добавление десятого похожего baseline и ручной подбор его коэффициентов не являются текущим приоритетом. Их ценность теперь ещё и в том, что сильные фрагменты разных методов можно перекомбинировать. {\color{Teal}\small[\hyperlink{S2}{S2}, \hyperlink{S4}{S4}]}
+
+
+\Needspace{6\baselineskip}\section{GA, локальный поиск, UCB1 и MILP}
+
+\Needspace{5\baselineskip}\subsection{Что эволюционирует}
+
+Хромосома — подмножество индексов пула:
+
+
+\[
+G\subseteq\{1,\ldots,m\},\qquad
+M(G)=\sum_{j\in G}M_j,\qquad
+C(G)=\sum_{j\in G}c_j,
+\]
+
+где c\_j равно 1 для оси зон и N\_j для оси физических стержней. В Python это {\small\nolinkurl{frozenset[int]}}. Оценки кандидатов получены общим конструктором, но сумма внутренних оценок ещё не заменяет финальную проверку совместно материализованного решения.
+
+
+Стартовая популяция получает варианты пространственных траекторий и baseline. Crossover всегда сохраняет общие гены двух родителей, а каждый из остальных генов их объединения берёт с вероятностью 0,5. Мутации работают только доступными предметными заменами в пуле:
+
+
+{\small\setlength{\tabcolsep}{4pt}
+\begin{longtable}{@{}L{54.804mm}L{106.384mm}@{}}
+\toprule
+\textbf{Оператор} & \textbf{Смысл} \\
+\midrule\endfirsthead
+\toprule
+\textbf{Оператор} & \textbf{Смысл} \\
+\midrule\endhead
+\bottomrule\endfoot
+{\small\nolinkurl{split}} & Заменить крупную зону более мелкими кандидатами \\
+{\small\nolinkurl{merge}} & Заменить несколько зон укрупняющим кандидатом \\
+{\small\nolinkurl{shift}} & Перейти к соседней геометрии из пула \\
+{\small\nolinkurl{change-level}} & Выбрать другую доступную конфигурацию уровня \\
+{\small\nolinkurl{baseline-patch}} & Добавить фрагмент одного из исходных baseline \\
+\end{longtable}}
+
+После изменений repair закрывает пропущенные атомы, удаляет избыточные гены и пытается уложиться в лимит зон. Важное уточнение по коду: при заполнении покрытия ранжируется отношение массы к числу новых атомов, затем \textbf{случайно выбирается один из четырёх лучших}. Поэтому repair воспроизводим при фиксированном seed, но не является полностью детерминированным независимо от генератора случайных чисел. Инженерные формулы и финальная проверка детерминированы.
+
+
+Внешний application-слой задаёт для непустой задачи лимит от 1 до общего числа входных КЭ. Это принятая граница текущего контракта, а не доказательство универсального геометрического максимума. Прямой вызов GA без {\small\nolinkurl{request.max_details}} всё ещё имеет внутренний fallback 32; для воспроизведения штатного сценария нужен application-слой либо явный лимит. {\color{Teal}\small[\hyperlink{S10}{S10}]}
+
+
+\Needspace{5\baselineskip}\subsection{Отбор и локальное улучшение}
+
+NSGA-II-подобный отбор сначала ранжирует особи по недоминируемым слоям, затем использует crowding distance: предпочитает варианты в менее заполненных участках фронта. Это сохраняет разнообразие компромиссов вместо единственного минимума массы.
+
+
+После эволюции до четырёх проходов локального поиска проверяют замены одной зоной нескольких выбранных. Принимаются изменения, не увеличивающие массу и выбранную сложность и строго улучшающие хотя бы одно из них. Локальный поиск не выходит за имеющийся пул. Его проверки — отдельный расход бюджета.
+
+
+Исходные родители локальных и MILP-предложений сохраняются до hard-validation. Внутренний эволюционный архив, однако, остаётся архивом по внутренним метрикам: нельзя объявлять каждое его промежуточное состояние независимым сертификатом допустимости или монотонного роста hard-valid HV.
+
+
+Упрощённая схема реального порядка:
+
+
+\begin{Verbatim}[fontsize=\scriptsize,frame=single,rulecolor=\color{gray!30},framesep=8pt]
+problem -> candidate pool -> optional geometry recombination
+        -> population -> crossover / mutation / repair / selection
+        -> local proposals + parents
+        -> optional MILP proposals + parents
+        -> materialize / phase / independent hard validation
+        -> direction Pareto -> plate Pareto
+\end{Verbatim}
+
+\Needspace{5\baselineskip}\subsection{Что именно обучается в UCB1}
+
+UCB1 выбирает следующий оператор среди доступных. После первоначальной пробы каждого оператора используется:
+
+
+\[
+o_t=\arg\max_o\left(\overline r_o+
+\beta\sqrt{\frac{\ln T}{n_o}}\right),\qquad \beta=\sqrt 2\text{ по умолчанию}.
+\]
+
+Первое слагаемое — средняя полезность оператора; второе заставляет пробовать недостаточно исследованные операторы. T — суммарное число учтённых попыток, n\_o — число попыток оператора. Равенства разрешаются генератором случайных чисел с заданным seed.
+
+
+Reward ограничен интервалом [−1,1]. Для изменённого генома код суммирует относительный выигрыш массы, относительный выигрыш сложности, бонус/штраф доминирования ±0,5 и бонус/штраф новизны ±0,05. Неизменившийся геном получает −0,25:
+
+
+\[
+r=\operatorname{clip}_{[-1,1]}\left(
+\frac{M_p-M_c}{\max(M_p,1)}+
+\frac{C_p-C_c}{\max(C_p,1)}+b_{\mathrm{dom}}+b_{\mathrm{nov}}
+\right).
+\]
+
+Обучение идёт внутри одного запуска и начинается заново в следующем. Инженерский PDF не входит в reward. Результаты внешнего MILP также не приписываются мутации. Это адаптивный выбор фиксированных действий, а не нейросеть, обученная проектировать арматуру.
+
+
+{\small\nolinkurl{uniform}} выбирает те же доступные операторы равновероятно. Его обязательно сохранять как контроль: наличие обучения ещё не доказывает выигрыш качества. {\color{Teal}\small[\hyperlink{S3}{S3}, \hyperlink{S10}{S10}]}
+
+
+\Needspace{5\baselineskip}\subsection{Конечная MILP-модель H6}
+
+Введём x\_j=1, если кандидат выбран. При фиксированных атомах и рассчитанных стоимостях получаем бинарное взвешенное покрытие:
+
+
+\[
+\begin{aligned}
+\min_x\quad &\sum_{j=1}^{m}M_jx_j,\\
+\text{при}\quad &\sum_{j=1}^{m}A_{aj}x_j\ge1&&\forall a,\\
+&\sum_{j=1}^{m}x_j\le Z_{\max},\\
+&\sum_{j=1}^{m}c_jx_j\le K&&\text{для выбранного бюджета},\\
+&x_j\in\{0,1\}&&j=1,\ldots,m.
+\end{aligned}
+\]
+
+Решатель — {\small\nolinkurl{scipy.optimize.milp}} / HiGHS. Это линейная модель, поскольку геометрия каждого столбца уже фиксирована. Шаг, округление ширины и анкеровка вычислены до MILP. Произвольные координаты и 3D-взаимодействия не становятся переменными этой задачи.
+
+
+До шести вызовов ищут минимум массы, минимум сложности, массу при минимуме сложности и промежуточные бюджеты K. По умолчанию на все вызовы вместе выделяется 10 секунд \textbf{на направление}. Материализация и обязательная проверка происходят дополнительно; это не обещание решить целую плиту за 10 секунд.
+
+
+При остановке по времени можно принять только целочисленный допустимый incumbent, который потом проходит общую проверку. Отсутствие incumbent не означает недопустимость задачи. Нулевой MIP gap относится к конечной модели A, а не ко всем возможным раскладкам и не к физической пригодности.
+
+
+\Needspace{5\baselineskip}\subsection{Что добавляет H7}
+
+H7 перед поиском расширяет геометрии: для близких кандидатов одного уровня предлагает общий охватывающий прямоугольник и продления продольных интервалов. В исследуемом профиле — до 1500 новых вариантов на направление. Ранжирование использует массу на площадь обслуживаемого достаточного спроса.
+
+
+После расширения переопределяются атомы, затем выполняются GA, локальный поиск и конечный MILP. Старые baseline-геометрии сохраняются; весь прежний стохастический фронт при изменившемся пуле автоматически не гарантируется.
+
+
+H6 отвечает на вопрос «плохо ли мы выбираем уже имеющиеся зоны?». H7 дополнительно отвечает на вопрос «не хватает ли полезных геометрий?». Это позволяет отделить причину выигрыша от красивого названия алгоритма. {\color{Teal}\small[\hyperlink{S5}{S5}]}
+
+
+\Needspace{6\baselineskip}\section{Где действительно есть ML предпочтений}
+
+У проекта 15 четырёхнаправленных входов, но 11 независимых объединённых инженерских выдач. Для пяти удалось повторно извлечь числовые спецификации; шесть старых PDF требуют OCR или ручной транскрипции. Ни в одной выдаче не размечена «Точка 3». Четыре направления одной плиты и сотни её стержней нельзя считать независимыми обучающими проектами. {\color{Teal}\small[\hyperlink{S8}{S8}, \hyperlink{S9}{S9}]}
+
+
+Первый эксперимент использует три совместимых фронта. Слабая целевая точка — ближайшая к инженерским массе и числу стержней:
+
+
+\[
+D_p(S)=\tfrac12\frac{|M(S)-M_p^{\mathrm{eng}}|}{M_p^{\mathrm{eng}}}
++\tfrac12\frac{|B(S)-B_p^{\mathrm{eng}}|}{B_p^{\mathrm{eng}}},
+\qquad S_p^*=\arg\min_{S\in F_p}D_p(S).
+\]
+
+Затем один вес α ранжирует новый фронт без знания его инженерской метки:
+
+
+\[
+\operatorname{score}_\alpha(S)=\alpha\widetilde M(S)+(1-\alpha)\widetilde B(S),
+\qquad \widetilde M=\frac{M-M_{\min}}{M_{\max}-M_{\min}}.
+\]
+
+Для B нормализация аналогична; при нулевом размахе нормированное значение равно нулю. Веса перебираются по 101 точке от 0 до 1. Минимизируется средний regret — превышение расстояния D выбранного варианта над расстоянием лучшей доступной слабой цели. При равном regret код предпочитает вес ближе к 0,5.
+
+
+Обучение проверялось leave-one-project-out: целая плита исключалась из обучения. Глобальный вес по всем трём — α=0,75; в отдельных folds получились 0,72, 0,75 и 0,75. Результаты: top-1 2/3, top-3 3/3, средний regret 0,00418. У top-1 отложенной плиты нуля масса оказалась выше инженерской на 20,16\%, поэтому порог массы прошли только 2/3 рекомендаций.
+
+
+\textbf{Как интерпретировать.} Top-3 означает попадание в нами определённую слабую цель среди доступных вариантов. Это не три из трёх одобренных инженером раскладок, не геометрическое совпадение и не проверка на трёх новых строительных площадках. Эксперимент проведён на ранних фронтах, не на H7; перенос веса на новые фронты без новой проверки не доказан. {\color{Teal}\small[\hyperlink{S9}{S9}]}
+
+
+\Needspace{6\baselineskip}\section{Что показали эксперименты}
+
+\Needspace{5\baselineskip}\subsection{Правила чтения результатов}
+
+Результаты ниже извлечены из существующих локальных отчётов и сверены с исследовательскими журналами. В ходе подготовки этого документа длинные GA-серии заново не запускались. Проверены арифметика, ключевые агрегаты, полнота oracle-сводки и совпадение SHA256 файлов с записанными источниками трёх сравнений H5→H7.
+
+
+Различаем три типа чисел: пример для объяснения формулы; результат алгоритма относительно предыдущей версии; отклонение от инженерской спецификации. Только второй тип позволяет при одинаковых правилах оценить вклад конкретного изменения. Совпадение массы с PDF не доказывает совпадение геометрии или инженерной допустимости.
+
+
+Порог отчёта по массе реализован односторонне:
+
+
+\[
+\Delta_M=100\frac{M-M_{\mathrm{eng}}}{M_{\mathrm{eng}}},\qquad
+g_M=\max(0,\Delta_M-15).
+\]
+
+Отчёт проходит этот критерий при ΔM≤15\%. Это не проверка абсолютного отклонения |ΔM|≤15\%. Поэтому значение −30\% тоже формально проходит программный порог, но требует отдельного объяснения сопоставимости и физических ограничений. Не следует выдавать этот флаг за полную инженерную приёмку. {\color{Teal}\small[\hyperlink{S3}{S3}, \hyperlink{S10}{S10}]}
+
+
+\Needspace{5\baselineskip}\subsection{Инженерские числовые ориентиры}
+
+{\small\setlength{\tabcolsep}{4pt}
+\begin{longtable}{@{}L{52.892mm}L{35.780mm}L{35.780mm}L{31.113mm}@{}}
+\toprule
+\textbf{Выдача} & \textbf{Позиций} & \textbf{Физических стержней} & \textbf{Масса, кг} \\
+\midrule\endfirsthead
+\toprule
+\textbf{Выдача} & \textbf{Позиций} & \textbf{Физических стержней} & \textbf{Масса, кг} \\
+\midrule\endhead
+\bottomrule\endfoot
+Фундаментная плита & 146 & 1357 & 21 012,87 \\
+Плита над −2 & 51 & 856 & 3260,62 \\
+Плита нуля & 79 & 1019 & 3177,64 \\
+Плита над 1 & 78 & 880 & 1705,12 \\
+Типовая над 3–14 & 74 & 1227 & 2878,76 \\
+\end{longtable}}
+
+Это суммы релевантных спецификаций дополнительного продольного армирования. Фундамент содержит особые формы вне прямоугольного MVP. Типовая выдача одна на входы 3-го и 9-го этажей; сравнение входа только 3-го этажа с общей типовой выдачей не удостоверяет тождество всех проектных предпосылок. Геометрия инженерских зон автоматически не извлечена. {\color{Teal}\small[\hyperlink{S8}{S8}, \hyperlink{S9}{S9}]}
+
+
+\Needspace{5\baselineskip}\subsection{Ранний GA и uniform против UCB1}
+
+Исторический smoke плиты нуля: p8/g5/seed42, 4413,10 кг, 1871 стержень, +38,88\% массы к PDF. Затем добавление осевого представления, сильных baseline-геометрий и предметных операторов привело к 3424,34 кг, 1319 стержням и 179 зонам в коротких сериях. Это история нескольких изменений, а не чистый A/B одного параметра.
+
+
+Равнобюджетное сравнение политик на плите нуля: p8/g3, seed 7/17/42, ось физических стержней:
+
+
+{\small\setlength{\tabcolsep}{4pt}
+\begin{longtable}{@{}L{52.892mm}L{35.780mm}L{35.780mm}L{31.113mm}@{}}
+\toprule
+\textbf{Политика} & \textbf{Минимум массы по seed} & \textbf{Медиана HV} & \textbf{Худший HV} \\
+\midrule\endfirsthead
+\toprule
+\textbf{Политика} & \textbf{Минимум массы по seed} & \textbf{Медиана HV} & \textbf{Худший HV} \\
+\midrule\endhead
+\bottomrule\endfoot
+uniform & 3424,34 кг & 0,67431 & 0,58011 \\
+UCB1 & 3424,34 кг & 0,67417 & 0,61371 \\
+\end{longtable}}
+
+Обе политики дали ноль недоармированных КЭ в принятом выходе и 3/3 прохождения массового порога. Медианы практически равны. Более высокий худший HV UCB1 в трёх запусках не доказывает универсальное превосходство. Эти HV сравнимы внутри той серии; их нельзя вычитать из HV других отчётов с иной нормализацией. {\color{Teal}\small[\hyperlink{S3}{S3}]}
+
+
+Ранние переносы на три плиты дали массы 3424,34; 3304,95; 3026,58 кг и избыток стержней +29,44\%; +46,26\%; +22,25\% к соответствующим PDF. Они объяснили необходимость второй цели. Эти числа относятся к старой версии эксперимента, а не к текущему H7.
+
+
+\Needspace{5\baselineskip}\subsection{Почему «просто больше поколений» не сработало}
+
+В H1 число поколений плиты нуля подняли с 3 до 12: p8, три seed, две политики, всего 12 запусков. Во всех случаях минимум остался 3424,337855 кг; в четырёх из шести пар HV ухудшился. Это привело к исследованию пула и внутреннего архива.
+
+
+H4 обнаружил ложное покрытие частичных плиток. На нижнем X старый архив содержал 5 недопустимых вариантов из 11 при трёх поколениях и 10 из 19 при двенадцати. Ноль внешних direction-rejections скрывал факт более ранних внутренних отбраковок. Общий hard-валидатор не пропускал эти решения на выход, но они ухудшали поиск, вытесняя полезные варианты.
+
+
+H5 уточнил атомы и добавил проверенный локальный поиск. В 14 парных сравнениях на трёх комплектах четыре локальных прохода улучшили minimum mass и HV. На плите нуля итог — 3293,42–3319,01 кг и 1295–1302 стержня; число зон 178–182 не уменьшилось во всех запусках. Четыре прохода включены по умолчанию, но затраты на них учитываются отдельно. {\color{Teal}\small[\hyperlink{S4}{S4}]}
+
+
+\Needspace{5\baselineskip}\subsection{Два разных oracle}
+
+\textbf{Oracle выбора внутри пула.} Независимый перебор малых подмножеств не использует GA repair или его отбор, но использует общую детализацию и hard-валидатор. Финальная серия: 14 направленных задач × 3 seed × 2 политики × 2 оси = 168 запусков. Везде полный конечный фронт восстановлен, gap равен нулю, недостигнутых бюджетов нет.
+
+
+По умолчанию oracle отклоняет задачу при более чем 24 кандидатах или 100 000 подмножеств. Неполный перебор не считается сертификатом. Если GA не достиг допустимого бюджета K, gap записывается как отсутствующий, а не нулевой.
+
+
+\textbf{Oracle геометрического пула.} На 320 непустых масках 2×2 и 1×4 с уровнями 0/1/2 в X/Y сравнили исходный пул с пулом, дополненным всеми допустимыми сеточными bbox и уровнями. Минимум массы совпал во всех случаях, но \textbf{17 фронтов теряли компромиссы при ограничении числа зон}. Расширение {\small\nolinkurl{layered}} устранило эти расхождения на этой серии; в defaults оно не включено.
+
+
+Проверяемая при бюджете K величина:
+
+
+\[
+\operatorname{gap}(K)=100\frac{M_{\mathrm{GA}}(K)-M_{\mathrm{oracle}}(K)}{M_{\mathrm{oracle}}(K)}.
+\]
+
+Нулевой gap на малых пулах подтверждает качество поиска в этих пулах. Он не доказывает полноту реального CandidateSet, произвольную геометрию или физическую пригодность. Синтетические oracle используют минимальную ширину 1 КЭ: это отдельные тестовые задачи, не замена правила 2–3 КЭ для реальных запусков. {\color{Teal}\small[\hyperlink{S3}{S3}, \hyperlink{S4}{S4}]}
+
+
+\Needspace{5\baselineskip}\subsection{H6: потери были и внутри прежнего пула}
+
+Для плиты нуля, seed 7/uniform, H5 имел массу 3309,71 кг. MILP на \textbf{тех же геометриях} нашёл hard-valid 3205,34 кг. По четырём направлениям конечный integer gap был нулевым.
+
+
+{\small\setlength{\tabcolsep}{4pt}
+\begin{longtable}{@{}L{41.178mm}L{63.351mm}L{53.848mm}@{}}
+\toprule
+\textbf{Направление} & \textbf{GA H5, кг} & \textbf{Конечная модель H6, кг} \\
+\midrule\endfirsthead
+\toprule
+\textbf{Направление} & \textbf{GA H5, кг} & \textbf{Конечная модель H6, кг} \\
+\midrule\endhead
+\bottomrule\endfoot
+Нижнее X & 734,12 & 719,38 \\
+Нижнее Y & 672,77 & 639,97 \\
+Верхнее X & 1047,25 & 1016,66 \\
+Верхнее Y & 855,57 & 829,33 \\
+Полная плита & 3309,71 & 3205,34 \\
+\end{longtable}}
+
+Вывод: одинаковый минимум на нескольких seed не доказывает, что существующий пул уже исчерпан. Улучшение выбора подмножества дало резерв ещё до расширения геометрии. Сертификат относится только к конечной модели и её проверенному решению. {\color{Teal}\small[\hyperlink{S5}{S5}]}
+
+
+\Needspace{5\baselineskip}\subsection{H7: основные результаты для защиты}
+
+Во всех девяти парах H5→H7 использованы uniform, p8/g3, ось физических стержней и seed 7/17/42. H5 уже включает {\small\nolinkurl{demand_fragments}} и local=4. H7 добавляет recombination=1500 и до шести MILP при общем лимите 10 секунд на направление.
+
+
+{\small\setlength{\tabcolsep}{4pt}
+\begin{longtable}{@{}L{52.892mm}L{35.780mm}L{35.780mm}L{31.113mm}@{}}
+\toprule
+\textbf{Комплект} & \textbf{H5: минимум массы, кг} & \textbf{H7: минимум массы, кг} & \textbf{Парное снижение} \\
+\midrule\endfirsthead
+\toprule
+\textbf{Комплект} & \textbf{H5: минимум массы, кг} & \textbf{H7: минимум массы, кг} & \textbf{Парное снижение} \\
+\midrule\endhead
+\bottomrule\endfoot
+Плита нуля & 3293,42–3319,01 & 3149,91–3153,38 & 4,25–5,09\% \\
+Над −2 & 3214,89–3265,09 & 3012,59–3021,04 & 6,11–7,73\% \\
+Над 3 & 2086,72–2089,41 & 1997,10–1997,95 & 4,25–4,42\% \\
+\end{longtable}}
+
+Проценты рассчитаны по парным seed. Вычитание крайних значений двух диапазонов дало бы другую и некорректную для этого сравнения оценку.
+
+
+\begin{figure}[H]\centering
+\definecolor{CDDE5EA}{HTML}{DDE5EA}
+\definecolor{C5B6E7E}{HTML}{5B6E7E}
+\definecolor{C163042}{HTML}{163042}
+\definecolor{C087E8B}{HTML}{087E8B}
+\definecolor{C386CB0}{HTML}{386CB0}
+\definecolor{CD47732}{HTML}{D47732}
+\begin{tikzpicture}[x=0.013cm,y=-0.013cm,>=Latex]
+\path[use as bounding box] (0,0) rectangle (1200,495);
+\draw[draw=CDDE5EA,line width=0.28pt] (95,375.0) -- (1155,375.0);
+\node[anchor=east,text=C5B6E7E,inner sep=0pt,font={\sffamily\fontsize{8.74}{10.49}\selectfont}] at (77,375.0) {0\%};
+\draw[draw=CDDE5EA,line width=0.28pt] (95,308.33333333333337) -- (1155,308.33333333333337);
+\node[anchor=east,text=C5B6E7E,inner sep=0pt,font={\sffamily\fontsize{8.74}{10.49}\selectfont}] at (77,308.33333333333337) {2\%};
+\draw[draw=CDDE5EA,line width=0.28pt] (95,241.66666666666669) -- (1155,241.66666666666669);
+\node[anchor=east,text=C5B6E7E,inner sep=0pt,font={\sffamily\fontsize{8.74}{10.49}\selectfont}] at (77,241.66666666666669) {4\%};
+\draw[draw=CDDE5EA,line width=0.28pt] (95,175.0) -- (1155,175.0);
+\node[anchor=east,text=C5B6E7E,inner sep=0pt,font={\sffamily\fontsize{8.74}{10.49}\selectfont}] at (77,175.0) {6\%};
+\draw[draw=CDDE5EA,line width=0.28pt] (95,108.33333333333337) -- (1155,108.33333333333337);
+\node[anchor=east,text=C5B6E7E,inner sep=0pt,font={\sffamily\fontsize{8.74}{10.49}\selectfont}] at (77,108.33333333333337) {8\%};
+\node[anchor=center,text=C163042,inner sep=0pt,font={\sffamily\fontsize{10.26}{12.31}\selectfont\bfseries}] at (600,25) {Снижение минимальной массы относительно H5};
+\draw[fill=C087E8B,draw=C087E8B,line width=0.6pt] (135,217.56023765027393) rectangle (189,375.0);
+\node[anchor=center,text=C087E8B,inner sep=0pt,font={\sffamily\fontsize{8.36}{10.03}\selectfont\bfseries}] at (162,199.56023765027393) {4,72};
+\node[anchor=center,text=C5B6E7E,inner sep=0pt,font={\sffamily\fontsize{7.98}{9.58}\selectfont}] at (162,400) {7};
+\draw[fill=C087E8B,draw=C087E8B,line width=0.6pt] (220,233.270322242497) rectangle (274,375.0);
+\node[anchor=center,text=C087E8B,inner sep=0pt,font={\sffamily\fontsize{8.36}{10.03}\selectfont\bfseries}] at (247,215.270322242497) {4,25};
+\node[anchor=center,text=C5B6E7E,inner sep=0pt,font={\sffamily\fontsize{7.98}{9.58}\selectfont}] at (247,400) {17};
+\draw[fill=C087E8B,draw=C087E8B,line width=0.6pt] (305,205.16799427572693) rectangle (359,375.0);
+\node[anchor=center,text=C087E8B,inner sep=0pt,font={\sffamily\fontsize{8.36}{10.03}\selectfont\bfseries}] at (332,187.16799427572693) {5,09};
+\node[anchor=center,text=C5B6E7E,inner sep=0pt,font={\sffamily\fontsize{7.98}{9.58}\selectfont}] at (332,400) {42};
+\node[anchor=center,text=C163042,inner sep=0pt,font={\sffamily\fontsize{9.5}{11.40}\selectfont\bfseries}] at (250,444) {Плита нуля};
+\draw[fill=C386CB0,draw=C386CB0,line width=0.6pt] (490,117.21943842448292) rectangle (544,375.0);
+\node[anchor=center,text=C386CB0,inner sep=0pt,font={\sffamily\fontsize{8.36}{10.03}\selectfont\bfseries}] at (517,99.21943842448292) {7,73};
+\node[anchor=center,text=C5B6E7E,inner sep=0pt,font={\sffamily\fontsize{7.98}{9.58}\selectfont}] at (517,400) {7};
+\draw[fill=C386CB0,draw=C386CB0,line width=0.6pt] (575,151.24121684860305) rectangle (629,375.0);
+\node[anchor=center,text=C386CB0,inner sep=0pt,font={\sffamily\fontsize{8.36}{10.03}\selectfont\bfseries}] at (602,133.24121684860305) {6,71};
+\node[anchor=center,text=C5B6E7E,inner sep=0pt,font={\sffamily\fontsize{7.98}{9.58}\selectfont}] at (602,400) {17};
+\draw[fill=C386CB0,draw=C386CB0,line width=0.6pt] (660,171.33369836550827) rectangle (714,375.0);
+\node[anchor=center,text=C386CB0,inner sep=0pt,font={\sffamily\fontsize{8.36}{10.03}\selectfont\bfseries}] at (687,153.33369836550827) {6,11};
+\node[anchor=center,text=C5B6E7E,inner sep=0pt,font={\sffamily\fontsize{7.98}{9.58}\selectfont}] at (687,400) {42};
+\node[anchor=center,text=C163042,inner sep=0pt,font={\sffamily\fontsize{9.5}{11.40}\selectfont\bfseries}] at (605,444) {Над −2};
+\draw[fill=CD47732,draw=CD47732,line width=0.6pt] (845,229.08751257300383) rectangle (899,375.0);
+\node[anchor=center,text=CD47732,inner sep=0pt,font={\sffamily\fontsize{8.36}{10.03}\selectfont\bfseries}] at (872,211.08751257300383) {4,38};
+\node[anchor=center,text=C5B6E7E,inner sep=0pt,font={\sffamily\fontsize{7.98}{9.58}\selectfont}] at (872,400) {7};
+\draw[fill=CD47732,draw=CD47732,line width=0.6pt] (930,227.735091237492) rectangle (984,375.0);
+\node[anchor=center,text=CD47732,inner sep=0pt,font={\sffamily\fontsize{8.36}{10.03}\selectfont\bfseries}] at (957,209.735091237492) {4,42};
+\node[anchor=center,text=C5B6E7E,inner sep=0pt,font={\sffamily\fontsize{7.98}{9.58}\selectfont}] at (957,400) {17};
+\draw[fill=CD47732,draw=CD47732,line width=0.6pt] (1015,233.1987919165643) rectangle (1069,375.0);
+\node[anchor=center,text=CD47732,inner sep=0pt,font={\sffamily\fontsize{8.36}{10.03}\selectfont\bfseries}] at (1042,215.1987919165643) {4,25};
+\node[anchor=center,text=C5B6E7E,inner sep=0pt,font={\sffamily\fontsize{7.98}{9.58}\selectfont}] at (1042,400) {42};
+\node[anchor=center,text=C163042,inner sep=0pt,font={\sffamily\fontsize{9.5}{11.40}\selectfont\bfseries}] at (960,444) {Над 3};
+\node[anchor=center,text=C5B6E7E,inner sep=0pt,font={\sffamily\fontsize{8.36}{10.03}\selectfont}] at (600,477) {Под столбцами — seed 7 / 17 / 42. Три комплекта, девять запусков.};
+\end{tikzpicture}
+\caption{Снижение минимальной массы H7 относительно H5 в девяти парных запусках. Каждая колонка соответствует одному seed одного комплекта.}\label{fig:06_hybrid_gain}
+\end{figure}
+
+Вторая оценка: для каждого seed взять минимум массы H5 как потолок, а на фронте H7 выбрать вариант с наименьшим числом стержней под этим потолком:
+
+
+\[
+S_{\mathrm{H7}}^{\mathrm{budget}}\in\arg\min_{S\in F_{\mathrm{H7}}}B(S)
+\quad\text{при}\quad M(S)\le\min_{T\in F_{\mathrm{H5}}}M(T).
+\]
+
+{\small\setlength{\tabcolsep}{4pt}
+\begin{longtable}{@{}L{41.178mm}L{63.351mm}L{53.848mm}@{}}
+\toprule
+\textbf{Комплект} & \textbf{Снижение стержней при прежней массе} & \textbf{Снижение зон в той же точке} \\
+\midrule\endfirsthead
+\toprule
+\textbf{Комплект} & \textbf{Снижение стержней при прежней массе} & \textbf{Снижение зон в той же точке} \\
+\midrule\endhead
+\bottomrule\endfoot
+Плита нуля & 14,98–19,38\% & 20,44–24,16\% \\
+Над −2 & 17,51–21,81\% & 25,45–31,25\% \\
+Над 3 & 13,47–15,17\% & 21,29–24,75\% \\
+\end{longtable}}
+
+\textbf{Две таблицы относятся к разным точкам фронта.} Нельзя собрать минимальную массу из первой и минимальное число стержней из второй в один вымышленный результат.
+
+
+Полезный конкретный пример — плита нуля, seed 7:
+
+
+{\small\setlength{\tabcolsep}{4pt}
+\begin{longtable}{@{}L{52.892mm}L{35.780mm}L{35.780mm}L{31.113mm}@{}}
+\toprule
+\textbf{Вариант} & \textbf{Масса, кг} & \textbf{Стержней} & \textbf{Зон} \\
+\midrule\endfirsthead
+\toprule
+\textbf{Вариант} & \textbf{Масса, кг} & \textbf{Стержней} & \textbf{Зон} \\
+\midrule\endhead
+\bottomrule\endfoot
+H5, минимум массы & 3309,71 & 1295 & 178 \\
+H6, минимум массы & 3205,34 & 1273 & 173 \\
+H7, минимум массы & 3153,38 & 1244 & 171 \\
+H7, меньше стержней при массе ≤ H5 & 3306,11 & 1044 & 135 \\
+Инженерский PDF & 3177,64 & 1019 & не извлечено \\
+\end{longtable}}
+
+Последний H7-вариант уменьшает число стержней на 19,38\%, зон на 24,16\% и массу на 3,60 кг относительно H5. Относительно инженера он имеет +4,04\% массы и +2,45\% стержней. Это понятный компромисс для обсуждения, а не автоматически найденная «Точка 3».
+
+
+\begin{figure}[H]\centering
+\begin{tikzpicture}
+\begin{groupplot}[group style={group size=2 by 1,horizontal sep=1.5cm},width=7.25cm,height=6.5cm,
+ xlabel={Стержни, шт.},ylabel={Масса, кг},tick label style={font=\scriptsize},label style={font=\small},
+ title style={font=\small\bfseries},grid=major,grid style={gray!20},scaled ticks=false,
+ /pgf/number format/1000 sep={\,},legend style={font=\scriptsize,draw=none},
+ legend columns=3,legend to name=paretolegend]
+\nextgroupplot[title={Полный диапазон},xmin=590,xmax=1350,ymin=2900,ymax=9500,xtick={600,800,1000,1200}]
+\addplot[Blue,thick,const plot,mark=*,mark size=0.8pt] coordinates {(778,8504.78813487) (780,8412.04360895) (781,8202.69620735) (783,8109.95168143) (799,8051.16227921) (801,7958.41775329) (802,7749.07035169) (804,7656.32582577) (812,7595.34316769) (824,7503.76002695) (826,7411.01550104) (831,7234.46183794) (833,7141.71731203) (845,7050.13417129) (847,6957.38964537) (855,6896.40698730) (873,6800.13664127) (874,6535.52565755) (876,6442.78113163) (896,6421.48547330) (902,6364.10870888) (904,6271.36418297) (914,6268.07787737) (916,6179.78104223) (918,6087.03651631) (920,6061.15988934) (931,5930.26613392) (933,5837.52160801) (945,5665.17252849) (947,5572.42800257) (962,5568.79496211) (967,5551.13234424) (973,5495.94093725) (974,5231.32995353) (976,5138.58542761) (991,5054.18644837) (1011,5032.89079004) (1014,4963.88217335) (1028,4942.75859735) (1029,4879.48319411) (1047,4798.40257201) (1050,4767.56451249) (1052,4741.68788552) (1055,4601.66054831) (1057,4508.91602240) (1072,4424.51704315) (1076,4364.55999705) (1077,4345.70052467) (1079,4252.95599875) (1087,4243.04183791) (1089,4150.29731200) (1104,4146.66427154) (1106,3911.85794971) (1108,3819.11342379) (1116,3809.19926296) (1118,3716.45473704) (1133,3632.05575780) (1153,3610.76009947) (1163,3567.69970186) (1180,3564.53026225) (1186,3556.60555301) (1192,3520.79835756) (1195,3508.43971603) (1215,3487.14405770) (1225,3444.08366009) (1232,3440.88706858) (1233,3433.32464217) (1254,3397.18231579) (1280,3394.10757964) (1283,3375.81978516) (1285,3365.43686380) (1286,3357.87443738) (1294,3317.27102681) (1295,3309.70860040)};
+\addlegendentry{H5}
+\addplot[Teal,thick,const plot,mark=*,mark size=0.8pt] coordinates {(626,7208.21606431) (644,6910.82922764) (661,6786.43101959) (666,6174.63821080) (679,5985.78180325) (684,5877.25137413) (697,5688.39496658) (714,5563.99675853) (719,4952.20394974) (737,4654.81711307) (754,4530.41890502) (762,4507.79649124) (773,4463.45704808) (778,4383.62802501) (780,4210.40965457) (797,4086.01144652) (816,4019.04958958) (821,3939.22056651) (838,3814.82235846) (857,3747.86050152) (875,3731.92781943) (878,3695.10829401) (882,3689.26007913) (897,3628.14643707) (901,3622.29822219) (915,3612.21375498) (919,3576.48544939) (922,3569.54601467) (938,3509.52359245) (941,3502.58415773) (956,3493.59091036) (959,3486.65147564) (963,3450.92317006) (982,3383.96131312) (1000,3368.02863103) (1022,3347.07108071) (1026,3322.04347672) (1044,3306.11079463) (1066,3285.15324431) (1084,3269.22056222) (1117,3263.09928363) (1127,3258.31402714) (1139,3242.14173331) (1143,3217.11412932) (1161,3201.18144723) (1183,3180.22389691) (1201,3164.29121482) (1244,3153.38467975)};
+\addlegendentry{H7}
+\addplot[Orange,only marks,mark=o,mark size=3pt,thick] coordinates {(1019,3177.64)};
+\addlegendentry{PDF инженера}
+\nextgroupplot[title={Область малой массы},xmin=1000,xmax=1325,ymin=3050,ymax=3850,xtick={1000,1100,1200,1300}]
+\addplot[Blue,thick,const plot,mark=*,mark size=1pt] coordinates {(778,8504.78813487) (780,8412.04360895) (781,8202.69620735) (783,8109.95168143) (799,8051.16227921) (801,7958.41775329) (802,7749.07035169) (804,7656.32582577) (812,7595.34316769) (824,7503.76002695) (826,7411.01550104) (831,7234.46183794) (833,7141.71731203) (845,7050.13417129) (847,6957.38964537) (855,6896.40698730) (873,6800.13664127) (874,6535.52565755) (876,6442.78113163) (896,6421.48547330) (902,6364.10870888) (904,6271.36418297) (914,6268.07787737) (916,6179.78104223) (918,6087.03651631) (920,6061.15988934) (931,5930.26613392) (933,5837.52160801) (945,5665.17252849) (947,5572.42800257) (962,5568.79496211) (967,5551.13234424) (973,5495.94093725) (974,5231.32995353) (976,5138.58542761) (991,5054.18644837) (1011,5032.89079004) (1014,4963.88217335) (1028,4942.75859735) (1029,4879.48319411) (1047,4798.40257201) (1050,4767.56451249) (1052,4741.68788552) (1055,4601.66054831) (1057,4508.91602240) (1072,4424.51704315) (1076,4364.55999705) (1077,4345.70052467) (1079,4252.95599875) (1087,4243.04183791) (1089,4150.29731200) (1104,4146.66427154) (1106,3911.85794971) (1108,3819.11342379) (1116,3809.19926296) (1118,3716.45473704) (1133,3632.05575780) (1153,3610.76009947) (1163,3567.69970186) (1180,3564.53026225) (1186,3556.60555301) (1192,3520.79835756) (1195,3508.43971603) (1215,3487.14405770) (1225,3444.08366009) (1232,3440.88706858) (1233,3433.32464217) (1254,3397.18231579) (1280,3394.10757964) (1283,3375.81978516) (1285,3365.43686380) (1286,3357.87443738) (1294,3317.27102681) (1295,3309.70860040)};
+\addplot[Teal,thick,const plot,mark=*,mark size=1pt] coordinates {(626,7208.21606431) (644,6910.82922764) (661,6786.43101959) (666,6174.63821080) (679,5985.78180325) (684,5877.25137413) (697,5688.39496658) (714,5563.99675853) (719,4952.20394974) (737,4654.81711307) (754,4530.41890502) (762,4507.79649124) (773,4463.45704808) (778,4383.62802501) (780,4210.40965457) (797,4086.01144652) (816,4019.04958958) (821,3939.22056651) (838,3814.82235846) (857,3747.86050152) (875,3731.92781943) (878,3695.10829401) (882,3689.26007913) (897,3628.14643707) (901,3622.29822219) (915,3612.21375498) (919,3576.48544939) (922,3569.54601467) (938,3509.52359245) (941,3502.58415773) (956,3493.59091036) (959,3486.65147564) (963,3450.92317006) (982,3383.96131312) (1000,3368.02863103) (1022,3347.07108071) (1026,3322.04347672) (1044,3306.11079463) (1066,3285.15324431) (1084,3269.22056222) (1117,3263.09928363) (1127,3258.31402714) (1139,3242.14173331) (1143,3217.11412932) (1161,3201.18144723) (1183,3180.22389691) (1201,3164.29121482) (1244,3153.38467975)};
+\addplot[Orange,only marks,mark=o,mark size=3pt,thick] coordinates {(1019,3177.64)};
+\addplot[Teal,only marks,mark=*,mark size=2.5pt] coordinates {(1044,3306.11079462709)};
+\node[anchor=west,font=\scriptsize,text=Teal] at (axis cs:1050,3340) {1044 / 3306 кг};
+\end{groupplot}
+\end{tikzpicture}
+\par\smallskip\ref{paretolegend}
+\caption{Реальные конечные фронты плиты нуля, seed 7: H5 и H7. Инженерский PDF показан отдельным числовым ориентиром, не кандидатом нашего поиска.}\label{fig:05_pareto}
+\end{figure}
+
+В девяти H7-запусках суммарно проверены 940 внутренних кандидатов; внутренних hard-rejections и недоармированных КЭ в принятом выходе — ноль. Выполнены 199 MILP-вызовов; в сохранённых общеплитных фронтах 477 точек суммарно. Часть MILP остановилась по лимиту, поэтому не все найденные точки имеют сертификат оптимальности даже конечной модели.
+
+
+Числа H7 не являются равнобюджетной победой над GA: добавились геометрии, локальные проверки и solver. Зарегистрировано 148–220 секунд на комплект при параллельно шедших экспериментах; это наблюдение, не чистый замер SLA. Из девяти сравнений нормализованные input hashes подтверждены для двух; семь используют старые H5-отчёты без такого поля. Хеши самих файлов-источников всех трёх сравнений проверены при подготовке документа. {\color{Teal}\small[\hyperlink{S5}{S5}]}
+
+
+\Needspace{5\baselineskip}\subsection{Почему нельзя сказать «мы экономим 30\% относительно инженера»}
+
+Для H7 отклонения минимальной массы от PDF: плита нуля −0,87…−0,76\%; над −2 −7,61…−7,35\%; над 3 −30,63…−30,60\%. Но стержней в этих минимумах всё ещё больше инженерских: примерно +22–22,5\%, +38,9–40,7\% и +15,6\% соответственно.
+
+
+Особенно большую разницу над 3 нужно разбирать, а не объявлять победой: эталон — единая типовая выдача 3–14, геометрия групп не извлечена, фактическая укладка и некоторые физические правила не входят в hard-valid модель. Пока нет геометрической сверки и приёмки конструктора, возможные источники расхождения не разделены экспериментом.
+
+
+Исторические 3026,58 кг над 3 также нельзя сравнивать с нынешними 1997,10 кг как эффект только H7: между сериями менялись учёт покрытия, фазы, нормативные профили и ось сложности. Чистое исследовательское сравнение H5→H7 здесь даёт 4,25–4,42\%. {\color{Teal}\small[\hyperlink{S4}{S4}, \hyperlink{S5}{S5}]}
+
+
+\Needspace{5\baselineskip}\subsection{Ускорение и отрицательный результат расписания}
+
+H8 добавил консервативный индекс bbox КЭ в общую детализацию. Он пропускает заведомо удалённые полигоны; точные пересечения оставшихся и независимый полный валидатор сохраняются.
+
+
+Последовательный A/B на плите нуля, четыре направления, два повтора в обратном порядке, recombination=1500, \textbf{MILP выключен}: сумма средних времён снизилась с 164,98 до 137,55 секунды, то есть на 16,63\%. Хеши физических результатов и диагностики совпали. Это эффект индекса на данной конфигурации, а не дополнительное снижение массы и не измерение полного H7.
+
+
+H9 проверил обратный порядок промежуточных MILP-бюджетов. Минимумы массы совпали; на нижнем X HV снизился на 0,05510 в обоих повторах, по другим направлениям устойчивого улучшения нет. Основной порядок {\small\nolinkurl{complexity-first}} сохранён. Резервирование времени для промежуточных точек — следующая гипотеза, пока не проверенная. {\color{Teal}\small[\hyperlink{S6}{S6}]}
+
+
+\Needspace{6\baselineskip}\section{Составные схемы и реальные оси}
+
+\Needspace{5\baselineskip}\subsection{Почему «шаг 150» не всегда означает равномерные 150 мм}
+
+7 сентября специалист подтвердил: {\small\nolinkurl{s300d18+s150d18+s300d25}} — один фон Ø18@300 и \textbf{две локальные добавки}, а не два фона. Название каталога исходников не определяет физический смысл подписи. Парсер теперь сохраняет все слагаемые, включая повторяющиеся.
+
+
+Для подтверждённой схемы добавки @150 оси чередуются через 100 и 200 мм относительно фона @300. Поэтому появились периодические шаблоны:
+
+
+\[
+v=o+nT+\delta,\qquad n\in\mathbb Z,\quad\delta\in\mathcal O.
+\]
+
+При T=300 мм и O=\{100,200\} в окне 0…800 мм получаются оси 100,200,400,500,700,800. Это два регулярных поднабора @300 по три стержня. Номинальный шаг 150 описывает схему, но не каждую соседнюю пару осей.
+
+
+\begin{figure}[H]\centering
+\definecolor{C5B6E7E}{HTML}{5B6E7E}
+\definecolor{C087E8B}{HTML}{087E8B}
+\definecolor{CDDE5EA}{HTML}{DDE5EA}
+\definecolor{C163042}{HTML}{163042}
+\begin{tikzpicture}[x=0.013cm,y=-0.013cm,>=Latex]
+\path[use as bounding box] (0,0) rectangle (1200,365);
+\node[anchor=west,text=C5B6E7E,inner sep=0pt,font={\sffamily\fontsize{7.6}{9.12}\selectfont}] at (5,35) {Фон};
+\node[anchor=west,text=C087E8B,inner sep=0pt,font={\sffamily\fontsize{7.6}{9.12}\selectfont}] at (5,105) {Добавка};
+\draw[draw=C5B6E7E,line width=0.8400000000000001pt,dashed] (110.0,20) -- (110.0,180);
+\draw[draw=C5B6E7E,line width=0.8400000000000001pt,dashed] (440.0,20) -- (440.0,180);
+\draw[draw=C5B6E7E,line width=0.8400000000000001pt,dashed] (770.0,20) -- (770.0,180);
+\draw[draw=C5B6E7E,line width=0.8400000000000001pt,dashed] (1100.0,20) -- (1100.0,180);
+\draw[draw=C087E8B,line width=1.12pt] (220.0,85) -- (220.0,180);
+\draw[draw=C087E8B,fill=C087E8B,line width=0.7pt] (220.0,180) circle[radius=5];
+\node[anchor=center,text=C087E8B,inner sep=0pt,font={\sffamily\fontsize{8.74}{10.49}\selectfont}] at (220.0,220) {100};
+\draw[draw=C087E8B,line width=1.12pt] (330.0,85) -- (330.0,180);
+\draw[draw=C087E8B,fill=C087E8B,line width=0.7pt] (330.0,180) circle[radius=5];
+\node[anchor=center,text=C087E8B,inner sep=0pt,font={\sffamily\fontsize{8.74}{10.49}\selectfont}] at (330.0,220) {200};
+\draw[draw=C087E8B,line width=1.12pt] (550.0,85) -- (550.0,180);
+\draw[draw=C087E8B,fill=C087E8B,line width=0.7pt] (550.0,180) circle[radius=5];
+\node[anchor=center,text=C087E8B,inner sep=0pt,font={\sffamily\fontsize{8.74}{10.49}\selectfont}] at (550.0,220) {400};
+\draw[draw=C087E8B,line width=1.12pt] (660.0,85) -- (660.0,180);
+\draw[draw=C087E8B,fill=C087E8B,line width=0.7pt] (660.0,180) circle[radius=5];
+\node[anchor=center,text=C087E8B,inner sep=0pt,font={\sffamily\fontsize{8.74}{10.49}\selectfont}] at (660.0,220) {500};
+\draw[draw=C087E8B,line width=1.12pt] (880.0,85) -- (880.0,180);
+\draw[draw=C087E8B,fill=C087E8B,line width=0.7pt] (880.0,180) circle[radius=5];
+\node[anchor=center,text=C087E8B,inner sep=0pt,font={\sffamily\fontsize{8.74}{10.49}\selectfont}] at (880.0,220) {700};
+\draw[draw=C087E8B,line width=1.12pt] (990.0,85) -- (990.0,180);
+\draw[draw=C087E8B,fill=C087E8B,line width=0.7pt] (990.0,180) circle[radius=5];
+\node[anchor=center,text=C087E8B,inner sep=0pt,font={\sffamily\fontsize{8.74}{10.49}\selectfont}] at (990.0,220) {800};
+\draw[draw=CDDE5EA,line width=0.56pt] (110,180) -- (1100,180);
+\draw[draw=CDDE5EA,line width=0.56pt] (220.0,260) -- (330.0,260);
+\node[anchor=center,text=C5B6E7E,inner sep=0pt,font={\sffamily\fontsize{8.36}{10.03}\selectfont}] at (275.0,285) {100};
+\draw[draw=CDDE5EA,line width=0.56pt] (330.0,260) -- (550.0,260);
+\node[anchor=center,text=C5B6E7E,inner sep=0pt,font={\sffamily\fontsize{8.36}{10.03}\selectfont}] at (440.0,285) {200};
+\draw[draw=CDDE5EA,line width=0.56pt] (550.0,260) -- (660.0,260);
+\node[anchor=center,text=C5B6E7E,inner sep=0pt,font={\sffamily\fontsize{8.36}{10.03}\selectfont}] at (605.0,285) {100};
+\draw[draw=CDDE5EA,line width=0.56pt] (660.0,260) -- (880.0,260);
+\node[anchor=center,text=C5B6E7E,inner sep=0pt,font={\sffamily\fontsize{8.36}{10.03}\selectfont}] at (770.0,285) {200};
+\draw[draw=CDDE5EA,line width=0.56pt] (880.0,260) -- (990.0,260);
+\node[anchor=center,text=C5B6E7E,inner sep=0pt,font={\sffamily\fontsize{8.36}{10.03}\selectfont}] at (935.0,285) {100};
+\node[anchor=center,text=C163042,inner sep=0pt,font={\sffamily\fontsize{8.74}{10.49}\selectfont\bfseries}] at (600,338) {Оси 100, 200, 400, 500, 700, 800 мм; интервалы 100 / 200 мм};
+\end{tikzpicture}
+\caption{Периодическая добавка @150: два ряда @300 со смещениями 100 и 200 мм. Номинальный шаг и фактические интервалы хранятся раздельно.}\label{fig:07_axis_pattern}
+\end{figure}
+
+Из этого \textbf{не следует}, что старые GA-бенчмарки автоматически пересчитаны на периодические оси. Старый {\small\nolinkurl{LayoutZone}} сохраняет равномерную модель даже для одной добавки с номиналом 150; новый constructor является отдельной веткой. Перенос подтверждённых схем в полноценный поиск — существенный оставшийся этап, который может изменить число стержней и массу. {\color{Teal}\small[\hyperlink{S7}{S7}]}
+
+
+\Needspace{5\baselineskip}\subsection{Ручной пример Revit}
+
+У реальной ручной {\small\nolinkurl{AreaReinforcement}} граница 3900 × 800 мм и 9 стержней Ø25. Между крайними осями 775 мм; фактический шаг 96,875 мм; до боковых границ от крайних осей по 12,5 мм. Параметр максимального шага 100 мм не равен измеренному шагу каждого интервала.
+
+
+Девять стержней с точными интервалами 100 мм дали бы 800 мм между крайними осями и 825 мм по телам. Следовательно, нельзя взять {\small\nolinkurl{width_mm}}, подставить его как границу области и ожидать автоматически тот же физический набор. Нужен readback концов и расстояний реальных стержней.
+
+
+\Needspace{5\baselineskip}\subsection{Что доказал Core Trial}
+
+Синтетический {\small\nolinkurl{Mosaic}} с двумя КЭ и схемой «фон Ø18@300 + добавка Ø18@150» проходит через общий конструктор и v2 export. Для окна 3900 × 800 мм:
+
+
+\[
+N=6,\qquad L=3900+2\cdot40\cdot18=5340\ \mathrm{mm},
+\qquad M=63{,}9986184\ \mathrm{kg}.
+\]
+
+В реальном Revit 9 сентября два регулярных набора были созданы, закоммичены внутри тестовой группы и перечитаны. Подтвердились шесть осей, длина 5340 мм, cover 25 мм и масса, пересчитанная по линиям. Вся внешняя группа затем откатилась; исходные элементы восстановлены.
+
+
+Это конкретная проверенная связка «общий конструктор → параметрический JSON → фактические Revit-оси». Она использует явно заданный тестовый прямоугольник и привязку; \textbf{GA и исходный DXF в этом тесте не участвовали}. Полного покрытия составной схемой, её нормативных сочетаний и всей 3D-раскладки этот успех не доказывает. {\color{Teal}\small[\hyperlink{S11}{S11}]}
+
+
+\Needspace{6\baselineskip}\section{Где сейчас заканчивается сквозной Revit-сценарий}
+
+{\small\setlength{\tabcolsep}{4pt}
+\begin{longtable}{@{}L{54.804mm}L{106.384mm}@{}}
+\toprule
+\textbf{Проверка} & \textbf{Реальный результат к 9 сентября} \\
+\midrule\endfirsthead
+\toprule
+\textbf{Проверка} & \textbf{Реальный результат к 9 сентября} \\
+\midrule\endhead
+\bottomrule\endfoot
+Reference Probe & Ручные 9 стержней прочитаны; геометрия сопоставлена \\
+Creation Trial 0.2.2 & Создание, регенерация, чтение и RollBack подтверждены \\
+JSON Trial 0.3.0 & Ввод тестовой зоны, внутренний Commit, повторное чтение и откат группы подтверждены \\
+Core Trial 0.4.0 & Параметры одной синтетической зоны общего конструктора воспроизведены в Revit \\
+CAD Probe 0.5.0 & Реальные связь и импорт вернули {\small\nolinkurl{partial}}: слой mesh/solid не разрешён, доверенных треугольников нет \\
+CAD Probe 0.5.1 & Расширенная диагностика подготовлена; реальный ответ ещё ожидается \\
+\end{longtable}}
+
+У связанного DXF совпал SHA256 локального файла, обе матрицы преобразования единичные. Но это не доказывает, что сохранённая в Revit геометрия CAD и её слои успешно прочитаны. Неизвестный слой нельзя угадать по цвету или габаритам и назвать {\small\nolinkurl{KLEENKA}}.
+
+
+Независимый checker уже подготовлен: проверяет нормализацию и преобразование, все вершины и треугольники относительно исходных КЭ. На исходном комплекте 2132 КЭ, 2209 уникальных вершин, 4225 треугольников при разбиении квадов. Пока реальный отчёт не содержит достоверной геометрии нужного слоя, калибровка остаётся заблокированной.
+
+
+Высоту арматуры нужно выводить от грани host, защитного слоя и радиуса стержня; плоскость CAD с Z=−8970 мм не является высотой арматуры. Полная выдача плиты потребует подтверждённых фаз фона, вертикального порядка X/Y, границ/проёмов, обработки конфликтов и управляемого применения результата. {\color{Teal}\small[\hyperlink{S11}{S11}, \hyperlink{S12}{S12}]}
+
+
+\Needspace{6\baselineskip}\section{Что улучшать дальше и как понять, что стало лучше}
+
+Приоритеты ниже — вывод из состояния кода и экспериментов, а не новое обязательство реализовать их в рамках этого документа.
+
+
+\Needspace{5\baselineskip}\subsection{Сначала закрыть разрыв между 2D-результатом и физической укладкой}
+
+\begin{enumerate}
+\item Завершить диагностику слоя и независимую DXF/Revit-калибровку на настоящем отчёте. Критерий: доверенно прочитан {\small\nolinkurl{KLEENKA}}, все требуемые вершины/КЭ сопоставлены без подгонки трансформации.
+\item Получить подтверждённые глобальные фазы фона и дополнительных наборов, высоты и порядок X/Y. Критерий: конкретная схема укладки для тестовой плиты, которую можно независимо восстановить и измерить.
+\item Расширить hard-validation на фактические оси, тела, cover, проёмы и допустимые конфликты; затем подключать соответствующие схемы к поиску. Критерий: непригодный в host вариант исключается с точной причиной.
+\item Согласовать единый смысл готовности экспорта v1/v2 и полного apply. Критерий: UI и JSON различают завершённую 2D-проверку, успешный host-readback и инженерное подтверждение.
+\end{enumerate}
+
+Это важнее ещё одного процента исследовательской массы: изменение физической схемы может изменить саму допустимость и значения целевой функции.
+
+
+\Needspace{5\baselineskip}\subsection{Следующий эксперимент с оптимизацией}
+
+Сравнить H5, H6 и H7 на тех же входах и версии правил при двух общих бюджетах. В каждом опыте фиксировать seed, полный wall-clock, число проверок, размеры пула и атомов, MILP-статусы. Выполнять последовательные парные запуски без конкурирующих тяжёлых процессов.
+
+
+Критерии: ноль hard-ошибок в принятом выходе; HV в одной системе нормализации; масса при одинаковом бюджете сложности; сложность при одинаковой массе; median/worst runtime. Отдельно — более сложные малые oracle, где ещё есть gap, и перенос на дополнительные подтверждённые комплекты.
+
+
+Из адресных гипотез заслуживают проверки размены нескольких зон на несколько и резерв времени для промежуточных MILP-точек. Они требуют отдельного A/B, а не молчаливого включения в defaults.
+
+
+\Needspace{5\baselineskip}\subsection{Улучшить доказательства относительно инженера}
+
+Нужна сопоставленная геометрия инженерских групп: координаты, направления, диаметры, шаги и длины из согласованной выгрузки. Это позволит отделить версию входа, состав спецификации, физические правила и качество оптимизатора. Большое отклонение массы типовой плиты — приоритетный случай для такой сверки.
+
+
+После этого можно измерять ручные правки, долю принятых рекомендаций, число реальных позиций и время до принятого черновика. Без этих данных уменьшение B — полезный proxy, но не доказанная экономия человеко-часов.
+
+
+\Needspace{5\baselineskip}\subsection{Закрыть обязательные продуктовые пробелы}
+
+В локальном аудите гейтов требуются и DXF, и PNG. Поэтому ограниченный PNG-ingest с явной палитрой и калибровкой масштаба имеет смысл, если этот критерий остаётся обязательным на защите. Автоматическое распознавание любого изображения не требуется для первой проверяемой версии.
+
+
+Также нужны группировка одинаковых стержней в позиции, подтверждённые аннотации и один воспроизводимый сценарий для конструктора. Для питча ценнее показать весь понятный путь на одном поддерживаемом комплекте с видимыми ограничениями, чем объявить все входы поддержанными.
+
+
+Исторический аудит «3 из 8 готово» датирован 1 сентября и предшествует oracle, H7 и реальным Revit-тестам. Его нельзя цитировать как текущий процент готовности. Новый бинарный итог требует повторной сверки всех исходных критериев; локальные успехи одной кнопки не закрывают автоматически весь Revit-гейт. {\color{Teal}\small[\hyperlink{S13}{S13}]}
+
+
+\Needspace{6\baselineskip}\section{Что не нужно улучшать сейчас}
+
+{\small\setlength{\tabcolsep}{4pt}
+\begin{longtable}{@{}L{41.178mm}L{63.351mm}L{53.848mm}@{}}
+\toprule
+\textbf{Направление} & \textbf{Почему не приоритет} & \textbf{Когда вернуться} \\
+\midrule\endfirsthead
+\toprule
+\textbf{Направление} & \textbf{Почему не приоритет} & \textbf{Когда вернуться} \\
+\midrule\endhead
+\bottomrule\endfoot
+Новые похожие baseline и ручной тюнинг & Пулы, корректный учёт покрытия и гибрид уже дали более содержательный резерв & При новой доказанной слабости существующего класса геометрий \\
+Просто увеличить поколения или перебирать удачные seed & H1 не снизил minimum mass; одинаковые seed не диагностируют причину плато & После фиксации пула, с бюджетно-равным контролем \\
+Доказывать превосходство UCB по текущему smoke & Медианы практически равны; H7-выигрыш получен с uniform & На более трудных задачах и нескольких бюджетах \\
+Тюнить GA ради oracle с уже нулевым gap & 168 запусков восстановили конечные фронты & На новых контрпримерах, где gap ненулевой \\
+Заменить ядро нейросетью или LLM & 11 выдач, 5 числовых меток, 0 размеченных колен; жёсткие правила нельзя передавать генератору & После накопления данных, преимущественно для предпочтений \\
+Ослабить 40d, ширину или coverage ради красивой массы & Это меняет задачу и уничтожает сопоставимость & Только при новом подтверждённом инженерном профиле \\
+Оптимизировать совпадение с каждым цветным пятном & Граница цвета не является границей зоны & Не возвращаться как к жёсткому требованию \\
+Переписать стабильный DXF-ingest & Основной путь уже работает; новый риск — семантика схем и стык с Revit & При конкретной регрессии или новом формате \\
+Полный cutting stock и сложные формы & Добавляют связанную задачу закупки и новые инженерные контракты & После принятого прямолинейного сценария \\
+Добавить БД, очереди и масштабную инфраструктуру & Для текущей локальной демонстрации это не главный блокер & После измеренного спроса, нагрузки и требований хранения \\
+\end{longtable}}
+
+«Не улучшать сейчас» не означает «никогда не понадобится». Например, позиции спецификации и PNG могут непосредственно давать баллы, а совместный раскрой полезен позже. Приоритет определяется незакрытым критерием и измеренным узким местом.
+
+
+\Needspace{6\baselineskip}\section{Как рассказывать на защите}
+
+\Needspace{5\baselineskip}\subsection{Рассказ примерно на три минуты}
+
+\textbf{Проблема.} Расчётная система выдаёт подробную карту требуемого армирования, а инженеру нужно превратить её в конструктивные группы стержней. Обвести каждый цвет недостаточно: крупная группа упрощает раскладку, но может увеличить расход стали.
+
+
+\textbf{Постановка.} Мы решаем многокритериальную задачу прямоугольного покрытия для четырёх направлений плиты. Каждый участок должен быть закрыт зоной достаточного уровня. Масса считается по фактическим количеству и длине стержней, включая 40d. Отдельно считаются зоны и физические стержни.
+
+
+\textbf{Метод.} Детерминированные методы дают начальные геометрии. Генетический поиск и локальные замены собирают разные сочетания. В усиленном профиле добавляем полезные прямоугольники и решаем конечную бинарную задачу покрытия. Каждый выход повторно проходит независимую проверку, после чего собирается общий фронт плиты.
+
+
+\textbf{Результат.} На трёх комплектах и трёх seed гибрид снизил минимум массы относительно контрольного GA на 4,25–7,73\%. Другие точки того же фронта уменьшили число стержней на 13,47–21,81\% при массе не выше контроля. Например, для плиты нуля получили 1044 стержня вместо 1295 при 3306 вместо 3310 кг. Это два разных режима сравнения; выигрыш оплачен дополнительными вычислениями.
+
+
+\textbf{Проверка и интеграция.} Малые задачи проверены независимым перебором. Реальный Revit уже воспроизвёл одну синтетическую зону общего конструктора с чтением после Commit и полным откатом теста. Следующие шаги — завершить калибровку исходного DXF, подтвердить фактические схемы осей и проверить всю раскладку в host.
+
+
+\textbf{Продукт.} Наш результат — помощник конструктора, который показывает альтернативы и их цену. Финальный выбор и инженерная приёмка остаются явными действиями специалиста.
+
+
+\Needspace{5\baselineskip}\subsection{Предлагаемый порядок шести слайдов}
+
+\begin{enumerate}
+\item Проблема: изополе и ручная раскладка; что приходит и что должно получиться.
+\item Математика: union-покрытие достаточным уровнем и две цели; рисунок учебного примера.
+\item Архитектура: пул → GA/local/MILP → независимая проверка → четыре направления.
+\item Измеримый результат: реальный Парето-график плиты нуля и таблица четырёх точек H5/H6/H7.
+\item Доказательства: 168 oracle-запусков, 3 комплекта × 3 seed H7, реальный Core Trial; границы каждого доказательства.
+\item Что дальше: физическая модель/калибровка, инженерская приёмка и время до принятого черновика.
+\end{enumerate}
+
+\Needspace{5\baselineskip}\subsection{Вероятные вопросы жюри}
+
+\textbf{«Где здесь ИИ?»} Есть эволюционный поиск, online-выбор операторов UCB1 и отдельный эксперимент обучения одного веса предпочтения. Основная польза доказана изменением фронта, а не наличием нейросети.
+
+
+\textbf{«Гарантируете оптимальность?»} Только для завершённого точного решения конкретной конечной модели и её правил. GA, ограниченный по времени MILP и неполный геометрический пул глобальной гарантии не дают.
+
+
+\textbf{«Почему нельзя сразу решить всё MILP?»} На фиксированном пуле это уже делается. Трудность также в полезной геометрии, размере пула и ещё не формализованной физической укладке. Линейная модель покрытия не снимает эти вопросы.
+
+
+\textbf{«Ноль недоармированных КЭ означает безопасно?»} Это выполнение проверки покрытия в нынешней модели после протоколируемой предобработки. Дополнительно нужны фазы, host/cover/проёмы, взаимодействие X/Y и инженерное подтверждение.
+
+
+\textbf{«Вы лучше инженера?»} Пока показан выигрыш относительно собственного контрольного алгоритма. Инженерская спецификация — внешний ориентир; сравнение реальных геометрий и трудозатрат ещё не выполнено.
+
+
+\textbf{«Уже работает в Revit?»} Реальные узкие сценарии чтения и создания, включая перенос одной зоны ядра и чтение после Commit, подтверждены. Автоматического применения оптимизированной четырёхнаправленной плиты пока нет.
+
+
+\textbf{«Почему нет автоматической Точки 3?»} В данных нет размеченных колен. Первый selector обучался на трёх слабых метках и нарушил массовый порог в одном отложенном случае. Пока показываем несколько объяснимых вариантов.
+
+
+\textbf{«Как измерите ценность?»} Время конструктора до принятого черновика, доля выбранных вариантов и объём ручной доработки при соблюдении подключённых инженерных правил. Число стержней и масса уже измеряются, но не заменяют эти продуктовые метрики.
+
+
+\Needspace{6\baselineskip}\section{Карта кода для самостоятельного чтения}
+
+Порядок ниже позволяет читать проект по пути данных, а не по алфавиту файлов. Пути относительны корню репозитория.
+
+
+{\small\setlength{\tabcolsep}{4pt}
+\begin{longtable}{@{}L{54.804mm}L{106.384mm}@{}}
+\toprule
+\textbf{Что понять} & \textbf{Файл или модуль} \\
+\midrule\endfirsthead
+\toprule
+\textbf{Что понять} & \textbf{Файл или модуль} \\
+\midrule\endhead
+\bottomrule\endfoot
+Что хранит вход & {\small\nolinkurl{src/rebar/models.py}} \\
+Как читаются DXF и подписи & {\small\nolinkurl{src/rebar/dxf_ingest.py}}, {\small\nolinkurl{src/rebar/legend.py}} \\
+Как задаются уровни и ограничения & {\small\nolinkurl{src/rebar/optimization/contracts/problem.py}} \\
+Как Mosaic становится задачей & {\small\nolinkurl{src/rebar/optimization/adapters/mosaic.py}} \\
+Что меняет одиночный КЭ & {\small\nolinkurl{src/rebar/optimization/services/preprocessing.py}} \\
+Откуда длина, ширина, число и масса & {\small\nolinkurl{src/rebar/optimization/services/detailing.py}} \\
+Как проверяется результат & {\small\nolinkurl{src/rebar/optimization/services/evaluation.py}} \\
+Как задаются фазы и длины & {\small\nolinkurl{src/rebar/optimization/services/phase.py}}, {\small\nolinkurl{cutting.py}} \\
+Как устроен полный цикл GA & {\small\nolinkurl{src/rebar/optimization/algorithms/genetic_pareto.py}} \\
+Где атомы покрытия & {\small\nolinkurl{src/rebar/optimization/algorithms/genetic/coverage.py}} \\
+Где мутации и UCB & {\small\nolinkurl{src/rebar/optimization/algorithms/genetic/operators.py}}, {\small\nolinkurl{policy.py}} \\
+Где local, H6 и H7 & {\small\nolinkurl{src/rebar/optimization/algorithms/genetic/local_search.py}}, {\small\nolinkurl{pool_solver.py}}, {\small\nolinkurl{recombination.py}} \\
+Где независимые oracle & {\small\nolinkurl{src/rebar/optimization/algorithms/genetic/exact_oracle.py}}, {\small\nolinkurl{grid_oracle.py}} \\
+Как суммируются направления & {\small\nolinkurl{src/rebar/optimization/services/plate.py}}, {\small\nolinkurl{pareto.py}} \\
+Где сценарии приложения & {\small\nolinkurl{src/rebar/application/analyze_direction.py}}, {\small\nolinkurl{analyze_plate.py}} \\
+Где экспериментальные метрики & {\small\nolinkurl{src/rebar/reporting/genetic_benchmark.py}} \\
+Где обучение предпочтения & {\small\nolinkurl{src/rebar/learning/preference.py}} \\
+Где новые схемы осей & {\small\nolinkurl{src/rebar/optimization/contracts/placement.py}}, {\small\nolinkurl{services/axis_patterns.py}}, {\small\nolinkurl{services/composite_detailing.py}} \\
+Где экспорт и core trial & {\small\nolinkurl{src/rebar/application/revit_export.py}}, {\small\nolinkurl{composite_revit_export.py}}, {\small\nolinkurl{core_revit_trial.py}} \\
+Где граница Autodesk API & {\small\nolinkurl{integrations/pyrevit/QMonitoring.extension/lib/}} \\
+Где калибровка исходного DXF & {\small\nolinkurl{src/rebar/application/revit_dxf_calibration.py}} \\
+\end{longtable}}
+
+\Needspace{6\baselineskip}\section{Источники и воспроизведение}
+
+\Needspace{5\baselineskip}\subsection{Источники утверждений}
+
+\hypertarget{S1}{}
+
+\textbf{S1.} {\small\nolinkurl{docs/context.md}}: предметная область, форматы, mapping, текущие уточнения и журнал реальных Revit-проверок. Старые абзацы читаются вместе с датированными дополнениями.
+
+
+\hypertarget{S2}{}
+
+\textbf{S2.} {\small\nolinkurl{docs/optimization-architecture.md}}, {\small\nolinkurl{docs/algorithms.md}}: границы слоёв и алгоритмы. Defaults дополнительно сверены с {\small\nolinkurl{genetic_pareto.py}}, {\small\nolinkurl{analyze_direction.py}} и {\small\nolinkurl{web/app.py}}.
+
+
+\hypertarget{S3}{}
+
+\textbf{S3.} {\small\nolinkurl{docs/genetic-experiments.md}}; {\small\nolinkurl{artifacts/genetic_oracle_extended_2026_09_05/oracle.json}}; {\small\nolinkurl{artifacts/ga_research_final_default_oracle/oracle.json}}: ранний GA, uniform/UCB, oracle и параметры серий.
+
+
+\hypertarget{S4}{}
+
+\textbf{S4.} {\small\nolinkurl{docs/ga-research-2026-09-05.md}}: H1–H5. Числа grid-oracle и локальных экспериментов опубликованы в этом журнале; полные отчёты перечислены в нём. Это не повтор этих 70 запусков при написании документа.
+
+
+\hypertarget{S5}{}
+
+\textbf{S5.} {\small\nolinkurl{docs/ga-hybrid-research-2026-09-06.md}}; {\small\nolinkurl{artifacts/ga_h7_vs_h5_plate_zero/comparison.json}}; {\small\nolinkurl{artifacts/ga_h7_vs_h5_minus_2/comparison.json}}; {\small\nolinkurl{artifacts/ga_h7_vs_h5_above_3/comparison.json}}. Первичные H7-данные: {\small\nolinkurl{artifacts/ga_h7_recombine_plate_zero_v2/benchmark.json}}, {\small\nolinkurl{artifacts/ga_h7_validation_plate_zero/benchmark.json}}, {\small\nolinkurl{artifacts/ga_h7_validation_minus_2/benchmark.json}}, {\small\nolinkurl{artifacts/ga_h7_validation_above_3/benchmark.json}}. Для H6: {\small\nolinkurl{artifacts/ga_h6_polish_plate_zero_v2/benchmark.json}}. Графики используют сохранённые числовые точки, не переснятые картинки HTML.
+
+
+\hypertarget{S6}{}
+
+\textbf{S6.} {\small\nolinkurl{docs/ga-performance-research-2026-09-06.md}}; {\small\nolinkurl{artifacts/ga_h8_detail_index/profile.json}}; {\small\nolinkurl{artifacts/ga_h9_schedule_plate_zero/schedule.json}}: последовательный A/B индекса и опыт расписания MILP.
+
+
+\hypertarget{S7}{}
+
+\textbf{S7.} {\small\nolinkurl{docs/reinforcement-contract-v2-2026-09-07.md}}: составные подписи, периодические оси, совместимость старой модели и ограничения v2.
+
+
+\hypertarget{S8}{}
+
+\textbf{S8.} {\small\nolinkurl{docs/golden-case.md}}, {\small\nolinkurl{docs/engineer-learning-dataset.md}}: происхождение спецификаций, 11 выдач / 15 входов, три уровня количественных метрик. Исходные PDF при подготовке этого обзора заново не извлекались; golden-числа не изменялись.
+
+
+\hypertarget{S9}{}
+
+\textbf{S9.} {\small\nolinkurl{artifacts/engineer_preference_calibration_smoke/calibration.json}} и {\small\nolinkurl{src/rebar/learning/preference.py}}: фактические folds, веса, regret и определение слабой цели.
+
+
+\hypertarget{S10}{}
+
+\textbf{S10.} Исполняемый код общих сервисов, GA и application-слоя из раздела 16. Формулы сопоставлены с реализацией; отдельно уточнены seeded-random repair, прямой fallback лимита GA, односторонний массовый порог и вычисляемый флаг draft v1.
+
+
+\hypertarget{S11}{}
+
+\textbf{S11.} {\small\nolinkurl{docs/context.md}}, разделы подтверждения 0.3.0/0.4.0; {\small\nolinkurl{docs/revit-core-trial-handoff-2026-09-09.md}}; {\small\nolinkurl{src/rebar/application/core_revit_trial.py}}: реальные тесты создания и границы синтетического переноса ядра.
+
+
+\hypertarget{S12}{}
+
+\textbf{S12.} {\small\nolinkurl{docs/revit-cad-051-handoff-2026-09-09.md}} и последние дополнения {\small\nolinkurl{docs/context.md}}: реальный отказ 0.5.0 и подготовленная диагностика 0.5.1.
+
+
+\hypertarget{S13}{}
+
+\textbf{S13.} {\small\nolinkurl{docs/mvp-gate-assessment-2026-08-21.md}}, актуализация 1 сентября; {\small\nolinkurl{docs/product-strategy.md}}: исходный аудит гейтов и продуктовые цели. Исторические статусы не автоматически переносятся на 9 сентября.
+
+
+\hypertarget{S14}{}
+
+\textbf{S14.} {\small\nolinkurl{docs/optimization-notes.md}}, {\small\nolinkurl{docs/layout-research-2026-08-19.md}}, {\small\nolinkurl{docs/meeting-scientific-advisor-2026-08-20.md}}, {\small\nolinkurl{docs/mvp-roadmap.md}}, {\small\nolinkurl{docs/stage-a-parser-spec.md}}: обязательный исторический контекст. Более свежий код и датированные исследования использованы для разрешения противоречий со старыми планами.
+
+
+\Needspace{5\baselineskip}\subsection{Команды для демонстрации и проверки}
+
+После установки зависимостей проекта локальный интерфейс:
+
+
+\begin{Verbatim}[fontsize=\scriptsize,frame=single,rulecolor=\color{gray!30},framesep=8pt]
+python3 -m uvicorn rebar.web.app:app --app-dir src --reload
+\end{Verbatim}
+
+Открыть {\small\nolinkurl{http://127.0.0.1:8000}}. Публичное синтетическое демо не требует материалов организаторов.
+
+
+Проверка инженерского ориентира при наличии приватных исходников и Poppler:
+
+
+\begin{Verbatim}[fontsize=\scriptsize,frame=single,rulecolor=\color{gray!30},framesep=8pt]
+python3 scripts/verify_golden_case.py
+python3 scripts/inventory_engineer_dataset.py
+\end{Verbatim}
+
+Малый oracle без приватных DXF; каталог вывода выбран новым, чтобы не путать с историческими отчётами:
+
+
+\begin{Verbatim}[fontsize=\scriptsize,frame=single,rulecolor=\color{gray!30},framesep=8pt]
+python3 scripts/benchmark_genetic_oracle.py \
+  --population-size 8 --generations 5 --seeds 7 17 42 \
+  --operator-policies uniform ucb1 \
+  --complexity-axes zone_count physical_bar_count \
+  --out-dir artifacts/pitch_oracle_recheck
+\end{Verbatim}
+
+H7, где четыре имени ниже нужно заменить реальными путями \textbf{одного} совместимого комплекта плиты нуля:
+
+
+\begin{Verbatim}[fontsize=\scriptsize,frame=single,rulecolor=\color{gray!30},framesep=8pt]
+python3 -m pip install -e '.[solver]'
+python3 scripts/benchmark_genetic.py \
+  bottom-X.dxf bottom-Y.dxf top-X.dxf top-Y.dxf \
+  --mapping-id plate-zero-d12-v1 \
+  --reference-id plate-zero-k09 \
+  --population-sizes 8 --generations 3 --seeds 7 17 42 \
+  --operator-policies uniform --complexity-axis physical_bar_count \
+  --coverage-atoms demand_fragments --local-search-passes 4 \
+  --pool-polish milp --pool-polish-solves 6 --pool-polish-time-s 10 \
+  --recombination-variants 1500 \
+  --out-dir artifacts/pitch_h7_recheck
+\end{Verbatim}
+
+Это инструкция нового запуска, а не обещание побитово повторить time-limited MILP: скорость машины и моменты остановки могут изменить incumbent. Для воспроизводимого сравнения сохранять версию кода, входные hashes и полную конфигурацию, а не только seed.
+
+
+Проверка поставляемого синтетического core sample без перезаписи:
+
+
+\begin{Verbatim}[fontsize=\scriptsize,frame=single,rulecolor=\color{gray!30},framesep=8pt]
+python3 scripts/build_core_revit_trial.py --check \
+  integrations/pyrevit/samples/core-axis-trial.json
+\end{Verbatim}
+
+Общие проверки кода, если проект дорабатывается:
+
+
+\begin{Verbatim}[fontsize=\scriptsize,frame=single,rulecolor=\color{gray!30},framesep=8pt]
+python3 -m pytest -q
+python3 -m ruff check src tests scripts
+python3 -m compileall -q src tests scripts
+\end{Verbatim}
+
+В обзоре не заявляется новый полный прогон этих проверок. Числа тестов в старых журналах относятся к соответствующим версиям и окружениям, а не к экспериментальной выборке алгоритмов.
+
+
+\Needspace{5\baselineskip}\subsection{Что взять с собой на защиту}
+
+Самостоятельный LaTeX-файл; сохранённый реальный Парето-график; конкретную таблицу H5/H6/H7 для плиты нуля; публичное демо на случай недоступности приватных материалов; подтверждённый Core Trial с честным описанием его масштаба. Тезисы о выигрыше должны сопровождаться названием контроля, единицей счёта, вычислительным бюджетом и областью проверки.
+
+
+\end{document}

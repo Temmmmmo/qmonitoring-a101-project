@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="365" viewBox="0 0 1200 365" role="img" aria-label="07_axis_pattern">
+<rect width="100%" height="100%" fill="white"/>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#5B6E7E"/></marker></defs>
+<text x="5" y="35" fill="#5B6E7E" font-family="DejaVu Sans, Arial, sans-serif" font-size="20" text-anchor="start" dominant-baseline="middle">Фон</text>
+<text x="5" y="105" fill="#087E8B" font-family="DejaVu Sans, Arial, sans-serif" font-size="20" text-anchor="start" dominant-baseline="middle">Добавка</text>
+<line x1="110.0" y1="20" x2="110.0" y2="180" stroke="#5B6E7E" stroke-width="3" stroke-dasharray="7 5"/>
+<line x1="440.0" y1="20" x2="440.0" y2="180" stroke="#5B6E7E" stroke-width="3" stroke-dasharray="7 5"/>
+<line x1="770.0" y1="20" x2="770.0" y2="180" stroke="#5B6E7E" stroke-width="3" stroke-dasharray="7 5"/>
+<line x1="1100.0" y1="20" x2="1100.0" y2="180" stroke="#5B6E7E" stroke-width="3" stroke-dasharray="7 5"/>
+<line x1="220.0" y1="85" x2="220.0" y2="180" stroke="#087E8B" stroke-width="4"/>
+<circle cx="220.0" cy="180" r="5" fill="#087E8B" stroke="#087E8B" stroke-width="2"/>
+<text x="220.0" y="220" fill="#087E8B" font-family="DejaVu Sans, Arial, sans-serif" font-size="23" text-anchor="middle" dominant-baseline="middle">100</text>
+<line x1="330.0" y1="85" x2="330.0" y2="180" stroke="#087E8B" stroke-width="4"/>
+<circle cx="330.0" cy="180" r="5" fill="#087E8B" stroke="#087E8B" stroke-width="2"/>
+<text x="330.0" y="220" fill="#087E8B" font-family="DejaVu Sans, Arial, sans-serif" font-size="23" text-anchor="middle" dominant-baseline="middle">200</text>
+<line x1="550.0" y1="85" x2="550.0" y2="180" stroke="#087E8B" stroke-width="4"/>
+<circle cx="550.0" cy="180" r="5" fill="#087E8B" stroke="#087E8B" stroke-width="2"/>
+<text x="550.0" y="220" fill="#087E8B" font-family="DejaVu Sans, Arial, sans-serif" font-size="23" text-anchor="middle" dominant-baseline="middle">400</text>
+<line x1="660.0" y1="85" x2="660.0" y2="180" stroke="#087E8B" stroke-width="4"/>
+<circle cx="660.0" cy="180" r="5" fill="#087E8B" stroke="#087E8B" stroke-width="2"/>
+<text x="660.0" y="220" fill="#087E8B" font-family="DejaVu Sans, Arial, sans-serif" font-size="23" text-anchor="middle" dominant-baseline="middle">500</text>
+<line x1="880.0" y1="85" x2="880.0" y2="180" stroke="#087E8B" stroke-width="4"/>
+<circle cx="880.0" cy="180" r="5" fill="#087E8B" stroke="#087E8B" stroke-width="2"/>
+<text x="880.0" y="220" fill="#087E8B" font-family="DejaVu Sans, Arial, sans-serif" font-size="23" text-anchor="middle" dominant-baseline="middle">700</text>
+<line x1="990.0" y1="85" x2="990.0" y2="180" stroke="#087E8B" stroke-width="4"/>
+<circle cx="990.0" cy="180" r="5" fill="#087E8B" stroke="#087E8B" stroke-width="2"/>
+<text x="990.0" y="220" fill="#087E8B" font-family="DejaVu Sans, Arial, sans-serif" font-size="23" text-anchor="middle" dominant-baseline="middle">800</text>
+<line x1="110" y1="180" x2="1100" y2="180" stroke="#DDE5EA" stroke-width="2"/>
+<line x1="220.0" y1="260" x2="330.0" y2="260" stroke="#DDE5EA" stroke-width="2"/>
+<text x="275.0" y="285" fill="#5B6E7E" font-family="DejaVu Sans, Arial, sans-serif" font-size="22" text-anchor="middle" dominant-baseline="middle">100</text>
+<line x1="330.0" y1="260" x2="550.0" y2="260" stroke="#DDE5EA" stroke-width="2"/>
+<text x="440.0" y="285" fill="#5B6E7E" font-family="DejaVu Sans, Arial, sans-serif" font-size="22" text-anchor="middle" dominant-baseline="middle">200</text>
+<line x1="550.0" y1="260" x2="660.0" y2="260" stroke="#DDE5EA" stroke-width="2"/>
+<text x="605.0" y="285" fill="#5B6E7E" font-family="DejaVu Sans, Arial, sans-serif" font-size="22" text-anchor="middle" dominant-baseline="middle">100</text>
+<line x1="660.0" y1="260" x2="880.0" y2="260" stroke="#DDE5EA" stroke-width="2"/>
+<text x="770.0" y="285" fill="#5B6E7E" font-family="DejaVu Sans, Arial, sans-serif" font-size="22" text-anchor="middle" dominant-baseline="middle">200</text>
+<line x1="880.0" y1="260" x2="990.0" y2="260" stroke="#DDE5EA" stroke-width="2"/>
+<text x="935.0" y="285" fill="#5B6E7E" font-family="DejaVu Sans, Arial, sans-serif" font-size="22" text-anchor="middle" dominant-baseline="middle">100</text>
+<text x="600" y="338" fill="#163042" font-family="DejaVu Sans, Arial, sans-serif" font-size="23" text-anchor="middle" dominant-baseline="middle" font-weight="700">Оси 100, 200, 400, 500, 700, 800 мм; интервалы 100 / 200 мм</text>
+</svg>
