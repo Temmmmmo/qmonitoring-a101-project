@@ -60,6 +60,27 @@ def test_catalog_describes_review_and_four_data_free_support_tools():
         assert row["compatibility"]["revit_major_versions"] == ["2024"]
 
 
+def test_revit_depths_help_explains_axes_units_order_and_zero_blocker():
+    page = client.get("/revit").text
+    block = page.split('<section id="axis-depths"', 1)[1].split("</section>", 1)[0]
+    assert "Глубины осей: что вводить" in block and "Rebar Review" in block
+    assert "от native-грани плиты до оси (центра) стержня" in block
+    assert "в миллиметрах" in block and "низ X; низ Y; верх X; верх Y" in block
+    assert "не защитный слой (cover), не XY-перенос и не высота из DXF" in block
+    assert "часть тела стержня окажется снаружи, и вся партия блокируется" in block
+
+
+def test_revit_depths_example_is_explicitly_k09_diagnostic_not_universal():
+    block = client.get("/revit").text.split('<section id="axis-depths"', 1)[1].split("</section>", 1)[0]
+    assert "Только для диагностической копии" in block
+    assert "К09 Пм-1, native Floor ID 11020633, толщина 200 мм" in block
+    assert "<code>50;70;50;70</code> мм" in block
+    assert "Оси X ближе к граням, оси Y глубже" in block
+    assert "не универсальная настройка, не норматив и не инженерное подтверждение" in block
+    assert "Для другой плиты нужен собственный профиль глубин" in block
+    assert "все коллизии этим примером не проверены" in block
+
+
 def test_source_graphics_download_has_matching_new_runtime_and_complete_helper():
     row = next(t for t in client.get("/api/revit/tools").json()["tools"] if t["id"] == "plan-preview")
     assert row["runtime_version"] == "0.2.4"
