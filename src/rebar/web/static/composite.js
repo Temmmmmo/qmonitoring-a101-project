@@ -59,6 +59,17 @@ let activeDirection = 0;
 let busy = false;
 let zoom = 1;
 let drawingView = "combined";
+let layoutVariants = [];
+function setLayoutVariants(payload) {
+  result = payload;
+  layoutVariants = [];
+  if (!Array.isArray(payload.layout_variants)) return;
+  const {layout_variants, ...base} = payload;
+  layoutVariants = layout_variants.map((variant, i) => ({...variant, report: i === 0 ? base : variant.report}));
+  if (layoutVariants.some((variant) => variant.report?.schema_version !== "composite-plate-analysis/v1" ||
+      variant.report.directions?.length !== 4 || !variant.report.front?.length)) throw new Error("Неподдержанный формат вариантов раскладки.");
+  result = base;
+}
 q("#direction-inputs").innerHTML = directions.map((d) => `<fieldset><legend>${d.title}</legend>
   <label>Изополе DXF<input name="dxf_${d.key}" type="file" accept=".dxf" required></label>
   <label>Соответствующая шкала<input name="shk_${d.key}" type="file" accept=".shk" required></label></fieldset>`).join("");
@@ -68,7 +79,7 @@ q("#placement-inputs").innerHTML = directions.map((d) => `<fieldset data-directi
   <label>Смещение второй добавки, мм<input data-param="second_offset_mm" type="number" step="any" required></label></fieldset>`).join("");
 q("#direction-tabs").innerHTML = directions.map((d, i) => `<button type="button" data-index="${i}">${d.title}</button>`).join("");
 
-function selectedPoint() { return result?.front[Number(q("#candidate").value)]; }
+function selectedPoint() { return result?.front[layoutVariants.length ? result.selected_index : Number(q("#candidate").value)]; }
 function isTrimmedResult() { return ["boundary-trimmed-physical-bars", "pruned-trimmed-physical-bars", "repaired-trimmed-physical-bars"].includes(result?.output_kind); }
 function isPhysicalResult() { return result?.output_kind === "normalized-physical-bars" || isTrimmedResult(); }
 function trimDisplayChecks() {
@@ -95,7 +106,7 @@ function graphicDownload() {
 }
 function hasSelectedSourceGraphics() {
   return Boolean(result?.source_graphics) && (result.source_graphics_candidate_index === undefined ||
-    result.source_graphics_candidate_index === Number(q("#candidate").value));
+    result.source_graphics_candidate_index === (layoutVariants.length ? result.selected_index : Number(q("#candidate").value)));
 }
 function setZoom(value) {
   zoom = Math.min(3, Math.max(1, value));
@@ -266,6 +277,12 @@ function renderDirection() {
 }
 function renderPoint() {
   const point = selectedPoint();
+  q("#full-result-warning").textContent = result.warning;
+  if (isTrimmedResult()) {
+    const trim = trimDisplayChecks();
+    q("#result-summary").textContent = `Исходный спрос сохранён; после обработки ${fmt(trim.geometric_presence.uncovered_cell_count, 0)} КЭ без полного наличия стали, ` +
+      `${fmt(trim.coverage_with_control_40d.uncovered_cell_count, 0)} КЭ без контрольных 40d. Подробности — в гейтах.`;
+  }
   const graphic = isTrimmedResult() ? graphicDownload() : null;
   q("#download-selected").disabled = !point || !graphic;
   q("#download-source").disabled = !hasSelectedSourceGraphics();
@@ -314,7 +331,10 @@ q("#direction-tabs").addEventListener("click", (event) => {
   const button = event.target.closest("button");
   if (button) { activeDirection = Number(button.dataset.index); renderDirection(); }
 });
-q("#candidate").addEventListener("change", renderPoint);
+q("#candidate").addEventListener("change", () => {
+  if (layoutVariants.length) result = layoutVariants[Number(q("#candidate").value)].report;
+  renderPoint();
+});
 q("#source-envelopes").addEventListener("change", renderDirection);
 q("#drawing-views").addEventListener("click", (event) => {
   const button = event.target.closest("button[data-view]");
@@ -375,6 +395,7 @@ async function runAnalysis(url, options) {
     if (!response.ok) throw new Error(typeof payload.detail === "string" ? payload.detail : JSON.stringify(payload.detail));
     result = payload;
     if (result.schema_version !== "composite-plate-analysis/v1" || !Array.isArray(result.front) || result.directions?.length !== 4) throw new Error("Неподдержанный формат результата. Обновите страницу.");
+    setLayoutVariants(payload);
     q("#demo-notice").hidden = !result.demo;
     q("#demo-notice").textContent = result.demo ? "ДЕМО, НЕ РЕАЛЬНЫЙ ПРОЕКТ. " + result.demo.description : "";
     q("#result-title").textContent = result.engineering_example?.title || result.case_id || "Раскладка всей плиты";
@@ -387,11 +408,12 @@ async function runAnalysis(url, options) {
         `${fmt(trim.coverage_with_control_40d.uncovered_cell_count, 0)} КЭ без контрольных 40d. Подробности — в гейтах.`;
     }
     q("#full-result-warning").textContent = result.warning;
-    q("#candidate").innerHTML = result.front.map((point, i) => `<option value="${i}">Вариант ${i + 1}: ${fmt(point.additional_mass_kg)} кг / ` +
+    const choices = layoutVariants.length ? layoutVariants.map((variant) => ({...variant.metrics, label: variant.label})) : result.front;
+    q("#candidate").innerHTML = choices.map((point, i) => `<option value="${i}">Вариант ${i + 1}${point.label ? " · " + esc(point.label) : ""}: ${fmt(point.additional_mass_kg)} кг / ` +
       `${point.position_count} позиций / ${point.physical_bar_count} стержней</option>`).join("");
-    if (result.selected_index !== null) q("#candidate").value = String(result.selected_index);
-    q("#candidate").disabled = !result.front.length;
-    q(".candidate-control").hidden = result.front.length <= 1;
+    if (result.selected_index !== null) q("#candidate").value = String(layoutVariants.length ? 0 : result.selected_index);
+    q("#candidate").disabled = !choices.length;
+    q(".candidate-control").hidden = choices.length <= 1;
     q("#output").hidden = false;
     activeDirection = 0;
     drawingView = result.default_drawing_view || "combined";

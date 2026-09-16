@@ -23,7 +23,7 @@ class FlatMvpLayers:
     orthogonal_offset_mm: float = 36
 
 
-def flat_mvp_domain(problem):
+def flat_mvp_domain(problem, *, profile=FlatMvpLayers()):
     """Preserve exact external concavities, fill only closed interior rings."""
     geometries = []
     for direction in problem.direction_problems:
@@ -38,7 +38,6 @@ def flat_mvp_domain(problem):
         raise ValueError("The four source meshes must cover the same exact geometry")
     mesh = geometries[0]
     outer = Polygon(mesh.exterior)
-    profile = FlatMvpLayers()
     domain = OrthogonalSolidHost((SolidHostSection(0, profile.thickness_mm, outer),),
                                 0, 0, 0, outer.area * profile.thickness_mm, 0)
     declaration = {"schema_version": "flat-mvp-domain/v1", "profile_id": PROFILE_ID,
@@ -53,7 +52,8 @@ def flat_mvp_domain(problem):
 
 
 def flat_mvp_elevations(host, direction, diameter, profile):
-    if (profile != FlatMvpLayers() or type(diameter) is not int
+    if (not isinstance(profile, FlatMvpLayers) or profile.thickness_mm not in (200, 800)
+            or profile.orthogonal_offset_mm != 36 or type(diameter) is not int
             or diameter not in (10, 12, 14, 16, 18, 20, 22, 25, 28, 32, 36)):
         raise ValueError("Unsupported explicit S1 flat-layer profile or diameter")
     inset = 0 if direction.axis is Axis.X else profile.orthogonal_offset_mm
@@ -72,12 +72,14 @@ def flat_mvp_web_report(problem, recovery, *, stock_time_limit_s=10):
 
 
 def flat_mvp_source_web_report(problem, patterned_report, *, stock_time_limit_s=10, normalize_source=False,
-                               repair_deficits=False):
+                               repair_deficits=False, layers=FlatMvpLayers(), layer_profile=None, elevation_policy=None):
     """A failed batch cut cannot hide valid source geometry; no trial is fabricated."""
     from rebar.reporting.source_graphics import build_source_graphics, render_source_graphics_svg
     from .physical_bar_trial import _revalidate_source_geometry
     from .opening_relocation import _lanes_from_source_geometry
 
+    if (layer_profile is None) != (elevation_policy is None):
+        raise ValueError('Explicit layer profile and elevation policy must be supplied together')
     report = deepcopy(patterned_report)
     source_sha = hashlib.sha256(_bytes(patterned_report)).hexdigest()
     if not report.get("front"):
@@ -114,20 +116,21 @@ def flat_mvp_source_web_report(problem, patterned_report, *, stock_time_limit_s=
     report.update(front=[point], selected_index=0, source_graphics_candidate_index=0,
                   default_drawing_view="combined", source_geometry_coverage=coverage,
                   front_scope="source-geometry-only-stock-separately-checked")
-    host, declaration = flat_mvp_domain(problem)
+    host, declaration = flat_mvp_domain(problem, profile=layers)
     report = _render_trimmed_report(problem, report, raw, lanes, source_sha,
         host, {"host_id": None, "geometry": declaration}, _bytes(declaration),
-        profile=FlatMvpLayers(), elevations=flat_mvp_elevations,
+        profile=layers if layer_profile is None else layer_profile,
+        elevations=flat_mvp_elevations if elevation_policy is None else elevation_policy,
         stock_time_limit_s=stock_time_limit_s, respect_openings=False, repair_flat_deficits=repair_deficits)
-    return _label_flat_report(report, declaration)
+    return _label_flat_report(report, declaration, profile=layers)
 
 
-def _label_flat_report(report, declaration):
+def _label_flat_report(report, declaration, *, profile=FlatMvpLayers()):
     report.pop("working_host", None)
     report["mvp_domain"] = declaration
-    report["placement_profile"] = {"id": FlatMvpLayers().id, "measured_in_Revit": False,
+    report["placement_profile"] = {"id": profile.id, "measured_in_Revit": False,
         "engineering_approval": False,
-        "note": "Условная плоская плита 800 мм; X снаружи, Y глубже на 36 мм. Не измерение Revit."}
+        "note": f"Условная плоская плита {profile.thickness_mm:g} мм; X снаружи, Y глубже на 36 мм. Не измерение Revit."}
     report["warning"] = ("MVP: плоская плита по внешнему контуру исходной КЭ-сетки. "
         "Отверстия, перепады высоты и защитный слой исключены по принятому допущению. "
         "Стержни физически укорочены по контуру; исходная потребность не удалена. "

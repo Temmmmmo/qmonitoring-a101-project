@@ -106,6 +106,43 @@ def node(script, *args):
     return completed
 
 
+def test_variant_switch_changes_geometry_checks_source_and_revit_download_together():
+    script = r"""
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const nodes=new Map();const make=()=>({innerHTML:'',textContent:'',value:'0',disabled:false,hidden:false,dataset:{},style:{},
+ callbacks:{},addEventListener(name,fn){this.callbacks[name]=fn;},querySelectorAll(){return[];},setAttribute(){}});
+const q=id=>{if(!nodes.has(id))nodes.set(id,make());return nodes.get(id);};
+const context={document:{querySelector:q,body:{classList:{add(){},remove(){}}}},window:{location:{search:'',hash:''},engineeringExampleReady:Promise.resolve(null)},
+ URLSearchParams,Intl,console,setTimeout,clearTimeout,setInterval,clearInterval};
+vm.createContext(context);vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),context);
+function report(id,mass,missing){
+ const candidate={svg:`<svg>${id}</svg>`,overlay_svg:`<svg>${id}</svg>`,coverage:{uncovered_cell_count:missing},geometric_presence:{uncovered_cell_count:missing},zone_drafts:[],installation_notes:[]};
+ const point={additional_mass_kg:mass,physical_bar_count:12,position_count:4,zone_count:3,bar_schedule:[],
+ direction_candidate_indexes:[0,0,0,0],stock_cutting:{status:'fail',groups:[]}};
+ return {schema_version:'composite-plate-analysis/v1',selected_index:0,output_kind:'boundary-trimmed-physical-bars',front:[point],warning:id,
+ directions:Array.from({length:4},()=>({candidates:[candidate],source_zone_drafts:[],source_svg:`<svg>source-${id}</svg>`})),blocking_check_ids:[],
+ source_graphics:{id,directions:Array.from({length:4},()=>({zone_drafts:[],legend:[]}))},source_graphics_candidate_index:0,
+ graphic_bar_plan_draft:{schema_version:'graphic-bar-plan-draft/v1',placement_eligible:false,id},
+ mvp_checks:{outer_boundary:'pass',original_demand_presence:missing?'fail':'pass',control_40d:'fail',stock_11700:'fail'},
+ boundary_trim:{external_boundary_failures_after:0,geometric_presence:{status:missing?'fail':'pass',uncovered_cell_count:missing},
+ coverage_with_control_40d:{status:'fail',uncovered_cell_count:missing+10},collisions:{proven_collision_pair_count:0,uncertain_pair_count:0},stock_cutting:{status:'fail'}}};
+}
+const first=report('first',100,1),second=report('second',200,7);
+first.layout_variants=[{label:'mass',metrics:first.front[0],report:null},{label:'count',metrics:second.front[0],report:second}];
+context.payload=first;vm.runInContext('setLayoutVariants(payload);renderPoint();download=(value,filename)=>{window.downloaded={value,filename};}',context);
+assert(q('#drawing').innerHTML.includes('first'));
+q('#candidate').value='1';q('#candidate').callbacks.change();
+assert(q('#drawing').innerHTML.includes('second'));assert(q('#metrics').innerHTML.includes('200'));
+assert(q('#result-summary').textContent.includes('7 КЭ'));assert.equal(q('#full-result-warning').textContent,'second');
+assert.equal(q('#download-source').disabled,false);q('#download-source').callbacks.click();assert.equal(context.window.downloaded.value.id,'second');
+q('#download-selected').callbacks.click();assert.equal(context.window.downloaded.value.id,'second');
+q('#candidate').value='0';q('#candidate').callbacks.change();assert(q('#drawing').innerHTML.includes('first'));
+context.payload=report('ordinary',300,0);vm.runInContext('setLayoutVariants(payload)',context);
+assert.equal(vm.runInContext('layoutVariants.length',context),0);
+"""
+    node(script, STATIC / "composite.js")
+
+
 @pytest.mark.parametrize("file", ["engineering-example.js", "home.js", "composite.js"])
 def test_javascript_syntax(file):
     executable = shutil.which("node")

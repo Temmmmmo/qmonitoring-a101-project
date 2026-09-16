@@ -23,9 +23,9 @@ from rebar.optimization.algorithms.stock_length_balance import StockLengthBalanc
 from rebar.optimization.services.cutting import PLATE_11700_CUT_LENGTHS_MM
 
 
-def _source():
+def _source(diameter=18):
     bands = []
-    for index, label in enumerate(("s300d18", "s300d18+s150d18")):
+    for index, label in enumerate((f"s300d{diameter}", f"s300d{diameter}+s150d{diameter}")):
         recipe = parse_recipe(label)
         bands.append(Band(index, index + 1, label, 10 + 20 * index, recipe.background,
                           recipe.additions[0] if recipe.additions else None, recipe))

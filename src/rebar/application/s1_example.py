@@ -52,6 +52,7 @@ def metadata(*, available, status):
 
 
 def analyze_s1_example():
+    from .layout_variants import build_layout_variants
     originals = source_bytes()
     with TemporaryDirectory(prefix="rebar-s1-") as temporary:
         sources, settings = [], []
@@ -61,12 +62,16 @@ def analyze_s1_example():
             sources.append(PlateDirectionSource(path, mapping_id=LEGACY_S1_D18.id))
             settings.append(CompositeDirectionSettings(Direction(Layer(layer), Axis(axis)),
                 0, 100, 0, "A500", "User-selected flat S1 MVP profile; not measured Revit", "left"))
-        source = analyze_assistant_sources(tuple(sources), case_id=EXAMPLE_ID)
-        provenance = {"mode": "fresh-four-original-dxf", "case_id": EXAMPLE_ID,
-            "sources": metadata(available=True, status="ready")["sources"],
-            **{key: source.provenance[key] for key in ("algorithm", "config", "candidate_id", "selection")}}
-        recovery = recover_patterned_layout(source.problem, source.solution, tuple(settings))
-        recovery.report["source_provenance"] = provenance
-        report = flat_mvp_source_web_report(source.problem, recovery.report, repair_deficits=True)
+        source = analyze_assistant_sources(tuple(sources), case_id=EXAMPLE_ID, maximum_variants=5)
+        def evaluate(variant):
+            provenance = {"mode": "fresh-four-original-dxf", "case_id": EXAMPLE_ID,
+                "sources": metadata(available=True, status="ready")["sources"],
+                **{key: variant.provenance[key] for key in ("algorithm", "config", "candidate_id", "selection")}}
+            recovery = recover_patterned_layout(variant.problem, variant.solution, tuple(settings))
+            recovery.report["source_provenance"] = provenance
+            report = flat_mvp_source_web_report(variant.problem, recovery.report, repair_deficits=True)
+            report['engineering_example'] = metadata(available=True, status='ready')
+            return report
+        report = build_layout_variants((source, *source.alternatives), evaluate)
     report["engineering_example"] = metadata(available=True, status="ready")
     return report

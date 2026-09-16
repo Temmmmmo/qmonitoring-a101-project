@@ -100,6 +100,30 @@ def test_fresh_four_sources_keep_hashes_and_preserve_stock_profile(source_case):
     scenario.verify_source_records(selected.provenance["source_files"])
 
 
+def test_source_variants_use_one_search_and_preserve_each_candidates_provenance(source_case):
+    from dataclasses import replace
+    sources, analysis, calls = source_case
+    first = analysis.front.candidates[0]
+    alternatives = [SimpleNamespace(id='alt-' + str(i), solution=SimpleNamespace(valid=True,
+        metrics=replace(first.solution.metrics, total_mass_kg=110+i, physical_bar_count=7-i))) for i in range(3)]
+    analysis.front.candidates = (first, *alternatives)
+    result = scenario.analyze_assistant_sources(sources, case_id='own-case', maximum_variants=3)
+    assert len(calls) == 1
+    assert len(result.alternatives) == 2
+    assert result.provenance['candidate_id'] == 'plate:1'
+    assert result.alternatives[0].provenance['candidate_id'] == 'alt-2'
+    assert len({v.provenance['candidate_id'] for v in (result, *result.alternatives)}) == 3
+    assert all(not v.provenance['placement_eligible'] for v in result.alternatives)
+
+
+@pytest.mark.parametrize('value', [True, 0, 6, 1.5])
+def test_variant_budget_rejected_before_search(source_case, value):
+    sources, _, calls = source_case
+    with pytest.raises(ValueError, match='maximum_variants'):
+        scenario.analyze_assistant_sources(sources, case_id='own-case', maximum_variants=value)
+    assert not calls
+
+
 def test_source_drift_during_optimizer_is_rejected(source_case, monkeypatch):
     sources, analysis, _ = source_case
 

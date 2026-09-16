@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import logging
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from zipfile import ZipFile
@@ -17,7 +18,8 @@ from .analyze_plate import PlateDirectionSource
 from .assistant_inputs import analyze_assistant_sources
 from .boundary_trim_web import boundary_trim_web_report
 from .physical_layout_recovery import recover_physical_layout
-from .physical_web_report import physical_web_report
+from .k09_outer_repair_web import k09_dxf_outer_web_report
+from .layout_variants import build_layout_variants
 from rebar.optimization.contracts.physical import PhysicalNormalizationConfig
 
 EXAMPLE_ID = "k09-typical-3-14"
@@ -32,6 +34,7 @@ SOURCES = (
     ("top", "Y", "Верхняя по У.dxf", "b10f4cfb60a53a11d7b93cb51b19e17206a83f3af29a5ea3d008bc60d3973311"),
 )
 PROFILE_SOURCE = "Research profile from 2026-09-14: not approved working-RVT phase or layer order"
+LOGGER = logging.getLogger(__name__)
 
 
 class EngineeringFilesUnavailableError(ValueError):
@@ -100,7 +103,8 @@ def engineering_example_catalog() -> dict:
         s1 = s1_example.metadata(available=False, status=str(error))
     else:
         s1 = s1_example.metadata(available=True, status="ready")
-    return {"examples": [entry, s1], "default_example_id": s1_example.EXAMPLE_ID}
+    return {"examples": [entry, s1],
+            "default_example_id": EXAMPLE_ID if entry['is_available'] else s1_example.EXAMPLE_ID}
 
 
 def analyze_engineering_example(example_id: str, *, working_host_bytes: bytes | None = None,
@@ -128,24 +132,34 @@ def analyze_engineering_example(example_id: str, *, working_host_bytes: bytes | 
             sources.append(PlateDirectionSource(path, mapping_id=MAPPING_ID))
             settings.append(CompositeDirectionSettings(Direction(Layer(layer), Axis(axis)), 0, 100, 0,
                                                         "A500", PROFILE_SOURCE, "left"))
-        source = analyze_assistant_sources(tuple(sources), case_id=EXAMPLE_ID, maximum_source_bars=1227)
+        source = analyze_assistant_sources(tuple(sources), case_id=EXAMPLE_ID,
+                                           maximum_source_bars=1227, maximum_variants=5)
         # Use the existing physical pipeline, not the much heavier recipe-pool baseline.
         # Only public provenance leaves the private temporary source directory.
-        provenance = {"mode": "fresh-four-original-dxf", "case_id": EXAMPLE_ID,
-            "sources": example_metadata(available=True, status="ready")["sources"],
-            "algorithm": source.provenance["algorithm"], "config": source.provenance["config"],
-            "candidate_id": source.provenance["candidate_id"], "selection": source.provenance["selection"]}
-        recovery = recover_physical_layout(source.problem, source.solution, tuple(settings),
-            normalization_config=PhysicalNormalizationConfig(allow_diameter_increase=True),
-            source_provenance=provenance)
-        if outer_only_repair:
-            from .k09_outer_repair_web import k09_outer_repaired_web_report
-            report = k09_outer_repaired_web_report(source.problem, recovery, working_host_bytes,
-                                                   confirm_identity_xy=confirm_identity_xy)
-        else:
-            report = (physical_web_report(source.problem, recovery) if working_host_bytes is None else
-            boundary_trim_web_report(source.problem, recovery, working_host_bytes,
-                                     confirm_identity_xy=confirm_identity_xy, cleanup_redundant=True))
+        def evaluate(variant):
+            LOGGER.info('K09 variant %s: physical processing', variant.provenance['candidate_id'])
+            provenance = {"mode": "fresh-four-original-dxf", "case_id": EXAMPLE_ID,
+                "sources": example_metadata(available=True, status="ready")["sources"],
+                **{key: variant.provenance[key] for key in ('algorithm', 'config', 'candidate_id', 'selection')}}
+            recovery = recover_physical_layout(variant.problem, variant.solution, tuple(settings),
+                normalization_config=PhysicalNormalizationConfig(allow_diameter_increase=True),
+                source_provenance=provenance)
+            LOGGER.info('K09 variant %s: recovery=%s; clipping outer contour', variant.provenance['candidate_id'], recovery.status)
+            if outer_only_repair:
+                from .k09_outer_repair_web import k09_outer_repaired_web_report
+                report = k09_outer_repaired_web_report(variant.problem, recovery, working_host_bytes,
+                                                       confirm_identity_xy=confirm_identity_xy)
+            elif working_host_bytes is None:
+                report = k09_dxf_outer_web_report(variant.problem, recovery)
+            else:
+                report = boundary_trim_web_report(variant.problem, recovery, working_host_bytes,
+                    confirm_identity_xy=confirm_identity_xy, cleanup_redundant=True)
+            report['engineering_example'] = example_metadata(available=True, status='ready')
+            LOGGER.info('K09 variant %s complete: %s', variant.provenance['candidate_id'],
+                [{k: p[k] for k in ('additional_mass_kg', 'physical_bar_count', 'position_count')}
+                 for p in report.get('front', ())])
+            return report
+        report = build_layout_variants((source, *getattr(source, 'alternatives', ())), evaluate)
     report["engineering_example"] = example_metadata(available=True, status="ready")
     return report
 

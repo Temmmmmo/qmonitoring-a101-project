@@ -58,6 +58,36 @@ def test_displayed_geometry_mass_count_and_schedule_are_one_accepted_inventory(p
     assert recovery == before
 
 
+@pytest.mark.parametrize('stock_blocked', [False, True])
+def test_k09_default_web_checks_real_bar_bodies_against_dxf_exterior(stock_blocked):
+    from rebar.application.k09_outer_repair_web import k09_dxf_outer_web_report
+    path = Path(__file__).with_name('test_patterned_layout_recovery.py')
+    spec = importlib.util.spec_from_file_location('k09_web_source_fixture', path)
+    fixture = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fixture)
+    problem, solution, settings = fixture._source(diameter=12)
+    problem = replace(problem, case_id='k09-typical-3-14')
+    recovery = recover_physical_layout(problem, solution, settings,
+        normalization_config=PhysicalNormalizationConfig(time_limit_s=5, stock_balance_time_limit_s=2),
+        balance_time_limit_s=5, stock_time_limit_s=3)
+    if stock_blocked:
+        recovery = replace(recovery, packet=None, status='blocked_patterned_stock')
+    report = k09_dxf_outer_web_report(problem, recovery)
+    assert report['mvp_checks']['outer_boundary'] == 'pass'
+    assert report['boundary_trim']['external_boundary_failures_after'] == 0
+    assert report['mvp_domain']['thickness_mm'] == 200
+    assert not report['mvp_domain']['actual_Revit_host_checked']
+    assert report['source_demand_preserved'] and not report['placement_eligible']
+    assert report['placement_profile']['id'] == 'k09-dxf-exterior-flat200/v1'
+    assert report['placement_profile']['orthogonal_axis_inset_mm'] == 16
+    assert report['physical_normalization_completed'] == (recovery.packet is not None)
+    # These are shortened actual transport axes, not an SVG clip.
+    for row in report['directions']:
+        assert 'clipPath' not in row['candidates'][0]['svg']
+        for bar in row['candidates'][0]['physical_bars']:
+            assert 0 <= bar['longitudinal_mm'][0] <= bar['longitudinal_mm'][1] <= 1200
+
+
 @pytest.mark.parametrize("field,value", [("physical_bar_count", 1), ("additional_mass_kg", 1)])
 def test_cannot_mix_geometry_and_metrics_from_different_stages(physical_case, field, value):
     problem, original = physical_case

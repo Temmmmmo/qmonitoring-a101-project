@@ -49,11 +49,11 @@ def test_original_archive_preserves_bytes_names_and_can_be_reused(original_trans
     assert str(root) not in response.text
 
 
-def test_s1_is_catalog_default_but_unavailable_does_not_replace_it_with_k09(original_transport):
+def test_catalog_prefers_installed_k09_but_explicit_unavailable_s1_is_not_substituted(original_transport):
     archive, root, _ = original_transport
     example.install_original_archive(archive, root)
     catalog = client.get("/api/engineering-examples").json()
-    assert catalog["default_example_id"] == s1_example.EXAMPLE_ID
+    assert catalog["default_example_id"] == example.EXAMPLE_ID
     assert catalog["examples"][0]["id"] == example.EXAMPLE_ID
     assert catalog["examples"][0]["is_available"] is True
     assert catalog["examples"][1]["id"] == s1_example.EXAMPLE_ID
@@ -165,11 +165,14 @@ def test_exact_verified_originals_feed_existing_core_and_are_cleaned_up(original
         assert all(s.first_300_offset_mm == 100 and "not approved" in s.source for s in settings)
         assert kwargs["normalization_config"].allow_diameter_increase
         assert str(root) not in str(kwargs["source_provenance"])
-        return "recovery"
+        return SimpleNamespace(status='transport-only-test')
 
     monkeypatch.setattr(example, "analyze_assistant_sources", inspect)
     monkeypatch.setattr(example, "recover_physical_layout", recover)
-    monkeypatch.setattr(example, "physical_web_report", lambda *args: {"front": [], "placement_eligible": False})
+    monkeypatch.setattr(example, "k09_dxf_outer_web_report", lambda *args: {
+        "front": [{"additional_mass_kg": 0, "physical_bar_count": 0, "position_count": 0,
+                   "direction_candidate_indexes": [0]*4}], "selected_index": 0,
+        "directions": [{"candidates": [{"physical_bars": []}]} for _ in range(4)], "placement_eligible": False})
     response = client.post(f"/api/engineering-examples/{example.EXAMPLE_ID}/analyze")
     assert response.status_code == 200, response.text
     assert not response.json()["placement_eligible"]
@@ -200,7 +203,8 @@ def test_boundary_trim_transport_requires_actual_host_and_exact_identity_confirm
     response = client.post(f"/api/engineering-examples/{example.EXAMPLE_ID}/boundary-trim",
         files={"working_host":("host.json",working_host_bytes,"application/json")},data={"host_xy_confirmed":"true"})
     assert response.status_code == 200,response.text
-    assert calls == [(example.EXAMPLE_ID,{"working_host_bytes":working_host_bytes,"confirm_identity_xy":True})]
+    assert calls == [(example.EXAMPLE_ID,{"working_host_bytes":working_host_bytes,"confirm_identity_xy":True,
+                                         "outer_only_repair":True})]
     assert not response.json()["placement_eligible"]
 
 

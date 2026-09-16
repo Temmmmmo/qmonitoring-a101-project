@@ -88,7 +88,7 @@ async def boundary_trim(example_id: str, request: Request):
             await run_in_threadpool(inspect_working_solid,
                 load_working_host_json(content, maximum_bytes=MAX_WORKING_REPORT_BYTES))
             return await run_in_threadpool(_analyze, example_id,
-                working_host_bytes=content, confirm_identity_xy=True)
+                working_host_bytes=content, confirm_identity_xy=True, outer_only_repair=True)
     except (ValueError, ClientDisconnect) as error:
         raise HTTPException(422, str(error) or "Передача JSON прервана") from error
     except StarletteHTTPException as error:

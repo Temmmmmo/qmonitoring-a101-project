@@ -29,6 +29,7 @@ class AssistantSourceSelection:
     solution: PlateSolution
     provenance: dict
     engineer_reference: dict | None = None
+    alternatives: tuple[AssistantSourceSelection, ...] = ()
 
 
 def source_record(path: str | Path, *, role: str) -> dict:
@@ -95,10 +96,13 @@ def select_source_candidate(analysis: PlateAnalysis, *, maximum_source_bars: int
 def analyze_assistant_sources(sources: tuple[PlateDirectionSource, ...], *, case_id: str,
                               config: GeneticRunConfig | None = None,
                               maximum_source_bars: int | None = None,
-                              maximum_source_mass_kg: float | None = None) -> AssistantSourceSelection:
+                              maximum_source_mass_kg: float | None = None,
+                              maximum_variants: int = 1) -> AssistantSourceSelection:
     """Read all original DXF, run recovery GA and choose a complete starting point."""
     if len(sources) != 4:
         raise ValueError("Exactly four DXF sources are required")
+    if type(maximum_variants) is not int or not 1 <= maximum_variants <= 5:
+        raise ValueError("maximum_variants must be an integer in 1..5")
     if not isinstance(case_id, str) or not case_id.strip() or len(case_id) > 120:
         raise ValueError("Explicit nonempty case_id up to 120 characters required")
     config = config or assistant_genetic_config()
@@ -136,7 +140,34 @@ def analyze_assistant_sources(sources: tuple[PlateDirectionSource, ...], *, case
             "maximum_source_bars": maximum_source_bars, "maximum_source_mass_kg": maximum_source_mass_kg,
             "scope": "uniform source candidate; not a final physical-plan gate"},
         "source_metrics": to_jsonable(selected.solution.metrics), "placement_eligible": False}
-    return AssistantSourceSelection(analysis.problem, selected.solution, provenance)
+    alternatives = []
+    if maximum_variants > 1:
+        eligible = [c for c in analysis.front.candidates if c.solution.valid
+            and not c.solution.metrics.under_reinforced_cell_count
+            and math.isfinite(c.solution.metrics.total_mass_kg)
+            and (maximum_source_bars is None or c.solution.metrics.physical_bar_count <= maximum_source_bars)
+            and (maximum_source_mass_kg is None or c.solution.metrics.total_mass_kg <= maximum_source_mass_kg)]
+        # Preserve the incumbent, then the low-count endpoint and interior points.
+        # Physical geometry is deduplicated again AFTER patterns/normalization/trim.
+        ordered = sorted(eligible, key=lambda c: (c.solution.metrics.physical_bar_count,
+                                                   c.solution.metrics.total_mass_kg, c.id))
+        if ordered:
+            indexes = [0, len(ordered) // 2, len(ordered) - 1]
+            indexes.extend(range(len(ordered)))
+            used = {selected.id}
+            for index in indexes:
+                candidate = ordered[index]
+                if candidate.id in used:
+                    continue
+                used.add(candidate.id)
+                variant_provenance = {**provenance, "candidate_id": candidate.id,
+                    "source_metrics": to_jsonable(candidate.solution.metrics),
+                    "selection": {**provenance["selection"], "policy": "source-front-diversity-with-explicit-limits"}}
+                alternatives.append(AssistantSourceSelection(analysis.problem, candidate.solution, variant_provenance))
+                if len(alternatives) >= maximum_variants - 1:
+                    break
+    return AssistantSourceSelection(analysis.problem, selected.solution, provenance,
+                                    alternatives=tuple(alternatives))
 
 
 def analyze_assistant_case(case_id: str, materials_root: str | Path, *,
