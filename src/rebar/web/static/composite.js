@@ -136,6 +136,12 @@ function renderComparison(point) {
     "Показана разница состава, а не прохождение всех гейтов. Прямые и гнутые стержни, границы и совместная укладка должны проверяться в одинаковом объёме."].filter(Boolean).join(" ");
 }
 function renderChecks(point, blockers) {
+  const sourceCheck = hasSelectedSourceGraphics() ? result.source_zone_checks : null;
+  q("#source-zone-check-status").textContent = sourceCheck?.status === "pass"
+    ? `Огибающая компонентов: 40d проверено; ${fmt(sourceCheck.component_count, 0)} компонентов, 0 нарушений. Полное покрытие КЭ и native host: не проверено для source-пакета.`
+    : sourceCheck?.status === "fail"
+      ? `Огибающая компонентов: есть нарушения 40d; ${fmt(sourceCheck.component_count, 0)} компонентов, ${fmt(sourceCheck.violation_count, 0)} нарушений. Полное покрытие КЭ и native host: не проверено для source-пакета.`
+      : "Огибающая 40d исходного пакета не сертифицирована для выбранного варианта. Полное покрытие КЭ и native host: не проверено.";
   const selected = point ? result.directions.map((direction, i) => direction.candidates[point.direction_candidate_indexes[i]]) : [];
   const covered = selected.length === 4 && selected.every((candidate) => candidate?.coverage?.uncovered_cell_count === 0);
   const hostChecks = selected.map((candidate) => candidate?.host_preflight?.checks?.planar_host_and_openings);
@@ -196,6 +202,7 @@ function renderChecks(point, blockers) {
   }
   q("#check-summary").innerHTML = rows.map(([title, status, note]) => `<div class="check-card" data-status="${esc(status)}"><span>${esc(shortStatuses[status] || status)}</span><strong>${esc(title)}</strong><p>${esc(note)}</p></div>`).join("");
   const failed = rows.filter(([, status]) => status === "fail").length;
+  q("#physical-check-warning").textContent = failed ? `· ${failed} не пройдено` : "· не завершены";
   q("#gate-status").dataset.status = failed ? "fail" : "incomplete";
   q("#gate-status").textContent = failed
     ? `Нет полной инженерной проверки: ${failed} расчётных условий не выполнено. Исправьте их до выпуска раскладки.`
@@ -438,6 +445,7 @@ async function runAnalysis(url, options) {
     q("#output").hidden = false;
     activeDirection = 0;
     drawingView = "source";
+    q("#source-envelopes").checked = true;
     zoom = 1;
     renderPoint();
     q("#progress").textContent = result.front.length ? "Расчёт закончен. Проверки размещения показаны отдельно." : "Полного решения не найдено. Смотрите причины по направлениям.";

@@ -82,7 +82,9 @@ def test_composite_keeps_all_controls_but_checks_are_visible_and_metrics_unambig
             "drawing-views", "source-zone-rows", "source-legend", "download-source", "metrics-scope",
             "boundary-trim-form", "boundary-trim-host", "run-boundary-trim", "gate-status", "handoff-note"):
         assert key in page.ids
-    assert page.details == {"check-summary": [], "blockers": ["result-details"]}
+    assert "source-zone-check-status" in page.ids
+    assert page.details == {"check-summary": ["physical-checks"], "blockers": ["physical-checks", "result-details"]}
+    assert page.ids["physical-checks"][0] == "details" and "open" not in page.ids["physical-checks"][1]
     assert "open" not in page.ids["custom-inputs"][1]
     html = (STATIC / "composite.html").read_text(encoding="utf-8")
     assert "Синтетический пример" in html and "Расчётный черновик" in html
@@ -95,7 +97,11 @@ def test_composite_keeps_all_controls_but_checks_are_visible_and_metrics_unambig
     assert "Перенести зоны в Revit" in html and "SourceWorkflow" in html
     assert "исходные зоны на схеме существуют до физической обрезки" in html
     assert "open" not in page.ids["source-zone-details"][1]
-    assert "Нет полной инженерной проверки" in (STATIC / "composite.js").read_text(encoding="utf-8")
+    js = (STATIC / "composite.js").read_text(encoding="utf-8")
+    assert "Нет полной инженерной проверки" in js
+    assert 'id="source-envelopes" type="checkbox" checked' in html
+    assert "const sourceCheck = hasSelectedSourceGraphics() ? result.source_zone_checks : null;" in js
+    assert "не сертифицирована для выбранного варианта" in js
     assert "required" in page.ids["boundary-trim-host"][1]
 
 

@@ -133,11 +133,14 @@
         исходные зоны на схеме существуют до физической обрезки и не подменяют эти значения.</p>
       <div id="metrics" class="metrics"></div>
       <p id="mvp-scope" class="notice" hidden></p>
-      <section class="checks-section" aria-labelledby="checks-title"><h3 id="checks-title">Статус инженерных проверок</h3>
+      <section id="source-zone-checks" class="checks-section" aria-labelledby="source-checks-title"><h3 id="source-checks-title">Исходные зоны до физической обработки</h3>
+        <p id="source-zone-check-status" class="gate-status">Проверка 40d исходного пакета не выполнена.</p></section>
+      <details id="physical-checks" class="result-details"><summary>Дополнительно: проверки физической раскладки <span id="physical-check-warning"></span></summary>
+      <section class="checks-section" aria-labelledby="checks-title"><h3 id="checks-title">Статус инженерных проверок физической раскладки</h3>
         <p id="gate-status" class="gate-status" role="status">Ожидаем новый расчёт.</p>
         <div id="check-summary" class="check-summary"></div>
         <details class="result-details"><summary id="blocker-title">Все незакрытые условия</summary><ul id="blockers" class="blocker-list"></ul></details>
-      </section>
+      </section></details>
       <details id="comparison-detail" class="result-details" hidden><summary>Сравнение с инженерной выдачей</summary>
       <section id="engineer-comparison" class="engineer-comparison" hidden><h3>Сравнение с инженерной выдачей</h3>
         <div class="table-scroll"><table><thead><tr><th>Показатель</th><th>Этот вариант</th><th>Инженер</th><th>Разница</th></tr></thead><tbody id="comparison-rows"></tbody></table></div>
@@ -163,7 +166,7 @@
         </details></section>
       <details class="result-details"><summary>Технические подробности схемы</summary>
         <p id="drawing-view-note" class="notice"></p><p id="direction-status"></p>
-        <label id="source-envelope-control" class="check"><input id="source-envelopes" type="checkbox">
+        <label id="source-envelope-control" class="check"><input id="source-envelopes" type="checkbox" checked>
           Огибающие исходных наборов после 40d/раскроя — пунктир, не границы AreaReinforcement</label>
         <div id="drawing-layers" class="segmented" role="group" aria-label="Слой схемы"><button type="button" data-layer="layout" aria-pressed="true">Раскладка</button><button type="button" data-layer="demand" aria-pressed="false">Потребность</button><button type="button" data-layer="overlay" aria-pressed="false">Вместе</button></div>
         <div id="source-legend" class="source-legend" aria-label="Исходная шкала DXF"></div></details>

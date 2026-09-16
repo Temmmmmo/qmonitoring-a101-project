@@ -1,16 +1,21 @@
 """Original FE and parametric zones for graphics, never a physical placement packet."""
 from copy import deepcopy
+import hashlib
 import html
+import json
 import math
 from pathlib import Path
 import re
 
 from ezdxf.colors import aci2rgb
 
+from rebar.models import Rebar
+from rebar.optimization.services.anchorage import FixedDiameterAnchoragePolicy
 from rebar.reporting.serialization import to_jsonable
 
 SOURCE_GRAPHICS_SCHEMA = "source-isofields-zones/v1"
 SOURCE_STAGE = "original-parametric-zones-before-physical-normalization"
+SOURCE_40D_TOLERANCE_MM = 1e-6
 
 
 def _rgb(aci):
@@ -27,6 +32,55 @@ def _box(value):
             or value[0] > value[2] or value[1] > value[3]):
         raise ValueError("Source graphics require finite ordered original rectangles")
     return value
+
+
+def source_zone_40d_certificate(source_graphics):
+    """Check only published parametric envelopes, never host/body/3D coverage."""
+    if (source_graphics.get("schema_version") != SOURCE_GRAPHICS_SCHEMA or source_graphics.get("source_stage") != SOURCE_STAGE
+            or source_graphics.get("units") != "mm"):
+        raise ValueError("Source 40d certificate requires the original source packet")
+    directions, failures, count = source_graphics.get("directions", ()), [], 0
+    keys = [(row.get("direction", {}).get("layer"), row.get("direction", {}).get("axis")) for row in directions]
+    if len(directions) != 4 or len(set(keys)) != 4 or set(keys) != {("bottom", "X"), ("bottom", "Y"), ("top", "X"), ("top", "Y")}:
+        raise ValueError("Source 40d certificate requires four unique plate directions")
+    policy = FixedDiameterAnchoragePolicy()
+    packet = json.dumps(source_graphics, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+    base = {"schema_version": "source-zone-40d-certificate/v1", "source_stage": SOURCE_STAGE,
+            "source_packet_sha256": hashlib.sha256(packet).hexdigest(), "tolerance_mm": SOURCE_40D_TOLERANCE_MM,
+            "policy_id": policy.name, "factor_d": policy.multiplier}
+    for row in directions:
+        direction = row.get("direction", {})
+        axis = direction.get("axis")
+        if axis not in ("X", "Y"):
+            raise ValueError("Source 40d certificate requires X/Y direction")
+        for zone in row.get("zone_drafts", ()):
+            demand = _box(zone.get("demand_bbox_mm"))
+            if not zone.get("components"):
+                return {**base, "status": "not_checked", "reason": "zone_without_components", "component_count": count,
+                        "violation_count": len(failures), "logical_demand_coverage": "not_checked", "native_host_boundary": "not_checked"}
+            for component in zone.get("components", ()):
+                bounds = _box(component.get("bar_axis_bbox_mm"))
+                diameter = component.get("diameter_mm")
+                length = component.get("installed_length_mm")
+                if (isinstance(diameter, bool) or not isinstance(diameter, (int, float)) or not math.isfinite(diameter)
+                        or diameter <= 0 or isinstance(length, bool) or not isinstance(length, (int, float))
+                        or not math.isfinite(length) or length <= 0):
+                    raise ValueError("Source 40d certificate requires finite component geometry")
+                lo, hi, dlo, dhi = (bounds[0], bounds[2], demand[0], demand[2]) if axis == "X" else (bounds[1], bounds[3], demand[1], demand[3])
+                target, left, right = policy.extension_each_end_mm(Rebar(1, diameter)), dlo - lo, hi - dhi
+                count += 1
+                if abs((hi - lo) - length) > SOURCE_40D_TOLERANCE_MM or left + SOURCE_40D_TOLERANCE_MM < target or right + SOURCE_40D_TOLERANCE_MM < target:
+                    failures.append({"direction": direction, "source_zone_id": zone.get("source_zone_id"),
+                                     "component_index": component.get("component_index"), "diameter_mm": diameter,
+                                     "target_each_end_mm": target, "left_extension_mm": left,
+                                     "right_extension_mm": right, "installed_length_mm": length})
+    if not count:
+        return {**base, "status": "not_checked", "reason": "no_components", "component_count": 0, "violation_count": 0,
+                "violations": [], "logical_demand_coverage": "not_checked", "native_host_boundary": "not_checked"}
+    return {**base, "component_count": count, "violation_count": len(failures),
+            "status": "pass" if not failures else "fail", "violations": failures,
+            "logical_demand_coverage": "not_checked", "native_host_boundary": "not_checked",
+            "note": "Проверены только осевые огибающие параметрических компонентов до физической обработки."}
 
 
 def build_source_graphics(problem, report, *, candidate_index=None, source_files=()):

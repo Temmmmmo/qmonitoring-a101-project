@@ -5,7 +5,7 @@ import math
 from rebar.optimization.services.bar_schedule import BarScheduleGroup, build_bar_schedule
 from rebar.reporting.composite_svg import render_composite_svg
 from rebar.reporting.serialization import to_jsonable
-from rebar.reporting.source_graphics import build_source_graphics, render_source_graphics_svg
+from rebar.reporting.source_graphics import build_source_graphics, render_source_graphics_svg, source_zone_40d_certificate
 
 
 def physical_web_report(problem, recovery) -> dict:
@@ -13,6 +13,7 @@ def physical_web_report(problem, recovery) -> dict:
     source_graphics = build_source_graphics(problem, report) if report.get("front") else None
     report["default_drawing_view"] = "source"
     report["source_graphics"] = source_graphics
+    report["source_zone_checks"] = source_zone_40d_certificate(source_graphics) if source_graphics else None
     report["source_graphics_candidate_index"] = report.get("selected_index")
     if source_graphics:
         for direction, source in zip(report["directions"], source_graphics["directions"]):

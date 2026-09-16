@@ -74,7 +74,7 @@ def flat_mvp_web_report(problem, recovery, *, stock_time_limit_s=10):
 def flat_mvp_source_web_report(problem, patterned_report, *, stock_time_limit_s=10, normalize_source=False,
                                repair_deficits=False, layers=FlatMvpLayers(), layer_profile=None, elevation_policy=None):
     """A failed batch cut cannot hide valid source geometry; no trial is fabricated."""
-    from rebar.reporting.source_graphics import build_source_graphics, render_source_graphics_svg
+    from rebar.reporting.source_graphics import build_source_graphics, render_source_graphics_svg, source_zone_40d_certificate
     from .physical_bar_trial import _revalidate_source_geometry
     from .opening_relocation import _lanes_from_source_geometry
 
@@ -107,6 +107,7 @@ def flat_mvp_source_web_report(problem, patterned_report, *, stock_time_limit_s=
         report["flat_source_normalization"] = to_jsonable(normalized)
     graphics = build_source_graphics(problem, report)
     report["source_graphics"] = graphics
+    report["source_zone_checks"] = source_zone_40d_certificate(graphics)
     report["original_source_zones"] = retained
     point = report["front"][selected]
     for row, source, index in zip(report["directions"], graphics["directions"], point["direction_candidate_indexes"]):
