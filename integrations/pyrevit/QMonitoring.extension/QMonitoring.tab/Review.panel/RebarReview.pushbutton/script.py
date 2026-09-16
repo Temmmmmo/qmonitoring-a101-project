@@ -14,7 +14,8 @@ from pyrevit import DB, forms, revit
 from System.Collections.Generic import List
 
 from qm_plate_packet import DIRECTIONS
-from qm_rebar_review import (REPORT_SCHEMA, VERSION, material_key, validated_graphics)
+from qm_rebar_review import (REPORT_SCHEMA, VERSION, material_key, validated_graphics,
+    flat_outer_host, select_axis_depth_policy)
 from qm_revit_plan_preview import load_preview_input
 from qm_revit_probe import Probe, element_id, text_type, write_report_json
 from qm_revit_rebar_review import run_rebar_review
@@ -96,11 +97,36 @@ def main():
             if not label:
                 raise ValueError("Выбор типа отменён")
             selected[key] = choices[label]
-        depth_text = forms.ask_for_string(prompt="Глубины ОСЕЙ от нижней/верхней native-грани, мм:\n"
-            "низ X; низ Y; верх X; верх Y. Это НЕ cover и не высота DXF.",title="Явные оси четырёх направлений")
-        if depth_text is None:
-            raise ValueError("Глубины осей отменены")
-        depths = dict(zip(DIRECTIONS,numbers(depth_text,4)))
+        native_host = flat_outer_host(probe.floor(floor))
+        selected_rows = dict((key,probe.bar_type(value)) for key,value in selected.items())
+
+        def choose_depths(proposal,error):
+            if proposal is not None:
+                values = ";".join(text_type(proposal["computed_depths_mm"][d]) for d in DIRECTIONS)
+                message = "Предлагаем глубины ОСЕЙ: {0} мм\nниз X; низ Y; верх X; верх Y.\n".format(values)
+            else:
+                message = "Автоматический профиль не подходит: {0}\nМожно выбрать другой ручной review-профиль.\n".format(error)
+            message += ("Профиль MVP: отступ тела от грани 40 мм, вертикальный зазор 4 мм; максимальные диаметры выбранных типов.\n"
+                "Это НЕ Revit cover/норматив/инженерное approval. Отверстия, фон и все коллизии НЕ проверены.\n"
+                "X ближе к граням, Y глубже. Профиль перепроверяется перед созданием.")
+            options = (["Использовать предлагаемый профиль"] if proposal is not None else [])+["Другие настройки","Отмена"]
+            choice = forms.alert(message,options=options,ok=False)
+            report["axis_depth_policy"] = dict(proposal) if proposal is not None else {"schema_version":"revit-axis-depth-policy/v1","mode":"not_selected"}
+            report["computed_axis_depths_mm"] = proposal["computed_depths_mm"] if proposal is not None else None
+            if choice == "Другие настройки":
+                report["axis_depth_policy"].update(mode="manual",profile_id=None,user_confirmed=False,
+                    actual_depths_mm=None,automatic_gap_policy_applied=False,auto_proposal_error=error)
+            return "auto" if choice == "Использовать предлагаемый профиль" else "manual" if choice == "Другие настройки" else None
+
+        def ask_manual(proposal):
+            return forms.ask_for_string(prompt="Другие настройки: глубины ОСЕЙ от native-граней, мм:\n"
+                "низ X; низ Y; верх X; верх Y. Это НЕ cover/DXF Z. Auto gap4 для ручного профиля не подтверждается.",
+                title="Дополнительная ручная настройка")
+
+        depth_policy = select_axis_depth_policy(primitives,native_host,selected_rows,choose_depths,ask_manual)
+        depths = depth_policy["actual_depths_mm"]
+        report.update(axis_depth_policy=depth_policy,axis_depths_mm=depths,
+            computed_axis_depths_mm=depth_policy["computed_depths_mm"])
         checks = primitives["trim_graphics"]["checks"]
         conditional = checks.get("conditional_collisions_3d", checks["collisions_3d"])
         collision_notice = "Исходный backend Z-profile: conditional 3D={0}; proven={1}; uncertain={2}. Выбранные4глубины/actual RVT collisions NOT CHECKED.".format(
@@ -131,7 +157,7 @@ def main():
                     checks["coverage"],checks["anchorage_40d"],checks["stock_cutting"],collision_notice),yes=True,no=True)
 
         report = run_rebar_review(doc,DB,floor,primitives,selected,depths,lambda:List[DB.Curve](),
-            keep,copy_confirmed=True,worksharing_consent=confirm_review_worksharing,preview=preview)
+            keep,copy_confirmed=True,worksharing_consent=confirm_review_worksharing,preview=preview,axis_depth_policy=depth_policy)
         report.update({"source_input_sha256":digest,"source_file_name":os.path.basename(source),
             "coordinate_offset_xy_mm":[offset_x,offset_y]})
     except Exception as exc:

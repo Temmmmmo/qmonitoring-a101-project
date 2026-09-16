@@ -10,16 +10,119 @@ from qm_probe_geometry import distance
 from qm_revit_plan_preview import build_preview_primitives, _validate_primitives
 from qm_trial_input import exact_keys, number
 
-VERSION = "0.1.2"
+VERSION = "0.1.3"
 REPORT_SCHEMA = "revit-rebar-review-mvp-report/v1"
 INPUT_SCHEMAS = ("graphic-bar-plan-draft/v1", "graphic-bar-plan-pruned/v1", "graphic-bar-plan-repaired/v1")
 AXIS_TOLERANCE_MM = 0.01
 OUTER_COMPUTATIONAL_EPS_MM = 0.000001
 MAX_REVIEW_BARS = 5000
+AXIS_DEPTH_PROFILE = "mvp-face40-clear4-max-model-diameter/v1"
 
 
 def material_key(bar):
     return "{0}|{1}".format(bar["steel_class"].strip(), bar["diameter_mm"])
+
+
+def computed_axis_depth_policy(primitives, host, bar_types):
+    """Explicit MVP offsets, independent of native cover and FE layer profiles."""
+    diameters = dict((direction, []) for direction in DIRECTIONS)
+    for bar in primitives["bars"]:
+        typ = bar_types[material_key(bar)]
+        for field in ("nominal_diameter_mm", "model_diameter_mm"):
+            number(typ[field], 6, 40)
+            if abs(typ[field]-bar["diameter_mm"]) > .001:
+                raise ValueError("Automatic axis profile requires exact selected nominal/model diameter")
+        diameters[bar["direction"]].append(typ["model_diameter_mm"])
+    if not any(diameters.values()):
+        raise ValueError("Automatic axis profile needs a nonempty whole inventory")
+    maximum = dict((d,max(values or [0])) for d,values in diameters.items())
+    depths, zs, gaps = {}, {}, {}
+    for layer in ("bottom", "top"):
+        x, y = layer+"-X", layer+"-Y"
+        rx, ry = maximum[x]/2, maximum[y]/2
+        depths[x] = 40+rx
+        depths[y] = (depths[x]+rx+4+ry if rx else 40+ry) if ry else 40
+        for direction in (x,y):
+            if maximum[direction]:
+                z = host[layer+"_z_mm"]+(depths[direction] if layer == "bottom" else -depths[direction])
+                radius = maximum[direction]/2
+                if z-radius < host["bottom_z_mm"]-OUTER_COMPUTATIONAL_EPS_MM or z+radius > host["top_z_mm"]+OUTER_COMPUTATIONAL_EPS_MM:
+                    raise ValueError("Automatic MVP axis profile does not fit native thickness; select another explicit manual profile")
+                zs[direction] = z
+        if rx and ry:
+            gaps[x+"/"+y] = abs(zs[x]-zs[y])-rx-ry
+    for lower in ("bottom-X","bottom-Y"):
+        for upper in ("top-X","top-Y"):
+            if lower in zs and upper in zs:
+                gaps[lower+"/"+upper] = zs[upper]-zs[lower]-(maximum[lower]+maximum[upper])/2
+    if any(gap < 4-OUTER_COMPUTATIONAL_EPS_MM for gap in gaps.values()):
+        raise ValueError("Automatic MVP axis profile needs at least 4 mm vertical body gap; native thickness is too small")
+    return {"schema_version":"revit-axis-depth-policy/v1","profile_id":AXIS_DEPTH_PROFILE,
+        "mode":"auto","user_confirmed":False,"face_to_steel_offset_mm":40,
+        "minimum_interlayer_clear_mm":4,"native_cover_used":False,"engineering_approval":False,
+        "computed_depths_mm":depths,"actual_depths_mm":copy.deepcopy(depths),
+        "maximum_model_diameter_mm_by_direction":maximum,
+        "inactive_directions":[d for d in DIRECTIONS if not maximum[d]],
+        "native_face_z_mm":{"bottom":host["bottom_z_mm"],"top":host["top_z_mm"]},
+        "absolute_axis_z_mm_by_direction":zs,"minimum_vertical_body_gap_mm_by_pair":gaps,
+        "automatic_gap_policy_applied":True,
+        "scope":"MVP face offset 40 and vertical gap 4; NOT native cover, norm, full collision proof or engineering approval"}
+
+
+def manual_axis_depth_policy(depths, proposal=None, auto_error=None):
+    exact_keys(depths,DIRECTIONS)
+    for value in depths.values():
+        number(value,0,1000000)
+    return {"schema_version":"revit-axis-depth-policy/v1","profile_id":None,"mode":"manual",
+        "user_confirmed":False,"native_cover_used":False,"engineering_approval":False,
+        "actual_depths_mm":copy.deepcopy(depths),
+        "computed_depths_mm":copy.deepcopy(proposal["computed_depths_mm"]) if proposal else None,
+        "auto_proposal":copy.deepcopy(proposal),"auto_proposal_error":auto_error,
+        "automatic_gap_policy_applied":False,
+        "scope":"Explicit manual review depths; automatic face40/gap4 policy NOT certified"}
+
+
+def select_axis_depth_policy(primitives,host,bar_types,choose_mode,ask_manual):
+    """Normal path never asks for four numbers; cancellation never creates bars."""
+    proposal, error = None, None
+    try:
+        proposal = computed_axis_depth_policy(primitives,host,bar_types)
+    except ValueError as exc:
+        error = str(exc)
+    mode = choose_mode(proposal,error)
+    if mode == "auto" and proposal is not None:
+        policy = proposal
+    elif mode == "manual":
+        text = ask_manual(proposal)
+        if text is None:
+            raise ValueError("Manual axis depth settings cancelled; no Rebar created")
+        values = [float(part.strip().replace(",",".")) for part in text.split(";")]
+        if len(values) != 4:
+            raise ValueError("Manual depths require bottom X; bottom Y; top X; top Y")
+        policy = manual_axis_depth_policy(dict(zip(DIRECTIONS,values)),proposal,error)
+    else:
+        raise ValueError("Axis depth profile not confirmed; no Rebar created")
+    policy["user_confirmed"] = True
+    return policy
+
+
+def validate_axis_depth_policy(primitives,host,bar_types,depths,policy):
+    """Recompute automatic profile with CURRENT native faces and selected types."""
+    if (policy.get("schema_version") != "revit-axis-depth-policy/v1"
+            or policy.get("user_confirmed") is not True or policy.get("native_cover_used") is not False
+            or policy.get("engineering_approval") is not False or policy.get("actual_depths_mm") != depths):
+        raise ValueError("Exact confirmed axis-depth provenance differs")
+    if policy.get("mode") == "auto":
+        fresh = computed_axis_depth_policy(primitives,host,bar_types)
+        fresh["user_confirmed"] = True
+        if policy != fresh:
+            raise ValueError("Native host/types or automatic axis profile changed; confirm a fresh proposal")
+    elif policy.get("mode") == "manual":
+        if policy.get("automatic_gap_policy_applied") is not False or policy.get("profile_id") is not None:
+            raise ValueError("Manual depths cannot borrow automatic gap approval")
+    else:
+        raise ValueError("Unknown axis depth selection mode")
+    return copy.deepcopy(policy)
 
 
 def validated_graphics(packet, offset_x_mm, offset_y_mm):

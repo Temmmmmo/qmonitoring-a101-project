@@ -22,7 +22,7 @@ SOURCE_TAB = "QMonitoring.tab"
 
 TOOLS = (
     {
-        "id": "rebar-review-mvp", "title": "Вся прямая партия · настоящий Rebar Review", "runtime_version": "0.1.2",
+        "id": "rebar-review-mvp", "title": "Вся прямая партия · настоящий Rebar Review", "runtime_version": "0.1.3",
         "button": "RebarReview", "command": "Rebar Review", "extension": "QMonitoringRebarReview",
         "panel": "Review", "mode": "native_rebar_review",
         "description": "Создаёт всю переданную прямую партию как native Rebar в копии RVT, сверяет после Commit и оставляет только по отдельному подтверждению.",
@@ -35,7 +35,7 @@ TOOLS = (
             "qm_revit_repaired_preview.py", "qm_rebar_review.py", "qm_revit_rebar_review.py"),
         "steps": (
             "Открой локальную или отсоединённую КОПИЮ Revit 2024 и выдели одну native Floor. Central/cloud и семейство не поддержаны.",
-            "Выбери полный graphic-bar-plan-draft/pruned/repaired JSON, задай только явный XY-перенос и четыре глубины осей от native-граней; масштаб и поворот не угадываются.",
+            "Выбери полный graphic-bar-plan-draft/pruned/repaired JSON и явный XY-перенос. Подтверди предложенные глубины осей: native-грани, Dmax выбранных типов, явный MVP face40/gap4; ручной ввод только через «Другие настройки». Масштаб и поворот не угадываются.",
             "Для каждого D/steel выбери точный загруженный RebarBarType и подтверди копию. Создаётся вся партия отдельных прямых Rebar без загибов, муфт и пропуска проблемных стержней.",
             "После Commit команда перечитает каждый ID, host, тип, конечную ось XYZ, длину, диаметр, количество и расчётную массу. Любое отличие откатывает всю партию.",
             "Только после успешного readback отдельно выбери: оставить диагностические Rebar в копии или откатить всё. Команда не вызывает Save/Sync; сохрани JSON-отчёт.",

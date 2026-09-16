@@ -126,14 +126,19 @@ def test_real_k09_dual_exterior_whole_918_inventory_and_readback_double():
         for b in p["bars"]
     }
     # Explicit diagnostic test depths, NOT approval of these four native Zs.
-    plan = review.make_review_plan(p, native, types, dict(zip(review.DIRECTIONS, [50, 70, 50, 70])))
+    policy = review.computed_axis_depth_policy(p, native, types)
+    policy["user_confirmed"] = True
+    depths = policy["actual_depths_mm"]
+    assert [depths[d] for d in review.DIRECTIONS] == [46, 62, 48, 68]
+    review.validate_axis_depth_policy(p, native, types, depths, policy)
+    plan = review.make_review_plan(p, native, types, depths)
     assert len(plan["runs"]) == 918 and plan["expected"]["position_count"] == 106
     dmax = {
         direction: max(run["diameter_mm"] for run in plan["runs"] if run["direction"] == direction)
         for direction in review.DIRECTIONS
     }
     assert dmax == {"bottom-X": 12, "bottom-Y": 12, "top-X": 16, "top-Y": 16}
-    assert 70 - 50 - (dmax["top-X"] + dmax["top-Y"]) / 2 == 4
+    assert min(policy["minimum_vertical_body_gap_mm_by_pair"].values()) == 4
     doubles = runpy.run_path(str(ROOT / "tests/integrations/test_rebar_review_mvp.py"))
     rows = doubles["native"](plan)
     for row, run in zip(rows, plan["runs"]):

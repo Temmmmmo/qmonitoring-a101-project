@@ -8,7 +8,8 @@ import json
 import time
 import traceback
 
-from qm_rebar_review import REPORT_SCHEMA, VERSION, compare_native, flat_outer_host, make_review_plan
+from qm_rebar_review import (REPORT_SCHEMA, VERSION, compare_native, flat_outer_host, make_review_plan,
+    manual_axis_depth_policy, validate_axis_depth_policy)
 from qm_revit_probe import Probe, element_id, text_type
 from qm_revit_trial import create_trial_rebar, document_ids, failure_recorder, read_trial_rebar, rollback_scope
 from qm_trial_worksharing import (assign_new_rebar_workset, authorize_trial_worksharing,
@@ -46,7 +47,7 @@ def _read_created(probe, ids, identities):
 
 def run_rebar_review(document, DB, floor, primitives, bar_types, depths, curve_list_factory,
                      keep_confirmation, copy_confirmed=False, worksharing_consent=False,
-                     checkout_id_set_factory=None, preview=None):
+                     checkout_id_set_factory=None, preview=None, axis_depth_policy=None):
     """Create every straight bar, Commit/read back, then keep or roll back all."""
     report = {"schema_version":REPORT_SCHEMA,"version":VERSION,
         "created_utc":datetime.datetime.utcnow().isoformat()+"Z","units":"mm",
@@ -54,6 +55,9 @@ def run_rebar_review(document, DB, floor, primitives, bar_types, depths, curve_l
         "placement_eligible":False,"engineering_approval":False,"issues":[],"commit_failures":[],
         "created_element_ids":[],"rollback":{"status":"not_started"},
         "source_schema":primitives.get("input_schema"),"case_id":primitives.get("case_id"),
+        "axis_depth_policy":copy.deepcopy(axis_depth_policy),"axis_depths_mm":copy.deepcopy(depths),
+        "computed_axis_depths_mm":copy.deepcopy(axis_depth_policy.get("computed_depths_mm")) if axis_depth_policy else None,
+        "axis_depth_revalidation":{"status":"not_checked"},
         "source_checks":copy.deepcopy(primitives.get("trim_graphics",{}).get("checks")),
         "source_blockers":copy.deepcopy(primitives.get("source_blockers")),
         "not_checked":["holes","cover","height-steps","background-rebar-collisions", "collisions-at-user-selected-four-axis-depths",
@@ -67,6 +71,10 @@ def run_rebar_review(document, DB, floor, primitives, bar_types, depths, curve_l
     ended,stage,kept = False,"preflight",False
     identities = {}
     try:
+        if axis_depth_policy is None:
+            axis_depth_policy = manual_axis_depth_policy(depths)
+            axis_depth_policy["user_confirmed"] = copy_confirmed is True
+            report["axis_depth_policy"] = copy.deepcopy(axis_depth_policy)
         if copy_confirmed is not True:
             raise ValueError("Explicit confirmation of a disposable/local COPY is required")
         if (document is None or document.IsFamilyDocument or document.IsReadOnly or document.IsModifiable
@@ -85,6 +93,7 @@ def run_rebar_review(document, DB, floor, primitives, bar_types, depths, curve_l
         if _blocking_read_issues(probe,report):
             raise ValueError("Incomplete native host/type readback")
         report["bar_type_mapping"] = copy.deepcopy(types)
+        validate_axis_depth_policy(primitives,report["host_policy"],types,depths,axis_depth_policy)
         plan = make_review_plan(primitives,report["host_policy"],types,depths)
         report["expected"] = copy.deepcopy(plan["expected"])
         report["axis_depths_mm"] = copy.deepcopy(depths)
@@ -98,10 +107,15 @@ def run_rebar_review(document, DB, floor, primitives, bar_types, depths, curve_l
         stage = "worksharing_authorization"
         authorize_trial_worksharing(document,DB,floor,list(bar_types.values()),worksharing,
             worksharing_consent,checkout_id_set_factory)
-        if probe.floor(floor) != before or any(probe.bar_type(item) != types[key] for key,item in bar_types.items()):
+        fresh_floor = probe.floor(floor)
+        fresh_types = dict((key,probe.bar_type(item)) for key,item in bar_types.items())
+        if fresh_floor != before or fresh_types != types:
             raise ValueError("Host/type changed before creation; recompute whole review")
         if _blocking_read_issues(probe,report):
             raise ValueError("Incomplete native host/type reread before creation")
+        validate_axis_depth_policy(primitives,flat_outer_host(fresh_floor),fresh_types,depths,axis_depth_policy)
+        report["axis_depth_revalidation"] = {"status":"consistent_with_current_native_host_and_types",
+            "mode":axis_depth_policy["mode"],"engineering_approval":False}
         before_ids = document_ids(document,DB)
         stage = "transaction_group"
         group = DB.TransactionGroup(document,"QMonitoring REBAR REVIEW MVP - NOT FOR CONSTRUCTION")
