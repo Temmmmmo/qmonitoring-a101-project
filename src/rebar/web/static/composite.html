@@ -3,31 +3,33 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>QMonitoring · Раскладка всей плиты</title>
-  <link rel="stylesheet" href="/static/composite.css?v=3">
-  <link rel="stylesheet" href="/static/engineering-start.css?v=2">
+  <link rel="stylesheet" href="/static/composite.css?v=4">
+  <link rel="stylesheet" href="/static/engineering-start.css?v=3">
 </head>
 <body>
   <header class="workspace-header"><a class="workspace-brand" href="/">QMonitoring <span>× A101</span></a>
     <nav aria-label="Разделы"><a href="/composite" aria-current="page">Раскладка плиты</a><a href="/revit">Revit</a><a href="/?advanced=1">Одно направление</a></nav></header>
   <main>
     <div class="engineering-start">
-      <p class="start-eyebrow">Четыре направления · единая ведомость</p>
-      <h1>Рассчитайте раскладку для настоящей плиты</h1>
-      <p class="start-description">С1: реальные изополя и плоская постановка MVP. Один запуск —
-        четыре направления, зоны, стержни и проверка исходной потребности.</p>
-      <ol class="start-steps"><li><strong>1. Выберите комплект</strong><span>Только проверенные оригинальные DXF.</span></li>
-        <li><strong>2. Рассчитайте</strong><span>Схема покажет зоны и физические стержни.</span></li>
-        <li><strong>3. Сверьте гейты</strong><span>Отчёт и графический JSON доступны ниже.</span></li></ol>
+      <p class="start-eyebrow">1 · Реальная плита</p>
+      <h1>Рассчитать раскладку арматуры</h1>
+      <p class="start-description">Четыре исходных DXF уже подключены. Схема, стержни и статус проверок появятся ниже.</p>
       <article class="example-card">
         <div><span class="example-tag">Выбран реальный комплект проекта</span>
-          <label>Инженерный комплект <select id="example-selector" aria-label="Инженерный комплект"></select></label>
+          <label class="example-choice">Плита <select id="example-selector" aria-label="Инженерный комплект"></select></label>
           <h2 id="example-title">С1 · плоский MVP</h2>
-          <p id="example-description" class="example-description">Исходные DXF и шкалы из материалов проекта, без генерации или замены данных.</p>
-          <div id="example-facts" class="example-facts"><span>4 направления</span><span>Файлы и шкалы уже выбраны</span></div>
-          <details class="example-profile"><summary>Параметры примера и ограничения</summary><p id="example-profile-note">Загружаем описание выбранного профиля…</p></details>
+          <p id="example-description" class="example-description">Реальные четыре направления проекта.</p>
           <button id="run-engineering-example" type="button" class="start-primary" disabled>Рассчитать плиту</button>
           <p id="example-status" class="example-status" role="status" aria-live="polite">Проверяем наличие исходных данных на сервере…</p>
-          <details class="boundary-trim-options"><summary>Обрезать по границе плиты и отверстиям</summary>
+        </div>
+        <details class="example-technical"><summary>Технические подробности исходника и другие режимы</summary>
+          <div id="example-facts" class="example-facts"></div>
+          <details class="example-profile"><summary>Профиль расчёта</summary><p id="example-profile-note">Загружаем профиль…</p></details>
+          <aside class="example-reference"><h3>Эталон, если сопоставим</h3>
+            <dl><dt>Масса</dt><dd id="example-mass">—</dd><dt>Стержни</dt><dd id="example-bars">—</dd><dt>Позиции</dt><dd id="example-positions">—</dd></dl>
+            <p id="example-reference-note">Проверяем эталон…</p></aside>
+          <div id="example-files" class="example-files" aria-label="Выбранные исходные файлы"></div>
+          <details class="boundary-trim-options"><summary>Отдельный пересчёт К09 по рабочему Revit-host</summary>
             <form id="boundary-trim-form">
               <label>Снимок Working Host из Revit, JSON<input id="boundary-trim-host" name="working_host" type="file" accept=".json" required></label>
               <label class="check"><input name="host_xy_confirmed" type="checkbox" value="true" required>
@@ -41,16 +43,12 @@
                 Наличие стали, запас 40d и новый раскрой проверяются раздельно; обрезка и удаление не доказывают анкеровку.</p>
               <button id="run-boundary-trim" type="submit" disabled>Рассчитать и обрезать по контуру и отверстиям</button>
             </form>
-          </details>
-        </div>
-        <aside class="example-reference"><h3>Эталон сравнения, если сопоставим</h3>
-          <dl><dt>Масса арматуры</dt><dd id="example-mass">—</dd><dt>Физические стержни</dt><dd id="example-bars">—</dd><dt>Позиции спецификации</dt><dd id="example-positions">—</dd></dl>
-          <p id="example-reference-note">Проверяем состав инженерного эталона…</p>
-        </aside>
-        <div id="example-files" class="example-files" aria-label="Выбранные исходные файлы"></div>
+          </details></details>
       </article>
-      <div class="start-alternatives"><a href="#custom-inputs" class="start-secondary" id="open-custom-inputs">Загрузить свои файлы →</a>
-        <a href="/revit" class="start-secondary">Инструменты Revit →</a></div>
+      <p class="start-caption">Результат — расчётный черновик. Незакрытые проверки и запрет инженерного размещения показаны явно.</p>
+      <details class="start-more"><summary>Другой проект и технические режимы</summary><div class="start-alternatives">
+        <a href="#custom-inputs" class="start-secondary" id="open-custom-inputs">Загрузить свои четыре DXF →</a>
+        <a href="/revit" class="start-secondary">Инструменты Revit →</a></div></details>
     </div>
     <p id="progress" role="status" aria-live="polite"></p>
     <p id="error" role="alert" hidden></p>
@@ -104,34 +102,44 @@
     </form>
     </details>
     <section id="output" hidden>
-      <div class="result-heading"><div><p class="section-eyebrow">Результат расчёта</p><h2 id="result-title">Раскладка всей плиты</h2></div>
-        <span class="draft-label">Черновик · не размещён в Revit</span></div>
+      <div class="result-heading"><div><p class="section-eyebrow">2 · Схема и проверка</p><h2 id="result-title">Раскладка всей плиты</h2></div>
+        <span class="draft-label">Расчётный черновик</span></div>
       <p id="demo-notice" class="notice" hidden></p>
       <p id="result-summary" class="result-summary"></p>
       <label class="candidate-control">Вариант раскладки<select id="candidate"></select></label>
       <div id="metrics" class="metrics"></div>
-      <p id="metrics-scope" class="metrics-scope"></p>
       <p id="mvp-scope" class="notice" hidden></p>
+      <section class="checks-section" aria-labelledby="checks-title"><h3 id="checks-title">Статус инженерных проверок</h3>
+        <p id="gate-status" class="gate-status" role="status">Ожидаем новый расчёт.</p>
+        <div id="check-summary" class="check-summary"></div>
+        <details class="result-details"><summary id="blocker-title">Все незакрытые условия</summary><ul id="blockers" class="blocker-list"></ul></details>
+      </section>
+      <details id="comparison-detail" class="result-details" hidden><summary>Сравнение с инженерной выдачей</summary>
       <section id="engineer-comparison" class="engineer-comparison" hidden><h3>Сравнение с инженерной выдачей</h3>
         <div class="table-scroll"><table><thead><tr><th>Показатель</th><th>Этот вариант</th><th>Инженер</th><th>Разница</th></tr></thead><tbody id="comparison-rows"></tbody></table></div>
-        <p id="comparison-scope"></p></section>
-      <div class="drawing-heading"><h3>Схема армирования</h3><p>Выберите направление и слой отображения</p></div>
+        <p id="comparison-scope"></p></section></details>
+      <div class="drawing-heading"><h3>Схема армирования</h3><p>Выберите направление и вид</p></div>
       <div id="drawing-views" class="segmented drawing-views" role="group" aria-label="Исходный или физический результат">
         <button type="button" data-view="combined" aria-pressed="true">Зоны + стержни</button>
         <button type="button" data-view="source" aria-pressed="false">Исходные изополя + зоны</button>
         <button type="button" data-view="physical" aria-pressed="false">Физические стержни</button>
       </div>
-      <p id="drawing-view-note" class="notice"></p>
-      <label id="source-envelope-control" class="check"><input id="source-envelopes" type="checkbox">
-        Огибающие исходных наборов после 40d/раскроя — пунктир, не границы AreaReinforcement</label>
-      <div class="drawing-toolbar"><nav id="direction-tabs" aria-label="Направление"></nav>
-        <div id="drawing-layers" class="segmented" role="group" aria-label="Слой схемы"><button type="button" data-layer="layout" aria-pressed="true">Раскладка</button><button type="button" data-layer="demand" aria-pressed="false">Потребность</button><button type="button" data-layer="overlay" aria-pressed="false">Вместе</button></div></div>
+      <div class="drawing-toolbar"><nav id="direction-tabs" aria-label="Направление"></nav></div>
       <div id="drawing" data-layer="layout" data-view="combined" data-envelopes="hidden"></div>
-      <div id="source-legend" class="source-legend" aria-label="Исходная шкала DXF"></div>
       <div class="drawing-footer"><p id="drawing-legend">Цвета исходного DXF — потребность; прямоугольники — исходные параметрические зоны.</p>
         <div class="zoom-controls"><button id="zoom-out" type="button" aria-label="Уменьшить схему">−</button><span id="zoom-level">100%</span><button id="zoom-in" type="button" aria-label="Увеличить схему">+</button><button id="zoom-reset" type="button">Целиком</button></div></div>
-      <p id="direction-status"></p>
-      <details id="source-zone-details" class="result-details" open><summary>Параметры исходных прямоугольных зон выбранного направления</summary>
+      <section class="handoff" aria-labelledby="handoff-title"><p class="section-eyebrow">3 · Передать в Revit</p>
+        <h3 id="handoff-title">Скачать JSON для просмотра</h3>
+        <p id="handoff-note">Изополя и зоны совместимы с Plan Preview. Графическая раскладка доступна только для совместимого результата.</p>
+        <div class="actions"><button id="download-source" type="button" disabled>Изополя и зоны · JSON</button>
+          <button id="download-selected" type="button">Раскладка · JSON</button><a href="/revit" class="handoff-link">Установка и открытие в Revit →</a></div></section>
+      <details class="result-details"><summary>Технические подробности схемы</summary>
+        <p id="drawing-view-note" class="notice"></p><p id="direction-status"></p>
+        <label id="source-envelope-control" class="check"><input id="source-envelopes" type="checkbox">
+          Огибающие исходных наборов после 40d/раскроя — пунктир, не границы AreaReinforcement</label>
+        <div id="drawing-layers" class="segmented" role="group" aria-label="Слой схемы"><button type="button" data-layer="layout" aria-pressed="true">Раскладка</button><button type="button" data-layer="demand" aria-pressed="false">Потребность</button><button type="button" data-layer="overlay" aria-pressed="false">Вместе</button></div>
+        <div id="source-legend" class="source-legend" aria-label="Исходная шкала DXF"></div></details>
+      <details id="source-zone-details" class="result-details"><summary>Параметры исходных зон выбранного направления</summary>
         <p id="source-zone-summary"></p>
         <p>Контур Z — исходный прямоугольник потребности, а не граница AreaReinforcement или тела стали.
           Длина компонента включает исходную анкеровку и раскрой. Условный шаг 150 мм может означать
@@ -140,28 +148,19 @@
           <th>Компонент L × окно осей, мм</th><th>Ø, мм</th><th>Условный шаг, мм</th><th>Стержней до обработки, шт.</th>
           <th>Фактические интервалы осей, мм</th></tr></thead><tbody id="source-zone-rows"></tbody></table></div>
       </details>
-      <section class="checks-section"><h3>Что проверено и что осталось</h3>
-        <p class="notice">Это расчётные варианты, не разрешение размещения. Высоты слоёв, фон и общие
-          3D-коллизии не подтверждены. Revit-модель не меняется.</p>
-        <div id="check-summary" class="check-summary"></div>
-        <h4 id="blocker-title">Незакрытые условия</h4><ul id="blockers" class="blocker-list"></ul>
-      </section>
       <details class="result-details"><summary id="schedule-title">Общая ведомость физических стержней</summary><div class="table-scroll"><table>
         <thead><tr><th>Марка</th><th>Класс</th><th>Ø, мм</th><th>Длина, мм</th><th>Стержней, шт.</th><th>Масса, кг</th></tr></thead>
         <tbody id="schedule"></tbody></table></div></details>
       <details class="result-details"><summary>Раскрой 11700, параметры и технические примечания</summary>
         <p id="stock-status"></p><p id="balance-status"></p><div id="stock-patterns"></div>
         <ul id="installation-notes"></ul><p id="full-result-warning"></p></details>
-      <div class="actions"><button id="download-report" type="button">Скачать полный отчёт JSON</button>
-        <button id="download-source" type="button" disabled>Скачать изополя + исходные зоны</button>
-        <button id="download-selected" type="button">Скачать выбранную раскладку (черновик)</button></div>
-      <p class="export-next"><a href="/revit">Как посмотреть в Revit →</a> Скачайте изополя/зоны или раскладку JSON
-        и откройте в Plan Preview. Это графический черновик, не размещённые Rebar.</p>
+      <details class="result-details"><summary>Полный диагностический отчёт</summary>
+        <p id="metrics-scope" class="metrics-scope"></p><button id="download-report" type="button">Скачать полный отчёт JSON</button></details>
     </section>
     <details class="synthetic-example"><summary>Синтетический пример · только для знакомства с интерфейсом</summary>
       <p>Отдельная сгенерированная плита 6 × 4 м, не проект К09 и не инженерный эталон. Проверки не отключаются.</p>
       <button id="run-demo" type="button">Посмотреть пример на синтетических данных</button></details>
   </main>
-  <script src="/static/engineering-example.js?v=2" defer></script>
-  <script src="/static/composite.js?v=5" defer></script>
+  <script src="/static/engineering-example.js?v=3" defer></script>
+  <script src="/static/composite.js?v=6" defer></script>
 </body></html>

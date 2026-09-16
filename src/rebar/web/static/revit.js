@@ -14,7 +14,7 @@ function textElement(tag, text, className) {
 function toolCard(tool) {
   const card = document.createElement("article");
   card.className = "tool-card";
-  const modeLabel = tool.mode === "read_only" ? "Только чтение" :
+  const modeLabel = tool.id === "rebar-review-mvp" ? "Диагностические Rebar · не approval" : tool.mode === "read_only" ? "Только чтение" :
     tool.mode === "view_family" ? "Семейства на виде, не Rebar" : "Графический вид, не Rebar";
   card.append(textElement("span", modeLabel, "tool-mode"));
   card.append(textElement("h3", tool.title));
@@ -51,7 +51,8 @@ async function loadCatalog() {
     if (catalog.schema_version !== "qmonitoring-revit-tools/v1" || !Array.isArray(catalog.tools)) {
       throw new Error("Версия списка инструментов не поддерживается. Обновите страницу.");
     }
-    const cards = catalog.tools.map(toolCard);
+    const priority = {"rebar-review-mvp": 0, "plan-preview": 1};
+    const cards = [...catalog.tools].sort((a, b) => (priority[a.id] ?? 9) - (priority[b.id] ?? 9)).map(toolCard);
     toolsContainer.replaceChildren(...cards);
     statusElement.textContent = "Пакеты доступны. Версия и SHA256 указаны для каждого архива.";
   } catch (error) {

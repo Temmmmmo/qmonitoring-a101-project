@@ -11,6 +11,7 @@ const esc = (value) => String(value ?? "").replaceAll("&", "&amp;").replaceAll("
 const fmt = (value, digits = 2) => value === null || value === undefined ? "—" :
   new Intl.NumberFormat("ru-RU", { maximumFractionDigits: digits }).format(value);
 const statuses = { pass: "Пройдено в расчётной модели", fail: "Не выполнено", not_checked: "Не проверено" };
+const shortStatuses = {pass: "Да · расчётно", fail: "Не выполнено", not_checked: "Не проверено"};
 const explanations = {
   "boundary-trim-engineering-review": "Обрезка у края требует решения анкеровки; это не разрешение размещения",
   "external_boundary": "Есть стержни, тело которых не помещается во внешний контур",
@@ -105,6 +106,7 @@ function renderComparison(point) {
   const comparable = reference && [reference.mass_kg, reference.physical_bar_count, reference.position_count]
     .some((value) => Number.isFinite(value) && value > 0);
   q("#engineer-comparison").hidden = !point || !comparable;
+  q("#comparison-detail").hidden = !point || !comparable;
   if (!point || !comparable) return;
   const rows = [["Масса дополнительной арматуры", point.additional_mass_kg, reference.mass_kg, "кг", 2],
     ["Физические стержни", point.physical_bar_count, reference.physical_bar_count, "шт.", 0],
@@ -136,18 +138,16 @@ function renderChecks(point, blockers) {
     const checks = result.mvp_checks, trim = trimDisplayChecks();
     const asStatus = (key) => ["pass", "fail", "not_checked"].includes(checks[key]) ? checks[key] : "not_checked";
     rows = [["Внешний контур плиты", asStatus("outer_boundary"),
-      `${fmt(trim.external_boundary_failures_after, 0)} физических стержней вне внешнего контура после обработки.`],
+      `${fmt(trim.external_boundary_failures_after, 0)} стержней вне контура.`],
       ["Наличие стали на исходных КЭ", asStatus("original_demand_presence"),
-        `${fmt(trim.geometric_presence.uncovered_cell_count, 0)} КЭ с неполным геометрическим наличием стали. Это не число проваленных тестов; исходный спрос не удалён.`],
-      ["Контрольная анкеровка 40d", asStatus("control_40d"),
-        `${fmt(trim.coverage_with_control_40d.uncovered_cell_count, 0)} КЭ с неполным покрытием в контрольной модели 40d. Геометрическое наличие стали не заменяет эту проверку.`],
-      ["Раскрой всей партии 11,7 м", asStatus("stock_11700"),
-        "Фактические новые длины; смешанные прямые отрезки и нулевой пропил — допущения, не подтверждение производства."],
-      ["3D-пары добавок · условные высоты", trim.collisions.proven_collision_pair_count ||
+        `${fmt(trim.geometric_presence.uncovered_cell_count, 0)} КЭ с неполным наличием. Исходный спрос сохранён.`],
+      ["Контроль 40d", asStatus("control_40d"),
+        `${fmt(trim.coverage_with_control_40d.uncovered_cell_count, 0)} КЭ с неполным покрытием.`],
+      ["Раскрой 11,7 м", asStatus("stock_11700"),
+        "Вся партия; нулевой пропил и смешанный рез — допущения."],
+      ["3D-пары · условные высоты", trim.collisions.proven_collision_pair_count ||
         trim.collisions.uncertain_pair_count ? "fail" : "pass",
-        `${fmt(trim.collisions.proven_collision_pair_count, 0)} пересечений и ${fmt(trim.collisions.uncertain_pair_count, 0)} неопределённых пар в исследовательском профиле слоёв. Не факт открытого Revit; фон не проверен.`],
-      ["Геометрия в открытом Revit", asStatus("actual_Revit_geometry"),
-        "Графический Plan Preview не создаёт Rebar и не подтверждает реальную модель."]];
+        `${fmt(trim.collisions.proven_collision_pair_count, 0)} пересечений, ${fmt(trim.collisions.uncertain_pair_count, 0)} неопределённых. Не факт Revit.`]];
   }
   else if (isTrimmedResult()) {
     const trim = trimDisplayChecks();
@@ -179,8 +179,13 @@ function renderChecks(point, blockers) {
         "Существовавшие пробелы не исправлены. Длины не округлялись; полный состав до удаления сохранён в экспорте."]);
     }
   }
-  q("#check-summary").innerHTML = rows.map(([title, status, note]) => `<div class="check-card" data-status="${esc(status)}"><span>${esc(statuses[status] || status)}</span><strong>${esc(title)}</strong><p>${esc(note)}</p></div>`).join("");
-  q("#blocker-title").textContent = `Незакрытые условия: ${blockers.length}`;
+  q("#check-summary").innerHTML = rows.map(([title, status, note]) => `<div class="check-card" data-status="${esc(status)}"><span>${esc(shortStatuses[status] || status)}</span><strong>${esc(title)}</strong><p>${esc(note)}</p></div>`).join("");
+  const failed = rows.filter(([, status]) => status === "fail").length;
+  q("#gate-status").dataset.status = failed ? "fail" : "incomplete";
+  q("#gate-status").textContent = failed
+    ? `Нет полной инженерной проверки: ${failed} расчётных условий не выполнено. Исправьте их до выпуска раскладки.`
+    : "Полная инженерная проверка не завершена. Непроверенные условия и Revit требуют отдельного решения.";
+  q("#blocker-title").textContent = `Все незакрытые условия · ${blockers.length}`;
 }
 function renderDirection() {
   const point = selectedPoint();
@@ -255,11 +260,16 @@ function renderDirection() {
 }
 function renderPoint() {
   const point = selectedPoint();
-  q("#download-selected").disabled = !point || (isTrimmedResult() && !graphicDownload());
+  const graphic = isTrimmedResult() ? graphicDownload() : null;
+  q("#download-selected").disabled = !point || !graphic;
   q("#download-source").disabled = !hasSelectedSourceGraphics();
+  q("#handoff-note").textContent = graphic
+    ? "Изополя и зоны открываются в Plan Preview. Раскладка JSON — графический draft; для Rebar Review нужна соответствующая выбранная плита, типы, XY и глубины. Это не инженерное разрешение."
+    : "Изополя и зоны открываются в Plan Preview. Для этого результата совместимый JSON раскладки Rebar Review не сформирован; используйте полный отчёт только для диагностики.";
   const physical = isPhysicalResult();
   q("#mvp-scope").hidden = !result.mvp_checks;
-  q("#mvp-scope").textContent = result.mvp_checks ? "Плоский MVP по реальным DXF: отверстия, перепады высоты и защитный слой здесь вне постановки. Внешний контур и полный исходный спрос проверены; это диагностический вариант, не разрешение инженерной раскладки. Фактический Revit не проверен." : "";
+  q("#mvp-scope").textContent = result.mvp_checks ?
+    "Плоский MVP: отверстия, перепады и cover вне расчёта; фактический Revit не проверен. Это не разрешение монтажа." : "";
   q("#metrics-scope").textContent = physical
     ? "Метрики и общая ведомость выше/ниже — физическая партия после обработки. На исходной схеме показаны другие, исходные параметры зон; их количество стержней не подменяет итоговое."
     : "Метрики относятся к выбранному параметрическому кандидату. Отдельная физическая нормализация не выполнена; исходные зоны и их расчётные оси доступны раздельно.";
@@ -362,21 +372,20 @@ async function runAnalysis(url, options) {
     q("#demo-notice").hidden = !result.demo;
     q("#demo-notice").textContent = result.demo ? "ДЕМО, НЕ РЕАЛЬНЫЙ ПРОЕКТ. " + result.demo.description : "";
     q("#result-title").textContent = result.engineering_example?.title || result.case_id || "Раскладка всей плиты";
-    q("#result-summary").textContent = `Вариантов всей плиты: ${result.front.length} · исходная потребность сохранена ${result.source_demand_preserved === true ? "полностью" : "— не подтверждено"}. ` +
-      (isPhysicalResult() ? "Доступны исходные изополя с зонами и отдельная физическая партия после обработки. Проверки её фактической геометрии и анкеровки приведены раздельно." : "Выбор учитывает массу и позиции спецификации.");
+    q("#result-summary").textContent = result.source_demand_preserved === true
+      ? "Полный исходный спрос сохранён. Схема и проверки относятся к новому расчёту." :
+        "Сохранение полного исходного спроса не подтверждено — не используйте эту выдачу.";
     if (isTrimmedResult()) {
       const trim = trimDisplayChecks();
-      q("#result-summary").textContent = "Исходные КЭ не удалены. После обработки геометрически не покрыто: " +
-        `${fmt(trim.geometric_presence.uncovered_cell_count, 0)} КЭ; с контрольными 40d: ` +
-        `${fmt(trim.coverage_with_control_40d.uncovered_cell_count, 0)} КЭ. Сохранение входа не означает выполнения покрытия.`;
-      if (result.mvp_checks) q("#result-summary").textContent +=
-        " Это диагностическая раскладка: полный инженерный гейт не пройден. Проверки и выгрузка — ниже.";
+      q("#result-summary").textContent = `Исходный спрос сохранён; после обработки ${fmt(trim.geometric_presence.uncovered_cell_count, 0)} КЭ без полного наличия стали, ` +
+        `${fmt(trim.coverage_with_control_40d.uncovered_cell_count, 0)} КЭ без контрольных 40d. Подробности — в гейтах.`;
     }
     q("#full-result-warning").textContent = result.warning;
     q("#candidate").innerHTML = result.front.map((point, i) => `<option value="${i}">Вариант ${i + 1}: ${fmt(point.additional_mass_kg)} кг / ` +
       `${point.position_count} позиций / ${point.physical_bar_count} стержней</option>`).join("");
     if (result.selected_index !== null) q("#candidate").value = String(result.selected_index);
     q("#candidate").disabled = !result.front.length;
+    q(".candidate-control").hidden = result.front.length <= 1;
     q("#output").hidden = false;
     activeDirection = 0;
     drawingView = result.default_drawing_view || "combined";

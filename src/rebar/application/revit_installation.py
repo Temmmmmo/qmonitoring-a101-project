@@ -22,6 +22,28 @@ SOURCE_TAB = "QMonitoring.tab"
 
 TOOLS = (
     {
+        "id": "rebar-review-mvp", "title": "Вся прямая партия · настоящий Rebar Review", "runtime_version": "0.1.0",
+        "button": "RebarReview", "command": "Rebar Review", "extension": "QMonitoringRebarReview",
+        "panel": "Review", "mode": "native_rebar_review",
+        "description": "Создаёт всю переданную прямую партию как native Rebar в копии RVT, сверяет после Commit и оставляет только по отдельному подтверждению.",
+        "report_schema": "revit-rebar-review-mvp-report/v1",
+        "input_schemas": ["graphic-bar-plan-draft/v1", "graphic-bar-plan-pruned/v1"],
+        "runtime_module": "qm_rebar_review.py",
+        "modules": ("qm_probe_geometry.py", "qm_revit_probe.py", "qm_trial_geometry.py", "qm_trial_input.py",
+            "qm_core_trial.py", "qm_plate_packet.py", "qm_physical_packet.py", "qm_revit_trial.py",
+            "qm_trial_worksharing.py", "qm_revit_plan_preview.py", "qm_revit_source_preview.py", "qm_revit_pruned_preview.py",
+            "qm_rebar_review.py", "qm_revit_rebar_review.py"),
+        "steps": (
+            "Открой локальную или отсоединённую КОПИЮ Revit 2024 и выдели одну native Floor. Central/cloud и семейство не поддержаны.",
+            "Выбери полный graphic-bar-plan-draft/pruned JSON, задай только явный XY-перенос и четыре глубины осей от native-граней; масштаб и поворот не угадываются.",
+            "Для каждого D/steel выбери точный загруженный RebarBarType и подтверди копию. Создаётся вся партия отдельных прямых Rebar без загибов, муфт и пропуска проблемных стержней.",
+            "После Commit команда перечитает каждый ID, host, тип, конечную ось XYZ, длину, диаметр, количество и расчётную массу. Любое отличие откатывает всю партию.",
+            "Только после успешного readback отдельно выбери: оставить диагностические Rebar в копии или откатить всё. Команда не вызывает Save/Sync; сохрани JSON-отчёт.",
+        ),
+        "limits": "Review-only MVP, не выпуск: исходные coverage/40d/stock fail/not_checked остаются видимыми. Проверяется native плоский внешний контур и толщина без bbox fallback; отверстия, cover, перепады, фон и его коллизии исключены. Наклонный/составной/криволинейный host блокируется. До 5000 отдельных стержней, поэтому операция может быть длительной. Существующая арматура не меняется.",
+        "verification": "Полнота inventory, CreateFromCurves-контракт, строгий readback 0,01 мм, tamper, rollback и explicit keep проверены offline doubles. Первый запуск всей партии в настоящем Revit ещё не выполнен.",
+    },
+    {
         "id": "working-host-probe", "title": "Геометрия плиты и DXF", "runtime_version": "0.1.0",
         "button": "WorkingHostProbe", "command": "Working Host Probe", "extension": "QMonitoringHostTools",
         "mode": "read_only", "description": "Снимок выбранной рабочей плиты, проёмов, защитных слоёв и выбранного CAD.",
@@ -136,8 +158,10 @@ def _readme(tool: dict) -> bytes:
 не меняют модель и не открывают worksets. Plan Preview только после подтверждения
 создаёт новый графический вид; Source Workflow после отдельного согласия на upload,
 выбора семейства и подтверждения создаёт экземпляры на текущем виде. Ни то, ни другое
-НЕ является конструктивной арматурой.
-Ни один пакет не разрешает размещение, не генерирует новые загибы/муфты и не
+НЕ является конструктивной арматурой. Rebar Review отдельно создаёт диагностические
+native Rebar в подтверждённой копии и оставляет их только после post-Commit readback
+и второго подтверждения; это всё равно не выпуск и не инженерное разрешение.
+Ни один пакет не генерирует новые загибы/муфты и не
 объявляет пройденными анкеровку, покрытие, коллизии или инженерные гейты.
 
 {tool['verification']}
@@ -191,7 +215,9 @@ def _metadata(tool: dict) -> dict:
         "capabilities": {"read_only": tool["mode"] == "read_only",
             "creates_new_graphic_view": tool["mode"] == "graphic_preview",
             "creates_view_family_instances": tool["mode"] == "view_family",
-            "creates_structural_rebar": False, "modifies_existing_elements": False,
+            "creates_structural_rebar": tool["mode"] == "native_rebar_review",
+            "retains_created_elements_only_after_explicit_confirmation": tool["mode"] == "native_rebar_review",
+            "modifies_existing_elements": False,
             "saves_or_syncs_model": False, "includes_project_data": False,
             "placement_eligible": False, "engineering_approval": False}}
 
@@ -234,7 +260,8 @@ def build_tool_catalog(source_root: Path) -> tuple[dict, dict[str, bytes]]:
         contents[metadata["filename"]] = content
     return {"schema_version": CATALOG_SCHEMA, "tools": rows,
         "workflow": {"tool_download": "available", "snapshot_upload_inspection": "available",
-            "automatic_revit_connection": "not_supported", "new_forms_structural_export": "not_available",
+            "automatic_revit_connection": "not_supported", "native_straight_rebar_review": "available_copy_only",
+            "new_forms_structural_export": "review_only_not_engineering_release",
             "graphic_preview_requires_separate_compatible_packet": True},
         "placement_eligible": False, "engineering_approval": False}, contents
 

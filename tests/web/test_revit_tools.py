@@ -24,10 +24,10 @@ client = TestClient(web_app.app)
 def test_revit_page_and_navigation_are_available_without_private_results():
     response = client.get("/revit")
     assert response.status_code == 200
-    assert "Подключение Revit" in response.text
+    assert "Открыть расчёт в Revit" in response.text
     assert "родительскую папку" in response.text
     assert "не является пакетом для Plan Preview" in response.text
-    assert "Source Workflow 8.1" in response.text
+    assert "Rebar Review" in response.text and "без Save/Sync" in response.text
     assert response.headers["cache-control"] == "no-store, max-age=0"
     assert 'href="/revit"' in client.get("/").text
     assert 'href="/revit"' in client.get("/composite").text
@@ -40,19 +40,19 @@ def test_revit_page_and_navigation_are_available_without_private_results():
     assert "encodeURIComponent(tool.version)" in javascript
 
 
-def test_catalog_describes_four_data_free_nonstructural_tools_and_missing_features():
+def test_catalog_describes_review_and_four_data_free_support_tools():
     response = client.get("/api/revit/tools")
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store, max-age=0"
     result = response.json()
     assert result["schema_version"] == installation.CATALOG_SCHEMA
     assert result["placement_eligible"] is result["engineering_approval"] is False
-    assert result["workflow"]["new_forms_structural_export"] == "not_available"
+    assert result["workflow"]["new_forms_structural_export"] == "review_only_not_engineering_release"
     assert result["workflow"]["snapshot_upload_inspection"] == "available"
     assert {row["id"] for row in result["tools"]} == {
-        "working-host-probe", "working-rebar-probe", "plan-preview", "source-workflow-81"}
+        "rebar-review-mvp", "working-host-probe", "working-rebar-probe", "plan-preview", "source-workflow-81"}
     for row in result["tools"]:
-        assert row["capabilities"]["creates_structural_rebar"] is False
+        assert row["capabilities"]["creates_structural_rebar"] is (row["id"] == "rebar-review-mvp")
         assert row["capabilities"]["saves_or_syncs_model"] is False
         assert row["capabilities"]["includes_project_data"] is False
         assert row["extension_directory"] != "QMonitoring.extension"
@@ -73,6 +73,21 @@ def test_source_graphics_download_has_matching_new_runtime_and_complete_helper()
         assert b"readback_source_views" in helper
         assert b"previously_covered_geometry_lost" in archive.read("QMonitoringPreview.extension/lib/qm_revit_pruned_preview.py")
     assert "Скачать изополя + исходные зоны" in client.get("/revit").text
+
+
+def test_native_rebar_review_catalog_and_code_bundle_are_explicitly_review_only():
+    row = next(t for t in client.get("/api/revit/tools").json()["tools"] if t["id"] == "rebar-review-mvp")
+    assert row["runtime_version"] == "0.1.0" and row["panel"] == "Review"
+    assert row["report_schema"] == "revit-rebar-review-mvp-report/v1"
+    assert row["capabilities"]["creates_structural_rebar"] is True
+    assert row["capabilities"]["placement_eligible"] is row["capabilities"]["engineering_approval"] is False
+    assert set(row["accepted_input_schemas"]) == {"graphic-bar-plan-draft/v1", "graphic-bar-plan-pruned/v1"}
+    with ZipFile(BytesIO(client.get(row["download_url"]).content)) as archive:
+        names = archive.namelist()
+        assert any(name.endswith("/lib/qm_rebar_review.py") for name in names)
+        assert any(name.endswith("/lib/qm_revit_rebar_review.py") for name in names)
+        readme = archive.read("README.md").decode("utf-8")
+        assert "второго подтверждения" in readme and "не инженерное разрешение" in readme
 
 
 @pytest.mark.parametrize("tool", installation.TOOLS, ids=lambda tool: tool["id"])
@@ -147,7 +162,7 @@ def test_changed_source_produces_new_content_addressed_version(tmp_path):
 def test_installed_resources_serve_without_checkout_or_writes(tmp_path, monkeypatch):
     root = tmp_path / "web"
     outputs = installation.build_distributable_bundles(SOURCE, root / "revit_bundles")
-    assert len(outputs) == 5
+    assert len(outputs) == 6
     monkeypatch.setattr(installation.resources, "files", lambda package: root)
     monkeypatch.setattr(installation, "_development_checkout", lambda: pytest.fail("Installed package cannot need repository"))
     monkeypatch.setattr(Path, "write_bytes", lambda *args: pytest.fail("Runtime must never write"))
@@ -194,7 +209,7 @@ def test_invalid_packaged_manifest_cannot_expand_whitelist(change):
     elif change == "filename":
         catalog["tools"][0]["filename"] = "../private.zip"
     else:
-        catalog["tools"][0]["capabilities"]["creates_structural_rebar"] = True
+        catalog["tools"][1]["capabilities"]["creates_structural_rebar"] = True
     with pytest.raises(installation.RevitBundleUnavailableError):
         installation._checked_catalog(catalog)
 
@@ -204,7 +219,7 @@ def test_distribution_builder_is_stdlib_only_without_importing_rebar_or_solver(t
 from pathlib import Path
 helpers = runpy.run_path(sys.argv[1])
 files = helpers['build_distributable_bundles'](Path(sys.argv[2]), Path(sys.argv[3]))
-assert len(files) == 5
+assert len(files) == 6
 assert not any(name == 'rebar' or name.startswith('rebar.') or name.startswith('scipy') for name in sys.modules)
 """
     subprocess.run([sys.executable, "-I", "-S", "-c", code, str(Path(installation.__file__)),

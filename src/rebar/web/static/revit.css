@@ -15,7 +15,8 @@ p { margin: 10px 0; }
 .intro p:not(.eyebrow) { max-width: 790px; font-size: 18px; color: #526573; }
 .eyebrow { color: #28728a; font-size: 12px; font-weight: 750; text-transform: uppercase; letter-spacing: .13em; }
 .compatibility { margin-top: 20px; display: inline-block; padding: 8px 12px; border-radius: 6px; background: #e4edf0; font-size: 14px; }
-.workflow { padding: 0; list-style: none; display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+.revit-caution { margin-top: 18px !important; padding: 13px 16px; border-left: 4px solid #bd8150; background: #fff8ed; font-size: 14px !important; }
+.workflow { padding: 0; list-style: none; display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
 .workflow li { background: white; padding: 20px; border-radius: 10px; border: 1px solid #dbe2e7; }
 .workflow strong { display: block; margin-top: 12px; }
 .workflow p { font-size: 14px; color: #5d6e7a; }
@@ -41,6 +42,9 @@ details li { margin-bottom: 8px; }
 .checksum { display: block; margin: 12px 0; font-size: 10px; }
 .notice { padding: 25px 28px; border-left: 4px solid #ca9b53; border-radius: 6px; background: #fffbf3; font-size: 14px; }
 .notice h2 { font-size: 18px; margin-bottom: 12px; }
+.technical-section { margin: 28px 0; border: 1px solid #d5e0e4; border-radius: 9px; padding: 18px 22px; background: #fff; }
+.technical-section > summary { color: #315f72; font-weight: 700; }
+.technical-section > section, .technical-section > aside { margin: 20px 0 0; }
 .error { background: #fde9e8; color: #9a3931; padding: 14px; border-radius: 6px; }
 [hidden] { display: none !important; }
 .snapshot-panel { padding: 26px; border: 1px solid #ccdce3; background: #fff; border-radius: 10px; }

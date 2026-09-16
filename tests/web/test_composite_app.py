@@ -38,7 +38,8 @@ def test_composite_workspace_link_assets_and_no_cache():
         assert response.status_code == 200
         assert response.headers["cache-control"] == "no-store, max-age=0"
     page = client.get("/composite").text
-    assert "Excel не нужен" in page and "не разрешение размещения" in page
+    assert "Excel не нужен" in page
+    assert "расчётный черновик" in page and "запрет инженерного размещения" in page
     assert 'id="run-demo" type="button"' in page and "Посмотреть пример" in page
     assert 'id="custom-inputs"' in page and 'id="demo-notice"' in page
     assert 'href="/composite?demo=1"' in client.get("/").text

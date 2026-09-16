@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#263643">
     <title>Rebar Layout · инженерный расчёт</title>
     <link rel="stylesheet" href="/static/styles.css?v=web-mvp-7">
-    <link rel="stylesheet" href="/static/engineering-start.css?v=2">
+    <link rel="stylesheet" href="/static/engineering-start.css?v=3">
   </head>
   <body>
     <header class="app-header">
@@ -26,33 +26,33 @@
 
     <main class="engineering-start" aria-labelledby="start-title">
       <p class="start-eyebrow">QMonitoring × A101 · помощник конструктора</p>
-      <h1 id="start-title">От изополей к понятной раскладке арматуры</h1>
-      <p class="start-description">Выберите реальный комплект, запустите расчёт и проверьте вместе исходные изополя,
-        зоны, физические стержни и незакрытые условия. Для С1 отдельного сопоставимого эталона нет.</p>
-      <ol class="start-steps"><li><strong>1. Выберите плиту</strong><span>Четыре исходных DXF проверяются на сервере.</span></li>
-        <li><strong>2. Рассчитайте</strong><span>Новый результат откроется на странице всей плиты.</span></li>
-        <li><strong>3. Проверьте и выгрузите</strong><span>JSON для просмотра в Revit — графика, не выпуск Rebar.</span></li></ol>
+      <h1 id="start-title">Раскладка арматуры для реальной плиты</h1>
+      <p class="start-description">Один расчёт для четырёх направлений: схема, количество стали и открытые инженерные проверки.</p>
+      <ol class="start-steps"><li><strong>1 · Рассчитать</strong><span>Реальная плита уже выбрана.</span></li>
+        <li><strong>2 · Проверить</strong><span>Схема и незакрытые условия.</span></li>
+        <li><strong>3 · Передать в Revit</strong><span>JSON и инструмент просмотра.</span></li></ol>
       <article class="example-card">
         <div><span class="example-tag">Настоящий инженерный пример</span>
           <h2 id="example-title">Загружаем каталог плит…</h2>
-          <p id="example-description" class="example-description">Четыре направления дополнительного армирования из материалов проекта.</p>
-          <div id="example-facts" class="example-facts"><span>4 направления</span><span>Файлы и шкалы уже выбраны</span></div>
-          <details class="example-profile"><summary>Параметры примера и ограничения</summary><p id="example-profile-note">Загружаем описание выбранного профиля…</p></details>
-          <label>Инженерный комплект <select id="example-selector" aria-label="Инженерный комплект"></select></label>
+          <p id="example-description" class="example-description">Четыре исходных DXF из материалов проекта.</p>
+          <label class="example-choice">Плита <select id="example-selector" aria-label="Инженерный комплект"></select></label>
           <button id="run-engineering-example" type="button" class="start-primary" disabled>Рассчитать плиту</button>
           <p id="example-status" class="example-status" role="status" aria-live="polite">Проверяем наличие исходных данных…</p>
         </div>
-        <aside class="example-reference"><h3>Эталон сравнения, если сопоставим</h3>
-          <dl><dt>Масса арматуры</dt><dd id="example-mass">—</dd><dt>Физические стержни</dt><dd id="example-bars">—</dd><dt>Позиции спецификации</dt><dd id="example-positions">—</dd></dl>
-          <p id="example-reference-note">Проверяем состав инженерного эталона…</p>
-        </aside>
-        <div id="example-files" class="example-files" aria-label="Выбранные исходные файлы"></div>
+        <details class="example-technical"><summary>Технические подробности исходника</summary>
+          <div id="example-facts" class="example-facts"></div>
+          <details class="example-profile"><summary>Профиль расчёта</summary><p id="example-profile-note">Загружаем профиль…</p></details>
+          <aside class="example-reference"><h3>Эталон, если сопоставим</h3>
+            <dl><dt>Масса</dt><dd id="example-mass">—</dd><dt>Стержни</dt><dd id="example-bars">—</dd><dt>Позиции</dt><dd id="example-positions">—</dd></dl>
+            <p id="example-reference-note">Проверяем эталон…</p></aside>
+          <div id="example-files" class="example-files" aria-label="Выбранные исходные файлы"></div>
+        </details>
       </article>
-      <div class="start-alternatives"><a class="start-secondary" href="/composite#custom-inputs">Загрузить свой комплект DXF →</a>
-        <a class="start-secondary" href="/revit">Подключить Revit →</a>
-        <a class="start-secondary" href="/composite?demo=1">Синтетический пример для знакомства</a></div>
-      <p class="start-caption">Расчёт готовит варианты, а не автоматически выпущенное решение.
-        Покрытие, раскрой и непроверенные условия показываются отдельно; модель Revit без вашего действия не меняется.</p>
+      <p class="start-caption">Расчётный черновик, не выпущенная инженерная раскладка. Непройденные проверки будут видны в результате.</p>
+      <details class="start-more"><summary>Другие способы работы</summary><div class="start-alternatives">
+        <a class="start-secondary" href="/composite#custom-inputs">Загрузить свой комплект DXF →</a>
+        <a class="start-secondary" href="/revit">Инструменты Revit →</a>
+        <a class="start-secondary" href="/composite?demo=1">Синтетический пример</a></div></details>
     </main>
     <details id="advanced" class="legacy-workspace">
       <summary>Расширенный расчёт · одно направление и прежние эксперименты</summary>
@@ -380,7 +380,7 @@
       <span>Qmonitoring × A101</span>
     </footer>
     <script src="/static/app.js?v=web-mvp-9" defer></script>
-    <script src="/static/engineering-example.js?v=1" defer></script>
+    <script src="/static/engineering-example.js?v=3" defer></script>
     <script src="/static/home.js?v=1" defer></script>
   </body>
 </html>

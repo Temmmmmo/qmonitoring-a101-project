@@ -1,0 +1,268 @@
+# -*- coding: utf-8 -*-
+"""Whole-batch straight Rebar review contract. Graphic input is never approval."""
+from __future__ import division, unicode_literals
+
+import copy
+import math
+
+from qm_plate_packet import DIRECTIONS, MASS_PER_MM_PER_DIAMETER_SQUARED
+from qm_probe_geometry import distance
+from qm_revit_plan_preview import build_preview_primitives, _validate_primitives
+from qm_trial_input import exact_keys, number
+
+VERSION = "0.1.0"
+REPORT_SCHEMA = "revit-rebar-review-mvp-report/v1"
+INPUT_SCHEMAS = ("graphic-bar-plan-draft/v1", "graphic-bar-plan-pruned/v1")
+AXIS_TOLERANCE_MM = 0.01
+MAX_REVIEW_BARS = 5000
+
+
+def material_key(bar):
+    return "{0}|{1}".format(bar["steel_class"].strip(), bar["diameter_mm"])
+
+
+def validated_graphics(packet, offset_x_mm, offset_y_mm):
+    if not isinstance(packet, dict) or packet.get("schema_version") not in INPUT_SCHEMAS:
+        raise ValueError("Select a complete straight graphic bar plan, not a zone or composite JSON")
+    primitives = build_preview_primitives(packet, offset_x_mm, offset_y_mm)
+    _validate_primitives(primitives)
+    bars = primitives["bars"]
+    if not 1 <= len(bars) <= MAX_REVIEW_BARS:
+        raise ValueError("Whole review batch exceeds the explicit 5000-bar limit; nothing is sampled")
+    if {bar["direction"] for bar in bars} != set(DIRECTIONS):
+        # Empty directions are allowed in the packet, but the validator above
+        # retains all four inventories. Do not fabricate a bar for an empty one.
+        if not set(bar["direction"] for bar in bars).issubset(set(DIRECTIONS)):
+            raise ValueError("Unexpected direction in complete graphic plan")
+    if primitives["placement_eligible"] is not False or primitives["engineering_approval"] is not False:
+        raise ValueError("Review cannot inherit a placement or approval certificate")
+    if primitives["summary"]["physical_bar_count"] != len(bars):
+        raise ValueError("The entire straight party must be present")
+    return primitives
+
+
+def _outer_loop(face):
+    loops = face.get("edge_loops")
+    if not isinstance(loops, list) or not loops:
+        raise ValueError("Native planar face has no classified line loops")
+    candidates = []
+    for edges in loops:
+        if not isinstance(edges, list) or len(edges) < 3:
+            raise ValueError("Short or missing native face loop")
+        segments = []
+        for edge in edges:
+            if edge.get("kind") != "Line":
+                raise ValueError("Curved native outer/void loop unsupported in flat MVP; no bbox fallback")
+            a, b = edge["start_mm"], edge["end_mm"]
+            if len(a) != 3 or len(b) != 3 or any(math.isnan(v) or math.isinf(v) for v in a+b):
+                raise ValueError("Nonfinite native host edge")
+            if distance(a, b) < AXIS_TOLERANCE_MM:
+                raise ValueError("Short native host edge unsupported")
+            segments.append((a, b))
+        first, previous_end = segments.pop(0)
+        points = [first]
+        while segments:
+            matches = []
+            for index, (a, b) in enumerate(segments):
+                if distance(previous_end, a) <= AXIS_TOLERANCE_MM:
+                    matches.append((index, a, b))
+                if distance(previous_end, b) <= AXIS_TOLERANCE_MM:
+                    matches.append((index, b, a))
+            if len(matches) != 1:
+                raise ValueError("Native edge loop has no unique endpoint continuation")
+            index, a, b = matches[0]
+            segments.pop(index)
+            points.append(a)
+            previous_end = b
+        if distance(previous_end, points[0]) > AXIS_TOLERANCE_MM:
+            raise ValueError("Native face edge loop is not closed")
+        polygon = [[p[0], p[1]] for p in points]
+        area = abs(sum(polygon[i][0]*polygon[(i+1)%len(polygon)][1]
+            - polygon[(i+1)%len(polygon)][0]*polygon[i][1] for i in range(len(polygon))))/2
+        if area <= AXIS_TOLERANCE_MM:
+            raise ValueError("Degenerate native face loop")
+        candidates.append((area, polygon))
+    candidates.sort(key=lambda row: row[0], reverse=True)
+    if len(candidates) > 1 and abs(candidates[0][0]-candidates[1][0]) <= AXIS_TOLERANCE_MM:
+        raise ValueError("Disconnected or ambiguous native outer face loops unsupported")
+    return candidates[0][1], len(candidates)-1
+
+
+def flat_outer_host(floor):
+    """Classify selected native Floor face loops, not its model bounding box."""
+    faces = {}
+    for side, normal in (("top", 1), ("bottom", -1)):
+        rows = floor.get(side+"_faces")
+        if not isinstance(rows, list) or len(rows) != 1:
+            raise ValueError("Flat MVP needs exactly one native planar top and bottom face")
+        face = rows[0]
+        plane = face.get("plane")
+        if plane is None or len(plane.get("normal", [])) != 3 or len(plane.get("origin_mm", [])) != 3:
+            raise ValueError("Sloping or nonplanar native Floor unsupported")
+        if any(abs(a-b) > 1e-8 for a,b in zip(plane["normal"], (0,0,normal))):
+            raise ValueError("Sloping native Floor unsupported")
+        polygon, holes = _outer_loop(face)
+        faces[side] = {"z_mm": plane["origin_mm"][2], "outer_xy_mm": polygon, "excluded_hole_count": holes}
+    if faces["top"]["z_mm"]-faces["bottom"]["z_mm"] <= AXIS_TOLERANCE_MM:
+        raise ValueError("Native Floor thickness is invalid")
+    top, bottom = faces["top"]["outer_xy_mm"], faces["bottom"]["outer_xy_mm"]
+    if len(top) != len(bottom) or any(not any(distance(a,b) <= AXIS_TOLERANCE_MM for b in bottom) for a in top):
+        raise ValueError("Top/bottom native outer contours differ; stepped/sloping host unsupported")
+    return {"host_id": floor["element_id"], "top_z_mm": faces["top"]["z_mm"],
+        "bottom_z_mm": faces["bottom"]["z_mm"], "thickness_mm": faces["top"]["z_mm"]-faces["bottom"]["z_mm"],
+        "outer_xy_mm": top, "excluded_hole_count": max(faces["top"]["excluded_hole_count"], faces["bottom"]["excluded_hole_count"]),
+        "cover_metadata": copy.deepcopy(floor.get("covers")),
+        "scope": "native flat Floor planar outer line loops + thickness; holes and cover excluded; NOT actual-Solid containment proof"}
+
+
+def _point_inside(point, polygon):
+    x,y = point
+    inside = False
+    for index, a in enumerate(polygon):
+        b = polygon[(index+1)%len(polygon)]
+        cross = (b[0]-a[0])*(y-a[1])-(b[1]-a[1])*(x-a[0])
+        if abs(cross) <= 1e-7 and min(a[0],b[0])-AXIS_TOLERANCE_MM <= x <= max(a[0],b[0])+AXIS_TOLERANCE_MM and min(a[1],b[1])-AXIS_TOLERANCE_MM <= y <= max(a[1],b[1])+AXIS_TOLERANCE_MM:
+            return True
+        if (a[1] > y) != (b[1] > y) and x < a[0]+(y-a[1])*(b[0]-a[0])/(b[1]-a[1]):
+            inside = not inside
+    return inside
+
+
+def _proper_cross(a,b,c,d):
+    def orient(p,q,r):
+        return (q[0]-p[0])*(r[1]-p[1])-(q[1]-p[1])*(r[0]-p[0])
+    return (orient(a,b,c)*orient(a,b,d) < -1e-8 and orient(c,d,a)*orient(c,d,b) < -1e-8)
+
+
+def _corridor_contained(start,end,radius,polygon):
+    if abs(start[0]-end[0]) <= AXIS_TOLERANCE_MM:
+        corners = [[start[0]-radius,start[1]], [start[0]+radius,start[1]],
+            [end[0]+radius,end[1]], [end[0]-radius,end[1]]]
+    else:
+        corners = [[start[0],start[1]-radius], [end[0],end[1]-radius],
+            [end[0],end[1]+radius], [start[0],start[1]+radius]]
+    if any(not _point_inside(corner,polygon) for corner in corners):
+        return False
+    # A narrow concave bay may meet a corridor edge exactly at a native vertex
+    # (proper_cross excludes endpoint contact). Clip every polygon edge to the
+    # body rectangle and reject any positive boundary segment in its interior.
+    low = [min(p[i] for p in corners) for i in range(2)]
+    high = [max(p[i] for p in corners) for i in range(2)]
+    for index, a in enumerate(polygon):
+        b = polygon[(index+1)%len(polygon)]
+        enter, leave = 0.0, 1.0
+        for axis in range(2):
+            delta = b[axis]-a[axis]
+            if abs(delta) < 1e-12:
+                if a[axis] < low[axis] or a[axis] > high[axis]:
+                    leave = -1
+                    break
+            else:
+                t1, t2 = (low[axis]-a[axis])/delta, (high[axis]-a[axis])/delta
+                enter, leave = max(enter,min(t1,t2)), min(leave,max(t1,t2))
+        if leave > enter:
+            t = (enter+leave)/2
+            midpoint = [a[i]+t*(b[i]-a[i]) for i in range(2)]
+            if all(low[i]+1e-8 < midpoint[i] < high[i]-1e-8 for i in range(2)):
+                return False
+    for i,a in enumerate(corners):
+        b = corners[(i+1)%4]
+        midpoint = [(a[0]+b[0])/2,(a[1]+b[1])/2]
+        if not _point_inside(midpoint,polygon):
+            return False
+        for j,c in enumerate(polygon):
+            d = polygon[(j+1)%len(polygon)]
+            if _proper_cross(a,b,c,d):
+                return False
+    return True
+
+
+def make_review_plan(primitives, host, bar_types, depths):
+    exact_keys(depths, DIRECTIONS)
+    for value in depths.values():
+        number(value, 0, 10000)
+    selected, runs, mass = {}, [], []
+    for bar in primitives["bars"]:
+        key = material_key(bar)
+        if key not in bar_types:
+            raise ValueError("No explicitly selected exact bar type for "+key)
+        actual = bar_types[key]
+        for field in ("nominal_diameter_mm", "model_diameter_mm"):
+            if abs(actual[field]-bar["diameter_mm"]) > 0.001:
+                raise ValueError("Selected RebarBarType diameter differs for "+key)
+        selected[key] = actual["element_id"]
+        layer, axis = bar["direction"].split("-")
+        radius = actual["model_diameter_mm"]/2
+        z = host[layer+"_z_mm"] + (depths[bar["direction"]] if layer == "bottom" else -depths[bar["direction"]])
+        if z-radius < host["bottom_z_mm"]-AXIS_TOLERANCE_MM or z+radius > host["top_z_mm"]+AXIS_TOLERANCE_MM:
+            raise ValueError("Whole batch blocked: bar body outside selected native Floor thickness")
+        if not _corridor_contained(bar["start_xy_mm"],bar["end_xy_mm"],radius,host["outer_xy_mm"]):
+            raise ValueError("Whole batch blocked: bar body exceeds native OUTER Floor contour; no clipping or omission")
+        start,end = bar["start_xy_mm"]+[z],bar["end_xy_mm"]+[z]
+        length = distance(start,end)
+        if length <= AXIS_TOLERANCE_MM:
+            raise ValueError("Zero-length straight bar is unsupported")
+        mass.append(MASS_PER_MM_PER_DIAMETER_SQUARED*bar["diameter_mm"]**2*length)
+        runs.append({"direction":bar["direction"], "bar_id":bar["bar_id"], "material_key":key,
+            "diameter_mm":bar["diameter_mm"], "steel_class":bar["steel_class"], "bar_type_id":actual["element_id"],
+            "host_id":host["host_id"], "normal":[0,1,0] if axis == "X" else [1,0,0],
+            "axes":[{"start_mm":start,"end_mm":end}], "bar_count":1, "spacing_mm":100,
+            "layout_rule":"Single", "allow_new_shape":False, "length_mm":length,
+            "source_refs":copy.deepcopy(bar["source_refs"])})
+    if len(runs) != primitives["summary"]["physical_bar_count"]:
+        raise ValueError("Whole graphic inventory was not carried into native plan")
+    expected_mass = primitives["summary"]["additional_mass_kg"]
+    if abs(math.fsum(mass)-expected_mass) > max(0.001,expected_mass*1e-9):
+        raise ValueError("Native plan length/mass differs from the full graphic party")
+    return {"runs":runs, "host":copy.deepcopy(host), "expected":copy.deepcopy(primitives["summary"]),
+        "material_selection":selected, "axis_depths_mm":copy.deepcopy(depths),
+        "mass_formula":"derived-from-final-centerline:0.000006165*d_mm^2*L_mm; not Revit material density",
+        "tolerance_mm":AXIS_TOLERANCE_MM}
+
+
+def compare_native(plan, rows):
+    if not isinstance(rows,list) or len(rows) != len(plan["runs"]):
+        raise ValueError("Post-Commit native Rebar count differs from full source inventory")
+    issues, masses, seen = [], [], set()
+    for wanted,actual in zip(plan["runs"],rows):
+        errors = []
+        if actual.get("element_id") in seen:
+            errors.append("duplicate_element_id")
+        seen.add(actual.get("element_id"))
+        for key,value in (("host_id",wanted["host_id"]),("quantity",1),("number_of_bar_positions",1),
+                ("layout_rule","Single"),("hook_type_ids",[-1,-1]),
+                ("review_bar_id",wanted["bar_id"]),("review_direction",wanted["direction"])):
+            if actual.get(key) != value:
+                errors.append(key)
+        typ = actual.get("bar_type",{})
+        if typ.get("element_id") != wanted["bar_type_id"]:
+            errors.append("bar_type_id")
+        if any(abs(typ.get(key,-1)-wanted["diameter_mm"]) > 0.001 for key in ("nominal_diameter_mm","model_diameter_mm")):
+            errors.append("diameter_mm")
+        bars = actual.get("bars")
+        if not isinstance(bars,list) or len(bars) != 1 or bars[0].get("position_index") != 0 or len(bars[0].get("curves",[])) != 1:
+            errors.append("single_final_curve")
+        elif bars[0]["curves"][0].get("kind") != "Line":
+            errors.append("native_straight_shape")
+        else:
+            curve = bars[0]["curves"][0]
+            a,b = curve["start_mm"],curve["end_mm"]
+            target = wanted["axes"][0]
+            direct = (distance(a,target["start_mm"]),distance(b,target["end_mm"]))
+            reverse = (distance(a,target["end_mm"]),distance(b,target["start_mm"]))
+            matched = direct if sum(direct) <= sum(reverse) else reverse
+            if any(delta > AXIS_TOLERANCE_MM for delta in matched):
+                errors.append("absolute_native_axis_xyz")
+            length = distance(a,b)
+            if abs(curve["length_mm"]-length) > AXIS_TOLERANCE_MM or abs(length-wanted["length_mm"]) > AXIS_TOLERANCE_MM:
+                errors.append("native_length_mm")
+            masses.append(MASS_PER_MM_PER_DIAMETER_SQUARED*wanted["diameter_mm"]**2*length)
+        if errors:
+            issues.append({"direction":wanted["direction"],"bar_id":wanted["bar_id"],"checks":errors})
+    mass = math.fsum(masses)
+    if len(masses) != len(plan["runs"]) or abs(mass-plan["expected"]["additional_mass_kg"]) > 0.01:
+        issues.append({"checks":["complete_physical_count_or_derived_mass"]})
+    return {"status":"matches" if not issues else "differs", "issues":issues,
+        "physical_bar_count":len(masses), "mass_from_final_axes_kg":mass,
+        "tolerance_mm":AXIS_TOLERANCE_MM,
+        "mass_formula":plan["mass_formula"]}

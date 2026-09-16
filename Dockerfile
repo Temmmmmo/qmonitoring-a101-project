@@ -17,6 +17,7 @@ COPY integrations/pyrevit/QMonitoring.extension/QMonitoring.tab/Diagnostics.pane
 COPY integrations/pyrevit/QMonitoring.extension/QMonitoring.tab/Diagnostics.panel/WorkingRebarProbe.pushbutton ./integrations/pyrevit/QMonitoring.extension/QMonitoring.tab/Diagnostics.panel/WorkingRebarProbe.pushbutton
 COPY integrations/pyrevit/QMonitoring.extension/QMonitoring.tab/Diagnostics.panel/PlanPreview.pushbutton ./integrations/pyrevit/QMonitoring.extension/QMonitoring.tab/Diagnostics.panel/PlanPreview.pushbutton
 COPY integrations/pyrevit/QMonitoring.extension/QMonitoring.tab/Workflow.panel/SourceWorkflow.pushbutton ./integrations/pyrevit/QMonitoring.extension/QMonitoring.tab/Workflow.panel/SourceWorkflow.pushbutton
+COPY integrations/pyrevit/QMonitoring.extension/QMonitoring.tab/Review.panel/RebarReview.pushbutton ./integrations/pyrevit/QMonitoring.extension/QMonitoring.tab/Review.panel/RebarReview.pushbutton
 
 RUN python -m pip install --upgrade pip \
     && python -m pip install -r requirements-runtime.txt \

@@ -28,7 +28,7 @@ window.engineeringExampleReady = (async () => {
         url.searchParams.delete("run"); window.location.assign(url);
       });
     }
-    button.textContent = example.id === "legacy-s1-t800" ? "Рассчитать С1 · плоский MVP" : "Рассчитать плиту К09";
+    button.textContent = "Рассчитать плиту";
     const hostOptions = document.querySelector(".boundary-trim-options");
     if (hostOptions) hostOptions.hidden = example.supports_working_host_trim === false;
     get("example-description").textContent = example.description || "Настоящий комплект четырёх направлений армирования.";
@@ -61,10 +61,10 @@ window.engineeringExampleReady = (async () => {
         (alternative ? ` Доступен ${alternative.title}: выберите его в списке.` : ""));
     }
     button.disabled = false;
-    status.textContent = "Данные предзаполнены. Кнопка запускает новый расчёт, а не готовую картинку.";
+    status.textContent = "Четыре оригинальных DXF проверены. Кнопка запускает новый расчёт.";
     return example;
   } catch (failure) {
-    status.textContent = failure.message + " Можно загрузить свой комплект ниже.";
+    status.textContent = failure.message + " Расчёт выбранной плиты недоступен.";
     button.disabled = true;
     return null;
   }

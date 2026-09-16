@@ -52,18 +52,19 @@ def test_composite_keeps_all_controls_but_checks_are_visible_and_metrics_unambig
             "direction-tabs", "installation-notes", "schedule", "blockers", "download-report", "download-selected",
             "check-summary", "engineer-comparison", "comparison-rows", "drawing-layers", "zoom-reset",
             "drawing-views", "source-zone-rows", "source-legend", "download-source", "metrics-scope",
-            "boundary-trim-form", "boundary-trim-host", "run-boundary-trim"):
+            "boundary-trim-form", "boundary-trim-host", "run-boundary-trim", "gate-status", "handoff-note"):
         assert key in page.ids
-    assert page.details == {"check-summary": [], "blockers": []}
+    assert page.details == {"check-summary": [], "blockers": ["result-details"]}
     assert "open" not in page.ids["custom-inputs"][1]
     html = (STATIC / "composite.html").read_text(encoding="utf-8")
-    assert "Синтетический пример" in html and "Черновик · не размещён в Revit" in html
+    assert "Синтетический пример" in html and "Расчётный черновик" in html
     assert html.index('id="output"') < html.index('id="run-demo"')
     assert not page.stack
     assert page.ids["drawing"][1]["data-view"] == "combined"
-    assert "Зоны + стержни" in html and "Обрезать по границе плиты и отверстиям" in html
+    assert "Зоны + стержни" in html and "Отдельный пересчёт К09" in html
     assert "Исходные изополя + зоны" in html and "Физические стержни" in html
-    assert "open" in page.ids["source-zone-details"][1]
+    assert "open" not in page.ids["source-zone-details"][1]
+    assert "Нет полной инженерной проверки" in (STATIC / "composite.js").read_text(encoding="utf-8")
     assert "required" in page.ids["boundary-trim-host"][1]
 
 
@@ -153,12 +154,14 @@ context.payload={output_kind:'boundary-trimmed-physical-bars',front:[point],
  stock_cutting:{status:'fail'},actual_Revit_host_informational_failures:undefined}};
 vm.runInContext('result=payload;renderPoint()',context);
 const cards=q('#check-summary').innerHTML;
-const found=[cards.includes('Внешний контур плиты'),cards.includes('0 физических стержней'),
- cards.includes('38 КЭ'),cards.includes('число проваленных тестов'),cards.includes('552 КЭ'),
- cards.includes('Раскрой всей партии'),cards.includes('2 пересечений'),cards.includes('Не факт открытого Revit')];
+const found=[cards.includes('Внешний контур плиты'),cards.includes('0 стержней'),
+ cards.includes('38 КЭ'),cards.includes('Исходный спрос сохранён'),cards.includes('552 КЭ'),
+ cards.includes('Раскрой 11,7 м'),cards.includes('2 пересечений'),cards.includes('Не факт Revit')];
 if(!found.every(Boolean))throw new Error('checks:'+found.join(','));
+assert(q('#gate-status').textContent.includes('Нет полной инженерной проверки'));
+assert.equal(q('#gate-status').dataset.status,'fail');
 assert.equal(q('#engineer-comparison').hidden,true);
-assert(q('#mvp-scope').textContent.includes('отверстия, перепады высоты и защитный слой'));
+assert(q('#mvp-scope').textContent.includes('отверстия, перепады и cover'));
 """
     node(script, STATIC / "composite.js")
 
@@ -228,6 +231,7 @@ assert(q('#source-legend').innerHTML.includes('rgb(255,0,0)'));assert.equal(q('#
 q('#source-envelopes').checked=true;q('#source-envelopes').callbacks.change();
 assert.equal(q('#drawing').dataset.envelopes,'shown');assert(q('#drawing-legend').textContent.includes('не тела стали и не AreaBoundary'));
 assert(q('#metrics-scope').textContent.includes('физическая партия'));assert(q('#check-summary').innerHTML.includes('12 пар'));
+assert.equal(q('#download-selected').disabled,true);assert(q('#handoff-note').textContent.includes('не сформирован'));
 const oldMetrics=q('#metrics').innerHTML, oldChecks=q('#check-summary').innerHTML;
 q('#drawing-views').callbacks.click({target:{closest:()=>({dataset:{view:'combined'}})}});
 assert.equal(q('#drawing').innerHTML,'<svg>source-zones-plus-actual-bars</svg>');
@@ -273,6 +277,7 @@ assert(q('#check-summary').innerHTML.includes('8 КЭ'));assert(q('#check-summar
 assert(q('#check-summary').innerHTML.includes('после: 1'));assert(q('#metrics-scope').textContent.includes('физическая партия'));
 assert(q('#direction-status').textContent.includes('с прежними 40d — 2'));
 assert.equal(q('#drawing').dataset.view,'combined');
+assert.equal(q('#download-selected').disabled,false);assert(q('#handoff-note').textContent.includes('соответствующая выбранная плита'));
 assert.equal(q('#drawing').innerHTML,'<svg>ACTUAL-CUTS-WITH-UNRESOLVED-OUTSIDE</svg>');
 q('#drawing-views').callbacks.click({target:{closest:()=>({dataset:{view:'physical'}})}});
 assert(q('#drawing-view-note').textContent.includes('не обрезка картинки'));
