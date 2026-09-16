@@ -27,7 +27,7 @@ def test_revit_page_and_navigation_are_available_without_private_results():
     assert "Открыть расчёт в Revit" in response.text
     assert "родительскую папку" in response.text
     assert "не является пакетом для Plan Preview" in response.text
-    assert "Rebar Review" in response.text and "автоматического сохранения и синхронизации нет" in response.text
+    assert "Rebar Review" in response.text and "Плагин не вызывает автоматического сохранения и синхронизации" in response.text
     assert response.headers["cache-control"] == "no-store, max-age=0"
     assert 'href="/revit"' in client.get("/").text
     assert 'href="/revit"' in client.get("/composite").text
@@ -38,6 +38,14 @@ def test_revit_page_and_navigation_are_available_without_private_results():
     javascript = client.get("/static/revit.js").text
     assert "textContent" in javascript and "innerHTML" not in javascript
     assert "encodeURIComponent(tool.version)" in javascript
+
+
+def test_revit_catalog_keeps_zone_workflow_first_and_rebar_separate_from_diagnostics():
+    javascript = (ROOT / "src/rebar/web/static/revit.js").read_text(encoding="utf-8")
+    assert 'const priority = {"source-workflow-81": 0, "plan-preview": 1};' in javascript
+    assert 'const rebar = catalog.tools.filter((tool) => tool.id === "rebar-review-mvp");' in javascript
+    assert "Дополнительно: физические стержни Rebar" in javascript
+    assert 'tool.id !== "rebar-review-mvp"' in javascript
 
 
 def test_catalog_describes_review_and_four_data_free_support_tools():

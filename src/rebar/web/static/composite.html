@@ -129,6 +129,8 @@
       <p id="demo-notice" class="notice" hidden></p>
       <p id="result-summary" class="result-summary"></p>
       <label class="candidate-control">Вариант раскладки<select id="candidate"></select></label>
+      <p id="physical-metrics-caption" class="notice">Ниже — метрики выбранного решения. Для физической выдачи они относятся к партии после обработки;
+        исходные зоны на схеме существуют до физической обрезки и не подменяют эти значения.</p>
       <div id="metrics" class="metrics"></div>
       <p id="mvp-scope" class="notice" hidden></p>
       <section class="checks-section" aria-labelledby="checks-title"><h3 id="checks-title">Статус инженерных проверок</h3>
@@ -142,19 +144,23 @@
         <p id="comparison-scope"></p></section></details>
       <div class="drawing-heading"><h3>Схема армирования</h3><p>Выберите направление и вид</p></div>
       <div id="drawing-views" class="segmented drawing-views" role="group" aria-label="Исходный или физический результат">
-        <button type="button" data-view="combined" aria-pressed="true">Зоны + стержни</button>
-        <button type="button" data-view="source" aria-pressed="false">Исходные изополя + зоны</button>
+        <button type="button" data-view="source" aria-pressed="true">Исходные изополя + зоны</button>
+        <button type="button" data-view="combined" aria-pressed="false">Зоны + стержни</button>
         <button type="button" data-view="physical" aria-pressed="false">Физические стержни</button>
       </div>
       <div class="drawing-toolbar"><nav id="direction-tabs" aria-label="Направление"></nav></div>
-      <div id="drawing" data-layer="layout" data-view="combined" data-envelopes="hidden"></div>
+      <div id="drawing" data-layer="layout" data-view="source" data-envelopes="hidden"></div>
       <div class="drawing-footer"><p id="drawing-legend">Цвета исходного DXF — потребность; прямоугольники — исходные параметрические зоны.</p>
         <div class="zoom-controls"><button id="zoom-out" type="button" aria-label="Уменьшить схему">−</button><span id="zoom-level">100%</span><button id="zoom-in" type="button" aria-label="Увеличить схему">+</button><button id="zoom-reset" type="button">Целиком</button></div></div>
       <section class="handoff" aria-labelledby="handoff-title"><p class="section-eyebrow">3 · Передать в Revit</p>
-        <h3 id="handoff-title">Скачать JSON для просмотра</h3>
-        <p id="handoff-note">Изополя и зоны совместимы с Plan Preview. Графическая раскладка доступна только для совместимого результата.</p>
+        <h3 id="handoff-title">Перенести зоны в Revit</h3>
+        <p id="handoff-note">«Изополя и зоны» — основной пакет для SourceWorkflow в текущем плане; Plan Preview остаётся отдельной проверкой на новых чертёжных видах. В Revit передаются размеры наборов после анкеровки/подбора длины; пятно потребности показано отдельно.</p>
         <div class="actions"><button id="download-source" type="button" disabled>Изополя и зоны · JSON</button>
-          <button id="download-selected" type="button">Раскладка · JSON</button><a href="/revit" class="handoff-link">Установка и открытие в Revit →</a></div></section>
+          <a href="/revit" class="handoff-link">Установка и открытие в Revit →</a></div>
+        <details class="result-details"><summary>Дополнительно: физические стержни Rebar</summary>
+          <p>Физическая раскладка независима от переноса зон, требует отдельной проверки выбранной плиты, типов, XY и глубин.</p>
+          <button id="download-selected" type="button">Физическая раскладка · JSON</button>
+        </details></section>
       <details class="result-details"><summary>Технические подробности схемы</summary>
         <p id="drawing-view-note" class="notice"></p><p id="direction-status"></p>
         <label id="source-envelope-control" class="check"><input id="source-envelopes" type="checkbox">
@@ -184,5 +190,5 @@
       <button id="run-demo" type="button">Посмотреть пример на синтетических данных</button></details>
   </main>
   <script src="/static/engineering-example.js?v=3" defer></script>
-  <script src="/static/composite.js?v=9" defer></script>
+  <script src="/static/composite.js?v=10" defer></script>
 </body></html>

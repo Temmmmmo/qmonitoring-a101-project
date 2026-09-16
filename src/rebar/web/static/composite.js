@@ -58,7 +58,7 @@ let result = null;
 let activeDirection = 0;
 let busy = false;
 let zoom = 1;
-let drawingView = "combined";
+let drawingView = "source";
 let layoutVariants = [];
 function setLayoutVariants(payload) {
   result = payload;
@@ -285,10 +285,13 @@ function renderPoint() {
   }
   const graphic = isTrimmedResult() ? graphicDownload() : null;
   q("#download-selected").disabled = !point || !graphic;
-  q("#download-source").disabled = !hasSelectedSourceGraphics();
-  q("#handoff-note").textContent = graphic
-    ? "Изополя и зоны открываются в Plan Preview. Раскладка JSON — графический draft; для Rebar Review нужна соответствующая выбранная плита, типы, XY и глубины. Это не инженерное разрешение."
-    : "Изополя и зоны открываются в Plan Preview. Для этого результата совместимый JSON раскладки Rebar Review не сформирован; используйте полный отчёт только для диагностики.";
+  const sourceReady = hasSelectedSourceGraphics();
+  q("#download-source").disabled = !sourceReady;
+  q("#handoff-note").textContent = !sourceReady
+    ? "Для выбранного варианта пакет зон не подготовлен. Не подменяйте его JSON другого варианта: используйте полный отчёт только для диагностики."
+    : graphic
+      ? "«Изополя и зоны» — основной пакет для SourceWorkflow в текущем плане; Plan Preview создаёт отдельные чертёжные виды. В Revit передаются размеры наборов после анкеровки/подбора длины; пятно потребности показано отдельно. Физическая раскладка Rebar доступна дополнительно и требует соответствующей выбранной плиты, типов, XY и глубин. Это не инженерное разрешение."
+      : "«Изополя и зоны» — основной пакет для SourceWorkflow в текущем плане; Plan Preview создаёт отдельные чертёжные виды. В Revit передаются размеры наборов после анкеровки/подбора длины; пятно потребности показано отдельно. Для этого результата совместимый JSON физической раскладки Rebar не сформирован; используйте полный отчёт только для диагностики.";
   const physical = isPhysicalResult();
   q("#mvp-scope").hidden = !result.mvp_checks;
   q("#mvp-scope").textContent = result.mvp_checks ?
@@ -434,7 +437,7 @@ async function runAnalysis(url, options) {
     q(".candidate-control").hidden = choices.length <= 1;
     q("#output").hidden = false;
     activeDirection = 0;
-    drawingView = result.default_drawing_view || "combined";
+    drawingView = "source";
     zoom = 1;
     renderPoint();
     q("#progress").textContent = result.front.length ? "Расчёт закончен. Проверки размещения показаны отдельно." : "Полного решения не найдено. Смотрите причины по направлениям.";

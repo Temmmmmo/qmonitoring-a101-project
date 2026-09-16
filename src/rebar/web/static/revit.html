@@ -14,22 +14,22 @@
     <section class="intro">
       <p class="eyebrow">3 · Передать результат</p>
       <h1>Открыть расчёт в Revit</h1>
-      <p>Скачайте JSON на странице расчёта, установите ZIP-инструмент и откройте файл в соответствующей плите.</p>
+      <p>Скачайте JSON «Изополя и зоны», установите ZIP-инструмент и перенесите параметрические зоны с аннотациями в текущий горизонтальный план Revit.</p>
       <div class="compatibility">Revit 2024 · установленный pyRevit · IronPython 2.7</div>
-      <p class="revit-caution">Два инструмента: Plan Preview показывает изополя и зоны на чертёжных видах;
-        «Раскладка арматуры» создаёт настоящие стержни Rebar в выбранной плите.
-        Созданную раскладку нужно проверить; автоматического сохранения и синхронизации нет.</p>
+      <p class="revit-caution">Основной путь — SourceWorkflow: зоны и аннотации переносятся через <code>QMonitoringWorkflow</code> в текущий горизонтальный план.
+        Конструктор проверяет результат; первый запуск всей цепочки семейств ещё нужен. Это не готовая инженерная выдача.
+        Плагин не вызывает автоматического сохранения и синхронизации.</p>
     </section>
 
     <section aria-labelledby="workflow-title">
       <h2 id="workflow-title">Три шага</h2>
-      <ol class="workflow"><li><strong>1. Скачайте JSON</strong><p>«Изополя и зоны» для Plan Preview; «Раскладка» только когда кнопка активна.</p></li>
+      <ol class="workflow"><li><strong>1. Скачайте JSON</strong><p>«Изополя и зоны» — пакет зон для Revit. Он сохраняет прямоугольник, длину, ширину, диаметр, номинальный шаг и количество; глубины для зон не требуются.</p></li>
         <li><strong>2. Установите ZIP</strong><p>Скачайте нужный инструмент ниже и добавьте родительскую папку в pyRevit.</p></li>
-        <li><strong>3. Откройте в копии модели</strong><p>Выберите плиту, загрузите JSON и подтвердите типы арматуры.
-          Положение по высоте предлагается автоматически. После создания сравните результат с отчётом.</p></li></ol>
+        <li><strong>3. Откройте в копии модели</strong><p>Откройте текущий горизонтальный план, запустите SourceWorkflow, выберите направление и карту загруженных семейств
+          элементов узлов и типовых аннотаций. Сопоставьте длину, ширину, D, номинальный шаг и количество. После переноса сравните результат с отчётом.</p></li></ol>
     </section>
 
-    <section id="axis-depths" class="notice" aria-labelledby="axis-depths-title">
+    <details class="technical-section"><summary>Дополнительно: положение физических стержней по высоте</summary><section id="axis-depths" class="notice" aria-labelledby="axis-depths-title">
       <h2 id="axis-depths-title">Положение стержней по высоте</h2>
       <p>В готовом сценарии не нужно вводить четыре глубины вручную: плагин предлагает их по геометрии
         выбранной плиты и диаметрам. X и Y размещаются на разных высотах, чтобы ортогональные стержни
@@ -50,7 +50,7 @@
         Для другой плиты предложение вычисляется по её геометрии и диаметрам и требует проверки конструктора;
         отверстия, cover и все коллизии этим примером не проверены.</p>
       </details>
-    </section>
+    </section></details>
 
     <details class="technical-section"><summary>Проверить диагностические JSON из Revit</summary>
     <section class="snapshot-panel" aria-labelledby="snapshot-title">
@@ -78,7 +78,7 @@
         <li>В <strong>pyRevit → Settings → Custom Extension Directories</strong> добавьте <strong>родительскую папку</strong>: внутри неё должна лежать папка с окончанием <code>.extension</code>.</li>
         <li>Нажмите <strong>Reload</strong>. Откройте новую вкладку, указанную на карточке инструмента.</li>
       </ol>
-      <p class="path-example"><span>Добавить этот путь:</span><code>C:\QMonitoring\WorkingRebar\</code><span>Внутри него:</span><code>QMonitoringReadOnly.extension\</code></p>
+      <p class="path-example"><span>Добавить этот путь:</span><code>C:\QMonitoring\QMonitoringWorkflow\</code><span>Внутри него:</span><code>QMonitoringWorkflow.extension\</code></p>
       <p>Не выбирайте ZIP или <code>script.py</code>. Удалять рабочие наборы и отключать старые QMonitoring-вкладки не нужно.
         При обновлении заменяйте только путь предыдущей версии <em>этого же</em> расширения.</p>
     </section>
@@ -95,7 +95,8 @@
     <aside class="notice" aria-labelledby="scope-title">
       <h2 id="scope-title">Границы результата</h2>
       <p>В этих ZIP нет моделей, исходных DXF, частных отчётов или готовой раскладки.
-        Читающие кнопки ничего не меняют в RVT; графический просмотр создаёт новый вид только после подтверждения.</p>
+        Читающие кнопки ничего не меняют в RVT; Plan Preview создаёт новые чертёжные виды только после подтверждения,
+        а не размещает семейства на текущем плане.</p>
       <p>Статус <code>collected</code> означает успешный сбор данных, не пройденные инженерные гейты.
         <code>partial</code> — полезный отчёт с явными пробелами чтения, его не нужно исправлять изменением модели.</p>
       <p>Общий JSON составного расчёта не является пакетом для Plan Preview. Используйте кнопку
@@ -105,7 +106,7 @@
       <p>Отчёты могут содержать геометрию, имена и пути модели. Передавайте их только участникам проекта.</p>
     </aside></details>
   </main>
-  <script src="/static/revit.js?v=4" defer></script>
+  <script src="/static/revit.js?v=5" defer></script>
   <script src="/static/revit-inspection.js?v=1" defer></script>
 </body>
 </html>

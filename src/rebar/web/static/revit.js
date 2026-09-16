@@ -14,12 +14,13 @@ function textElement(tag, text, className) {
 function toolCard(tool) {
   const card = document.createElement("article");
   card.className = "tool-card";
-  const modeLabel = tool.id === "rebar-review-mvp" ? "Арматура в модели · требуется проверка" : tool.mode === "read_only" ? "Только чтение" :
+  const modeLabel = tool.id === "rebar-review-mvp" ? "Физические стержни · дополнительно" : tool.id === "source-workflow-81" ? "Зоны на плане · основной сценарий" : tool.mode === "read_only" ? "Только чтение" :
     tool.mode === "view_family" ? "Семейства на виде, не Rebar" : "Графический вид, не Rebar";
   card.append(textElement("span", modeLabel, "tool-mode"));
   card.append(textElement("h3", tool.title));
   const descriptions = {
-    'rebar-review-mvp': 'Создаёт стержни выбранного варианта в плите. Используйте JSON «Раскладка» и копию модели; после создания проверьте результат.',
+    'rebar-review-mvp': 'Дополнительный просмотр физической раскладки Rebar в выбранной плите. Используйте JSON «Физическая раскладка» и копию модели; после создания проверьте результат.',
+    'source-workflow-81': 'Переносит параметрические прямоугольные зоны и аннотации в текущий горизонтальный план через QMonitoringWorkflow. Используйте JSON «Изополя и зоны»; отдельные стержни не создаются.',
     'plan-preview': 'Показывает исходные изополя и прямоугольники зон на новых чертёжных видах. Используйте JSON «Изополя и зоны»; арматуру этот инструмент не создаёт.',
   };
   card.append(textElement("p", descriptions[tool.id] || tool.description));
@@ -56,17 +57,25 @@ async function loadCatalog() {
     if (catalog.schema_version !== "qmonitoring-revit-tools/v1" || !Array.isArray(catalog.tools)) {
       throw new Error("Версия списка инструментов не поддерживается. Обновите страницу.");
     }
-    const priority = {"rebar-review-mvp": 0, "plan-preview": 1};
+    const priority = {"source-workflow-81": 0, "plan-preview": 1};
     const main = catalog.tools.filter((tool) => tool.id in priority).sort((a, b) => priority[a.id]-priority[b.id]);
     toolsContainer.replaceChildren(...main.map(toolCard));
-    const other = catalog.tools.filter((tool) => !(tool.id in priority));
+    const rebar = catalog.tools.filter((tool) => tool.id === "rebar-review-mvp");
+    if (rebar.length) {
+      const additional = document.createElement('details');
+      additional.className = 'tool-card-secondary';
+      additional.append(textElement('summary', 'Дополнительно: физические стержни Rebar'));
+      rebar.forEach((tool) => additional.append(toolCard(tool)));
+      toolsContainer.append(additional);
+    }
+    const other = catalog.tools.filter((tool) => !(tool.id in priority) && tool.id !== "rebar-review-mvp");
     if (other.length) {
       const diagnostics = document.createElement('details');
       diagnostics.append(textElement('summary', 'Служебные инструменты: чтение модели и диагностика'));
       other.forEach((tool) => diagnostics.append(toolCard(tool)));
       toolsContainer.append(diagnostics);
     }
-    statusElement.textContent = "Выберите создание арматуры или просмотр изополей и зон.";
+    statusElement.textContent = "Выберите перенос зон на план или просмотр изополей.";
   } catch (error) {
     statusElement.textContent = "Скачивание сейчас недоступно.";
     errorElement.textContent = error.message;
