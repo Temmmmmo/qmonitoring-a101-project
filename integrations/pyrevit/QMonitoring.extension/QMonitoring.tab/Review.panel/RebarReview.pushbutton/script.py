@@ -19,6 +19,7 @@ from qm_rebar_review import (REPORT_SCHEMA, VERSION, material_key, validated_gra
 from qm_revit_plan_preview import load_preview_input
 from qm_revit_probe import Probe, element_id, text_type, write_report_json
 from qm_revit_rebar_review import run_rebar_review
+from qm_revit_presentation_view import create_presentation_view
 
 __title__ = "Rebar Review\nMVP"
 __doc__ = "Вся прямая партия native Rebar в копии: Commit, readback и отдельное keep. Не инженерный выпуск."
@@ -131,18 +132,33 @@ def main():
         conditional = checks.get("conditional_collisions_3d", checks["collisions_3d"])
         collision_notice = "Исходный backend Z-profile: conditional 3D={0}; proven={1}; uncertain={2}. Выбранные4глубины/actual RVT collisions NOT CHECKED.".format(
             conditional["status"],conditional["proven_pair_count"],conditional["uncertain_pair_count"])
+        presentation_label = "Для презентации — показать с замечаниями"
+        strict_label = "Строгая сверка осей"
+        mode_choice = forms.alert("Выбери режим. Презентация сохраняет измеренные сдвиги осей только после отдельного Keep.\n"
+            "Это диагностическая модель, НЕ инженерная выдача. Все замечания останутся в JSON.",
+            options=[presentation_label,strict_label,"Отмена"],ok=False)
+        if mode_choice not in (presentation_label,strict_label):
+            raise ValueError("Выбор режима отменён; Rebar не создавались")
+        review_mode = "presentation" if mode_choice == presentation_label else "strict"
+        report["review_mode"] = review_mode
         confirmed = forms.alert("КОПИЯ RVT: {0}; Floor id={1}.\n"
             "Создам ВСЮ прямую партию: {2} отдельных native Rebar; расчётное время зависит от размера (до 5000).\n"
             "Coverage={3}; 40d={4}; stock={5}. Fail/not_checked НЕ снимаются.\n{6}\n"
             "MVP проверяет native ПЛОСКИЙ внешний контур и толщину. Отверстия, cover, перепады и фон ИСКЛЮЧЕНЫ.\n"
-            "Не удаляю/не меняю существующую арматуру, не Save/Sync. После Commit будет строгий readback и ОТДЕЛЬНЫЙ вопрос keep.\n"
+            "Не удаляю/не меняю существующую арматуру, не Save/Sync. После Commit будет полная сверка и ОТДЕЛЬНЫЙ вопрос «Оставить».\n"
+            "В режиме презентации измеренные отклонения останутся замечаниями.\n"
             "Подтверди, что это локальная/отсоединённая КОПИЯ для диагностического review.".format(
                 doc.Title,element_id(floor.Id),len(primitives["bars"]),checks["coverage"],
                 checks["anchorage_40d"],checks["stock_cutting"],collision_notice),yes=True,no=True)
         if not confirmed:
             raise ValueError("Копия/полный диагностический запуск не подтверждены")
 
+        captured_view = {}
         def preview(ids):
+            if review_mode == "presentation":
+                directions = dict((value,bar["direction"]) for value,bar in zip(ids,primitives["bars"]))
+                captured_view.update(create_presentation_view(doc,DB,floor,ids,directions))
+                return
             values = List[DB.ElementId]()
             for value in ids:
                 values.Add(DB.ElementId(value))
@@ -150,16 +166,36 @@ def main():
             uidoc.RefreshActiveView()
 
         def keep(result):
-            return forms.alert("Post-Commit readback совпал для ВСЕХ {0} Rebar.\n"
+            summary = result.get("presentation_deviations",{})
+            native_notice = "Полная строгая сверка осей совпала."
+            if review_mode == "presentation":
+                native_notice = "ПРЕЗЕНТАЦИЯ, НЕ ИНЖЕНЕРНАЯ ВЫДАЧА. С замечаниями: {0} стержней; максимум сдвига {1:.3f} мм; фактическая масса {2:.3f} кг.".format(
+                    summary["deviating_bar_count"],summary["max_endpoint_delta_mm"],summary["actual_mass_from_axes_kg"])
+            return forms.alert(native_notice+"\nПолный readback выполнен для {0} Rebar.\n"
                 "Coverage={1}; 40d={2}; stock={3}; holes/cover/background NOT CHECKED.\n{4}\n"
                 "ОСТАВИТЬ диагностическую арматуру в этой КОПИИ? Это не выпуск и не Save/Sync.\n"
                 "Нет = откатить всю созданную партию.".format(len(result["created_element_ids"]),
                     checks["coverage"],checks["anchorage_40d"],checks["stock_cutting"],collision_notice),yes=True,no=True)
 
         report = run_rebar_review(doc,DB,floor,primitives,selected,depths,lambda:List[DB.Curve](),
-            keep,copy_confirmed=True,worksharing_consent=confirm_review_worksharing,preview=preview,axis_depth_policy=depth_policy)
+            keep,copy_confirmed=True,worksharing_consent=confirm_review_worksharing,preview=preview,axis_depth_policy=depth_policy,review_mode=review_mode)
         report.update({"source_input_sha256":digest,"source_file_name":os.path.basename(source),
             "coordinate_offset_xy_mm":[offset_x,offset_y]})
+        if review_mode == "presentation":
+            report["presentation_view"] = captured_view or {"status":"not_created","error":report.get("preview_error")}
+            if report.get("kept_element_ids") and captured_view.get("view_id"):
+                captured_view["status"] = "kept_presentation_view"
+                try:
+                    uidoc.ActiveView = doc.GetElement(DB.ElementId(captured_view["view_id"]))
+                    for ui_view in uidoc.GetOpenUIViews():
+                        if element_id(ui_view.ViewId) == captured_view["view_id"]:
+                            ui_view.ZoomToFit()
+                    captured_view["activation"] = "activated_after_whole_party_keep"
+                except Exception as exc:
+                    captured_view["activation_error"] = {"message":text_type(exc),"traceback":traceback.format_exc()}
+                    print("Арматура оставлена, но 3D-вид не удалось открыть: "+text_type(exc))
+            elif captured_view:
+                captured_view["status"] = "rolled_back_with_whole_party" if report["status"] == "failed_rolled_back" else "whole_party_rollback_unconfirmed"
     except Exception as exc:
         report["issues"].append({"stage":"setup","message":text_type(exc),"traceback":traceback.format_exc()})
         print("ПРИЧИНА ОТКАЗА: "+text_type(exc))
@@ -174,15 +210,22 @@ def main():
             print("ОШИБКА ЗАПИСИ ОТЧЁТА: "+text_type(exc))
             print(traceback.format_exc())
             print(json.dumps(report,ensure_ascii=False,sort_keys=True,default=text_type))
-            if report.get("status") == "kept_diagnostic_rebar_review":
+            if report.get("status") in ("kept_diagnostic_rebar_review","kept_presentation_rebar_with_deviations"):
                 forms.alert("АРМАТУРА ОСТАВЛЕНА, НО JSON НЕ ЗАПИСАН.\nIDs: {0}\n"
                     "Выполни Undo либо закрой КОПИЮ без сохранения; пришли traceback из pyRevit.".format(
                         ", ".join(str(v) for v in report.get("kept_element_ids",[]))))
                 raise
-    if report["status"] == "kept_diagnostic_rebar_review":
+    if report["status"] in ("kept_diagnostic_rebar_review","kept_presentation_rebar_with_deviations"):
+        finish_notice = "Это НЕ инженерное разрешение."
+        if report.get("review_mode") == "presentation":
+            summary = report["presentation_deviations"]
+            view_info = report.get("presentation_view",{})
+            view_notice = "3D-вид открыт." if view_info.get("activation") == "activated_after_whole_party_keep" else "3D-вид не открыт; подробности в JSON."
+            finish_notice = "ПРЕЗЕНТАЦИЯ, НЕ ИНЖЕНЕРНАЯ ВЫДАЧА.\nС замечаниями: {0} стержней; максимум сдвига {1:.3f} мм; фактическая масса {2:.3f} кг.\n{3}".format(
+                summary["deviating_bar_count"],summary["max_endpoint_delta_mm"],summary["actual_mass_from_axes_kg"],view_notice)
         forms.alert("В КОПИИ оставлено {0} диагностических Rebar. Модель НЕ сохранена/не синхронизирована.\n"
-            "Это НЕ инженерное разрешение. Отчёт: {1}\n{2}".format(
-                len(report["kept_element_ids"]),destination,report.get("ownership_notice","")))
+            "{1}\nОбязательный отчёт: {2}\n{3}".format(
+                len(report["kept_element_ids"]),finish_notice,destination,report.get("ownership_notice","")))
     elif report["status"] in ("rollback_unconfirmed","restoration_failed"):
         forms.alert("ОТКАТ НЕ ПОДТВЕРЖДЁН. Закрой КОПИЮ без сохранения и пришли JSON: "+text_type(destination))
     else:

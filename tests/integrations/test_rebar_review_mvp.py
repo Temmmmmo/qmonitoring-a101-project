@@ -141,6 +141,69 @@ def test_constraint_assignment_failure_rolls_back_already_complete_party(runtime
     assert result["axis_constraint_control"]["global_settings_changed"] is False
 
 
+@pytest.mark.parametrize("change,keep", [("length",True),("shift",True),("shift",False),
+    ("type",True),("count",True),("reported-length",True),("nan",True),("preview",True)])
+def test_presentation_retains_only_measured_geometry_with_separate_keep(runtime_harness, contract, monkeypatch, change, keep):
+    runtime,doc,db,floor,typ,state = runtime_harness
+    rows = native(make_plan(contract))
+    line = rows[0]["bars"][0]["curves"][0]
+    line["end_mm"][0] += 13
+    line["length_mm"] += 13
+    if change == "shift":
+        line["start_mm"][0] += 13
+        line["length_mm"] -= 13
+    elif change == "type":
+        rows[0]["bar_type"]["element_id"] = 88
+    elif change == "count":
+        rows.pop()
+    elif change == "reported-length":
+        line["length_mm"] += 1
+    elif change == "nan":
+        line["start_mm"][0] = float("nan")
+    def read_created(*_):
+        state.read_count += 1
+        return deepcopy(rows)
+    monkeypatch.setattr(runtime,"_read_created",read_created)
+    def forbidden(*_):
+        raise AssertionError("Presentation must skip experimental constraints")
+    monkeypatch.setattr(runtime,"constrain_review_axis",forbidden)
+    def preview(_):
+        assert state.read_count == 1 and "commit" in state.calls
+        if change == "preview":
+            raise ValueError("view failed")
+    def confirm(result):
+        assert state.read_count == 2
+        assert result["post_commit_comparison"]["status"] == "differs"
+        assert result["presentation_deviations"]["deviating_bar_count"] == 1
+        assert result["presentation_deviations"]["max_endpoint_delta_mm"] == 13
+        return keep
+    result = runtime.run_rebar_review(doc,db,floor,primitives(),{"A500|12":typ},
+        dict.fromkeys(contract.DIRECTIONS,50),lambda:None,confirm,copy_confirmed=True,
+        review_mode="presentation",preview=preview)
+    allowed = keep and change in ("length","shift","preview")
+    assert result["status"] == ("kept_presentation_rebar_with_deviations" if allowed else "failed_rolled_back")
+    if allowed:
+        assert len(result["kept_element_ids"]) == 4 and "assimilate" in state.calls
+        assert result["presentation_deviations"]["actual_mass_from_axes_kg"] > 0
+        assert result["engineering_approval"] is False
+        if change == "preview":
+            assert result["preview_error"]["message"] == "view failed"
+    else:
+        assert state.ids == {7,99}
+
+
+def test_presentation_unconfirmed_view_rollback_is_fatal(runtime_harness, contract):
+    runtime,doc,db,floor,typ,state = runtime_harness
+    helper = importlib.import_module("qm_revit_presentation_view")
+    def preview(_):
+        raise helper.PresentationViewRollbackError("view transaction still pending")
+    result = runtime.run_rebar_review(doc,db,floor,primitives(),{"A500|12":typ},
+        dict.fromkeys(contract.DIRECTIONS,50),lambda:None,True,copy_confirmed=True,
+        review_mode="presentation",preview=preview)
+    assert result["status"] == "failed_rolled_back" and state.ids == {7,99}
+    assert "assimilate" not in state.calls and "preview_error" not in result
+
+
 def test_native_edges_can_be_reversed_and_reordered_without_changing_contour(contract):
     data = host_data()
     for side in ("top_faces", "bottom_faces"):
@@ -267,7 +330,7 @@ def test_python2_grammar_and_no_save_sync_delete_or_blanket_obstacle_scan():
     from lib2to3 import pygram, pytree
 
     parser = driver.Driver(pygram.python_grammar, convert=pytree.convert)
-    for relative in ("qm_rebar_review.py", "qm_revit_rebar_review.py"):
+    for relative in ("qm_rebar_review.py", "qm_revit_rebar_review.py", "qm_revit_presentation_view.py"):
         content = (LIB / relative).read_text(encoding="utf-8")
         parser.parse_string(content + "\n")
         for forbidden in (
@@ -545,7 +608,7 @@ def test_code_only_package_is_deterministic_and_dependency_complete(tmp_path, mo
     with ZipFile(first) as archive:
         names = set(archive.namelist())
         manifest = json.loads(archive.read("manifest.json"))
-        assert manifest["version"] == "0.1.4" and manifest["creates_structural_rebar"] is True
+        assert manifest["version"] == "0.1.5" and manifest["creates_structural_rebar"] is True
         assert manifest["review_only"] is True
         assert not any(name.endswith((".rvt", ".rfa", ".dxf", ".shk")) for name in names)
         assert set(name for name in names if name.endswith(".json")) == {"manifest.json"}

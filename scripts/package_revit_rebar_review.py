@@ -12,7 +12,7 @@ from package_revit_plan_preview import CODE_ONLY_MODULES
 from package_revit_probe import SOURCE
 
 BUTTON = "QMonitoring.extension/QMonitoring.tab/Review.panel/RebarReview.pushbutton"
-MODULES = (*CODE_ONLY_MODULES, "qm_rebar_review.py", "qm_revit_rebar_review.py")
+MODULES = (*CODE_ONLY_MODULES, "qm_rebar_review.py", "qm_revit_rebar_review.py", "qm_revit_presentation_view.py")
 
 
 def build_package(output):

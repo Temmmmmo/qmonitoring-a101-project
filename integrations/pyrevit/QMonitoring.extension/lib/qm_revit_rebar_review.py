@@ -179,13 +179,51 @@ def _read_created(probe, ids, identities):
     return rows
 
 
+def presentation_deviations(plan, rows, comparison):
+    """Allow measured geometry deviations only; never reinterpret a FAIL as PASS."""
+    allowed = set(("absolute_native_axis_xyz", "native_length_mm", "complete_physical_count_or_derived_mass"))
+    if len(rows) != len(plan["runs"]) or comparison["physical_bar_count"] != len(rows):
+        raise ValueError("Presentation requires the complete native inventory")
+    if any(not set(issue["checks"]).issubset(allowed) for issue in comparison["issues"]):
+        raise ValueError("Presentation cannot keep identity/type/count or API read failures")
+    changed, maximum, length_maximum = 0, 0.0, 0.0
+    for wanted,actual in zip(plan["runs"],rows):
+        curve = actual["bars"][0]["curves"][0]
+        a,b = curve["start_mm"],curve["end_mm"]
+        values = a+b+[curve["length_mm"]]+[actual["bar_type"][key]
+            for key in ("nominal_diameter_mm","model_diameter_mm")]
+        if len(a) != 3 or len(b) != 3 or any(math.isnan(value) or math.isinf(value) for value in values):
+            raise ValueError("Presentation requires finite native axis/length/diameters")
+        def distance(p,q):
+            return math.sqrt(sum((x-y)**2 for x,y in zip(p,q)))
+        length = distance(a,b)
+        if length <= 0 or abs(length-curve["length_mm"]) > 0.01:
+            raise ValueError("Native curve length is not internally consistent with its endpoints")
+        expected = wanted["axes"][0]
+        direct = [distance(a,expected["start_mm"]),distance(b,expected["end_mm"])]
+        reverse = [distance(a,expected["end_mm"]),distance(b,expected["start_mm"])]
+        delta = max(direct if sum(direct) <= sum(reverse) else reverse)
+        length_delta = abs(length-wanted["length_mm"])
+        maximum, length_maximum = max(maximum,delta),max(length_maximum,length_delta)
+        changed += delta > 0.01 or length_delta > 0.01
+    mass = comparison["mass_from_final_axes_kg"]
+    if math.isnan(mass) or math.isinf(mass) or mass < 0:
+        raise ValueError("Presentation requires a finite derived actual mass")
+    return {"status":"deviations_measured" if comparison["status"] == "differs" else "no_axis_deviations_measured",
+        "deviating_bar_count":changed,"max_endpoint_delta_mm":maximum,
+        "max_length_delta_mm":length_maximum,"actual_mass_from_axes_kg":mass,
+        "physical_bar_count":len(rows),"engineering_approval":False,
+        "warning":"Presentation model only: native geometry deviations are NOT approved; actual host/cover/collisions remain not_checked"}
+
+
 def run_rebar_review(document, DB, floor, primitives, bar_types, depths, curve_list_factory,
                      keep_confirmation, copy_confirmed=False, worksharing_consent=False,
-                     checkout_id_set_factory=None, preview=None, axis_depth_policy=None):
+                     checkout_id_set_factory=None, preview=None, axis_depth_policy=None, review_mode="strict"):
     """Create every straight bar, Commit/read back, then keep or roll back all."""
     report = {"schema_version":REPORT_SCHEMA,"version":VERSION,
         "created_utc":datetime.datetime.utcnow().isoformat()+"Z","units":"mm",
         "status":"blocked_preflight","mode":"explicit-keep-after-commit-readback",
+        "review_mode":review_mode,
         "placement_eligible":False,"engineering_approval":False,"issues":[],"commit_failures":[],
         "axis_constraint_control":{"policy":"new-rebar-fixed-selected-floor-faces/v1",
             "global_settings_changed":False,"maximum_repair_passes":1,
@@ -208,6 +246,8 @@ def run_rebar_review(document, DB, floor, primitives, bar_types, depths, curve_l
     ended,stage,kept = False,"preflight",False
     identities = {}
     try:
+        if review_mode not in ("strict", "presentation"):
+            raise ValueError("Unknown Rebar review mode")
         if axis_depth_policy is None:
             axis_depth_policy = manual_axis_depth_policy(depths)
             axis_depth_policy["user_confirmed"] = copy_confirmed is True
@@ -287,12 +327,15 @@ def run_rebar_review(document, DB, floor, primitives, bar_types, depths, curve_l
         if len(report["created_element_ids"]) != len(plan["runs"]):
             raise ValueError("Incomplete native party creation")
         document.Regenerate()
-        stage = "constrain_new_axes"
-        for value,run in zip(report["created_element_ids"],plan["runs"]):
-            constraint_diagnostic = {}
-            report["axis_constraint_control"]["bars"].append(constraint_diagnostic)
-            constrain_review_axis(probe,floor,document.GetElement(DB.ElementId(value)),run,constraint_diagnostic)
-        document.Regenerate()
+        if review_mode == "strict":
+            stage = "constrain_new_axes"
+            for value,run in zip(report["created_element_ids"],plan["runs"]):
+                constraint_diagnostic = {}
+                report["axis_constraint_control"]["bars"].append(constraint_diagnostic)
+                constrain_review_axis(probe,floor,document.GetElement(DB.ElementId(value)),run,constraint_diagnostic)
+            document.Regenerate()
+        else:
+            report["axis_constraint_control"]["status"] = "skipped_explicit_presentation_mode"
         controls = report["axis_constraint_control"]
         controls["fixed_preferences_assigned_count"] = sum(row["status"] == "fixed_preferences_assigned_pending_whole_native_readback"
             for row in controls["bars"])
@@ -302,7 +345,9 @@ def run_rebar_review(document, DB, floor, primitives, bar_types, depths, curve_l
         verify_new_rebar_worksets(document,DB,report["created_element_ids"],worksharing,"pre_commit")
         report["pre_commit_comparison"] = compare_native(plan,report["pre_commit_readback"])
         report["timing_seconds"]["pre_commit_readback_cumulative"] = time.time()-started
-        if report["pre_commit_comparison"]["status"] != "matches" or _blocking_read_issues(probe,report):
+        if review_mode == "presentation":
+            report["pre_commit_presentation_deviations"] = presentation_deviations(plan,report["pre_commit_readback"],report["pre_commit_comparison"])
+        if (review_mode == "strict" and report["pre_commit_comparison"]["status"] != "matches") or _blocking_read_issues(probe,report):
             raise ValueError("Whole-party native readback differs before Commit")
         stage = "commit"
         returned = transaction.Commit()
@@ -311,18 +356,30 @@ def run_rebar_review(document, DB, floor, primitives, bar_types, depths, curve_l
         if returned != DB.TransactionStatus.Committed or final != returned or report["commit_failures"]:
             raise ValueError("Commit failed or posted a warning/error; whole party is rejected")
         ended = True
+        if review_mode == "presentation" and preview is not None:
+            stage = "optional_presentation_view"
+            try:
+                preview(report["created_element_ids"])
+            except Exception as exc:
+                if getattr(exc,"rollback_unconfirmed",False) or document.IsModifiable:
+                    raise
+                report["preview_error"] = {"message":text_type(exc),"traceback":traceback.format_exc()}
+            if document.IsModifiable:
+                raise ValueError("Presentation callback left an active transaction; cannot keep party")
         stage = "post_commit_readback"
         report["post_commit_readback"] = _read_created(probe,report["created_element_ids"],identities)
         verify_new_rebar_worksets(document,DB,report["created_element_ids"],worksharing,"post_commit")
         report["post_commit_comparison"] = compare_native(plan,report["post_commit_readback"])
         report["timing_seconds"]["post_commit_readback_cumulative"] = time.time()-started
-        if report["post_commit_comparison"]["status"] != "matches" or _blocking_read_issues(probe,report):
+        if review_mode == "presentation":
+            report["presentation_deviations"] = presentation_deviations(plan,report["post_commit_readback"],report["post_commit_comparison"])
+        if (review_mode == "strict" and report["post_commit_comparison"]["status"] != "matches") or _blocking_read_issues(probe,report):
             raise ValueError("Whole-party native readback differs after Commit")
         if probe.floor(floor) != before or any(probe.bar_type(item) != types[key] for key,item in bar_types.items()):
             raise ValueError("Host/type changed after Commit; diagnostic party cannot be kept")
         if _blocking_read_issues(probe,report):
             raise ValueError("Incomplete native host/type reread after Commit")
-        if preview is not None:
+        if review_mode == "strict" and preview is not None:
             preview(report["created_element_ids"])
         stage = "explicit_keep_confirmation"
         keep = keep_confirmation(report) if callable(keep_confirmation) else keep_confirmation
@@ -339,6 +396,8 @@ def run_rebar_review(document, DB, floor, primitives, bar_types, depths, curve_l
         group = None
         kept = True
         report["status"] = "kept_diagnostic_rebar_review"
+        if review_mode == "presentation" and report["post_commit_comparison"]["status"] == "differs":
+            report["status"] = "kept_presentation_rebar_with_deviations"
         report["kept_element_ids"] = list(report["created_element_ids"])
         report["keep_notice"] = "Diagnostic Rebar retained in this COPY only; not engineering approval; model was not saved or synchronized"
     except Exception as exc:
