@@ -126,6 +126,21 @@ def test_flat_native_outer_plan_and_complete_native_readback(contract):
     assert "not Revit material density" in result["mass_formula"]
 
 
+def test_constraint_assignment_failure_rolls_back_already_complete_party(runtime_harness, contract, monkeypatch):
+    runtime, doc, db, floor, typ, state = runtime_harness
+    def fail(*_):
+        assert len(state.rebars) == 4
+        raise ValueError("native fixed constraint assignment failed")
+    monkeypatch.setattr(runtime, "constrain_review_axis", fail)
+    result = runtime.run_rebar_review(doc, db, floor, primitives(), {"A500|12": typ},
+        dict.fromkeys(contract.DIRECTIONS, 50), lambda: None, True, copy_confirmed=True)
+    assert result["status"] == "failed_rolled_back"
+    assert result["issues"][0]["stage"] == "constrain_new_axes"
+    assert len(result["created_element_ids"]) == 4
+    assert state.ids == {7, 99} and "commit" not in state.calls
+    assert result["axis_constraint_control"]["global_settings_changed"] is False
+
+
 def test_native_edges_can_be_reversed_and_reordered_without_changing_contour(contract):
     data = host_data()
     for side in ("top_faces", "bottom_faces"):
@@ -413,6 +428,8 @@ def runtime_harness(monkeypatch, contract):
     monkeypatch.setattr(runtime, "Probe", Probe)
     monkeypatch.setattr(runtime, "document_ids", lambda *_: set(state.ids))
     monkeypatch.setattr(runtime, "create_trial_rebar", create)
+    monkeypatch.setattr(runtime, "constrain_review_axis", lambda *args: args[-1].update(
+        status="native_axis_already_matches_no_constraints_changed"))
     monkeypatch.setattr(runtime, "_read_created", read_created)
     monkeypatch.setattr(runtime, "make_review_plan", capture)
     monkeypatch.setattr(runtime, "failure_recorder", lambda *_: object())
@@ -528,7 +545,7 @@ def test_code_only_package_is_deterministic_and_dependency_complete(tmp_path, mo
     with ZipFile(first) as archive:
         names = set(archive.namelist())
         manifest = json.loads(archive.read("manifest.json"))
-        assert manifest["version"] == "0.1.3" and manifest["creates_structural_rebar"] is True
+        assert manifest["version"] == "0.1.4" and manifest["creates_structural_rebar"] is True
         assert manifest["review_only"] is True
         assert not any(name.endswith((".rvt", ".rfa", ".dxf", ".shk")) for name in names)
         assert set(name for name in names if name.endswith(".json")) == {"manifest.json"}

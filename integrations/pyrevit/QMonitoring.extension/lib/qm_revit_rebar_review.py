@@ -5,6 +5,7 @@ from __future__ import division, unicode_literals
 import copy
 import datetime
 import json
+import math
 import time
 import traceback
 
@@ -14,6 +15,139 @@ from qm_revit_probe import Probe, element_id, text_type
 from qm_revit_trial import create_trial_rebar, document_ids, failure_recorder, read_trial_rebar, rollback_scope
 from qm_trial_worksharing import (assign_new_rebar_workset, authorize_trial_worksharing,
     finish_trial_worksharing, inspect_trial_worksharing, ownership_notice, verify_new_rebar_worksets)
+
+
+def constrain_review_axis(probe, floor, rebar, run, diagnostic):
+    """Revit 2024 fixed native-face offsets, exclusively on this NEW Rebar.
+
+    Candidate offsets are calibrated against the native axis, not guessed from
+    cover or bar diameter. Missing capabilities/geometry reject the whole party.
+    This is placement consistency, not an engineering collision certificate.
+    """
+    DB = probe.DB
+    diagnostic.update({"bar_id":run["bar_id"],"direction":run["direction"],
+        "element_id":element_id(rebar.Id),"status":"not_checked","handles":[]})
+    manager = None
+    try:
+        native = read_trial_rebar(probe,rebar)
+        bars = native.get("bars", [])
+        if len(bars) != 1 or len(bars[0].get("curves", [])) != 1:
+            raise ValueError("Constraint calibration requires one native straight axis")
+        curve = bars[0]["curves"][0]
+        if curve.get("kind") != "Line":
+            raise ValueError("Constraint calibration requires a native Line")
+        a,b = curve["start_mm"],curve["end_mm"]
+        expected = run["axes"][0]
+        u,v = expected["start_mm"],expected["end_mm"]
+        def distance(p,q):
+            return math.sqrt(sum((x-y)**2 for x,y in zip(p,q)))
+        if distance(a,v)+distance(b,u) < distance(a,u)+distance(b,v):
+            u,v = v,u
+        diagnostic["before_endpoint_delta_mm"] = [distance(a,u),distance(b,v)]
+        if max(diagnostic["before_endpoint_delta_mm"]) <= 0.01:
+            diagnostic["status"] = "native_axis_already_matches_no_constraints_changed"
+            return
+        manager = rebar.GetRebarConstraintsManager()
+        tangent = [(b[i]-a[i])/distance(a,b) for i in range(3)]
+        target_tangent = [(v[i]-u[i])/distance(u,v) for i in range(3)]
+        if any(abs(x-y) > 1e-8 for x,y in zip(tangent,target_tangent)):
+            raise ValueError("Native axis rotated; cannot calibrate straight-bar handles")
+        midpoint = [(x+y)/2 for x,y in zip(a,b)]
+        wanted_mid = [(x+y)/2 for x,y in zip(u,v)]
+        normal = run["normal"]
+        edge_normal = [normal[1]*tangent[2]-normal[2]*tangent[1],
+            normal[2]*tangent[0]-normal[0]*tangent[2],
+            normal[0]*tangent[1]-normal[1]*tangent[0]]
+        known = {"StartOfBar":(a,u,tangent),"EndOfBar":(b,v,tangent),
+            "RebarPlane":(midpoint,wanted_mid,normal),"Edge":(midpoint,wanted_mid,edge_normal)}
+        selected, seen = [], set()
+        for handle in manager.GetAllHandles():
+            kind = text_type(handle.GetHandleType())
+            row = {"type":kind,"candidates":[]}
+            diagnostic["handles"].append(row)
+            current = manager.GetCurrentConstraintOnHandle(handle)
+            row["previous_constraint_type"] = text_type(current.GetConstraintType()) if current is not None else None
+            row["previous_target_element_ids"] = [element_id(current.GetTargetElement(i).Id)
+                for i in range(current.NumberOfTargets)] if current is not None else []
+            if kind == "OutOfPlaneExtent" and current is None:
+                row["status"] = "inactive_single_layout_extent_no_external_constraint"
+                continue
+            if kind not in known or kind in seen or (kind == "Edge" and handle.GetEdgeNumber() != 0):
+                raise ValueError("Unsupported or duplicate straight Rebar handle: "+kind)
+            seen.add(kind)
+            actual_point,wanted_point,movement = known[kind]
+            candidates = []
+            for candidate in manager.GetConstraintCandidatesForHandle(handle,floor.Id):
+                item = {"type":text_type(candidate.GetConstraintType())}
+                row["candidates"].append(item)
+                if not candidate.IsFixedDistanceToHostFace() or candidate.NumberOfTargets != 1:
+                    continue
+                reference = candidate.GetTargetHostFaceReference()
+                item["target_element_id"] = element_id(reference.ElementId)
+                if item["target_element_id"] != element_id(floor.Id):
+                    continue
+                item["target_face_reference"] = reference.ConvertToStableRepresentation(probe.doc)
+                face = floor.GetGeometryObjectFromReference(reference)
+                if not isinstance(face,DB.PlanarFace):
+                    continue
+                face_normal = [face.FaceNormal.X,face.FaceNormal.Y,face.FaceNormal.Z]
+                if abs(abs(sum(x*y for x,y in zip(face_normal,movement)))-1) > 1e-8:
+                    continue
+                origin = [DB.UnitUtils.ConvertFromInternalUnits(value,DB.UnitTypeId.Millimeters)
+                    for value in (face.Origin.X,face.Origin.Y,face.Origin.Z)]
+                signed = sum((actual_point[i]-origin[i])*face_normal[i] for i in range(3))
+                offset = DB.UnitUtils.ConvertFromInternalUnits(candidate.GetDistanceToTargetHostFace(),DB.UnitTypeId.Millimeters)
+                item.update({"offset_mm":offset,"axis_to_face_signed_mm":signed})
+                if not all(not math.isnan(value) and not math.isinf(value) for value in (signed,offset)):
+                    continue
+                # A zero distance cannot establish the API's offset sign. Use
+                # another genuine face candidate or reject, never guess a sign.
+                if abs(signed) < 0.01 or abs(abs(signed)-abs(offset)) > 0.01:
+                    continue
+                sign = 1 if signed*offset > 0 else -1
+                target = offset+sign*sum((wanted_point[i]-actual_point[i])*face_normal[i] for i in range(3))
+                candidates.append((abs(offset),candidate,target,item))
+            if not candidates:
+                raise ValueError("No calibrated fixed selected-Floor face target for "+kind)
+            candidates.sort(key=lambda item:item[0])
+            _,candidate,target,item = candidates[0]
+            row["selected"] = dict(item,expected_offset_mm=target)
+            selected.append((kind,target,row))
+        if seen != set(known):
+            raise ValueError("Incomplete straight Rebar handle inventory")
+        for kind,target,row in selected:
+            # A previous assignment can invalidate other handles/candidates.
+            # Reacquire by exact handle type and native stable FACE reference.
+            fresh_handles = [h for h in manager.GetAllHandles()
+                if text_type(h.GetHandleType()) == kind and (kind != "Edge" or h.GetEdgeNumber() == 0)]
+            if len(fresh_handles) != 1 or not fresh_handles[0].IsValid():
+                raise ValueError("Constraint handle invalidated during assignment: "+kind)
+            handle = fresh_handles[0]
+            fresh_candidates = [c for c in manager.GetConstraintCandidatesForHandle(handle,floor.Id)
+                if c.IsValid() and c.IsFixedDistanceToHostFace() and c.NumberOfTargets == 1
+                and element_id(c.GetTargetHostFaceReference().ElementId) == element_id(floor.Id)
+                and c.GetTargetHostFaceReference().ConvertToStableRepresentation(probe.doc)
+                    == row["selected"]["target_face_reference"]]
+            if len(fresh_candidates) != 1:
+                raise ValueError("Calibrated native face candidate invalidated or ambiguous: "+kind)
+            candidate = fresh_candidates[0]
+            candidate.SetDistanceToTargetHostFace(DB.UnitUtils.ConvertToInternalUnits(target,DB.UnitTypeId.Millimeters))
+            manager.SetPreferredConstraintForHandle(handle,candidate)
+            preferred = manager.GetPreferredConstraintOnHandle(handle)
+            if preferred is None or not preferred.IsFixedDistanceToHostFace() or preferred.NumberOfTargets != 1:
+                raise ValueError("Revit did not retain fixed native-face preference")
+            if element_id(preferred.GetTargetHostFaceReference().ElementId) != element_id(floor.Id):
+                raise ValueError("Preferred constraint target left the selected Floor")
+            if preferred.GetTargetHostFaceReference().ConvertToStableRepresentation(probe.doc) != row["selected"]["target_face_reference"]:
+                raise ValueError("Revit changed preferred native face target")
+            retained_offset = DB.UnitUtils.ConvertFromInternalUnits(preferred.GetDistanceToTargetHostFace(),DB.UnitTypeId.Millimeters)
+            if abs(retained_offset-target) > 0.01:
+                raise ValueError("Revit changed preferred native face offset")
+            row["status"] = "fixed_selected_floor_preference_assigned"
+        diagnostic["status"] = "fixed_preferences_assigned_pending_whole_native_readback"
+    finally:
+        if manager is not None:
+            manager.Dispose()
 
 
 def _blocking_read_issues(probe, report):
@@ -53,6 +187,9 @@ def run_rebar_review(document, DB, floor, primitives, bar_types, depths, curve_l
         "created_utc":datetime.datetime.utcnow().isoformat()+"Z","units":"mm",
         "status":"blocked_preflight","mode":"explicit-keep-after-commit-readback",
         "placement_eligible":False,"engineering_approval":False,"issues":[],"commit_failures":[],
+        "axis_constraint_control":{"policy":"new-rebar-fixed-selected-floor-faces/v1",
+            "global_settings_changed":False,"maximum_repair_passes":1,
+            "engineering_approval":False,"bars":[]},
         "created_element_ids":[],"rollback":{"status":"not_started"},
         "source_schema":primitives.get("input_schema"),"case_id":primitives.get("case_id"),
         "axis_depth_policy":copy.deepcopy(axis_depth_policy),"axis_depths_mm":copy.deepcopy(depths),
@@ -150,6 +287,16 @@ def run_rebar_review(document, DB, floor, primitives, bar_types, depths, curve_l
         if len(report["created_element_ids"]) != len(plan["runs"]):
             raise ValueError("Incomplete native party creation")
         document.Regenerate()
+        stage = "constrain_new_axes"
+        for value,run in zip(report["created_element_ids"],plan["runs"]):
+            constraint_diagnostic = {}
+            report["axis_constraint_control"]["bars"].append(constraint_diagnostic)
+            constrain_review_axis(probe,floor,document.GetElement(DB.ElementId(value)),run,constraint_diagnostic)
+        document.Regenerate()
+        controls = report["axis_constraint_control"]
+        controls["fixed_preferences_assigned_count"] = sum(row["status"] == "fixed_preferences_assigned_pending_whole_native_readback"
+            for row in controls["bars"])
+        controls["unchanged_bar_count"] = len(controls["bars"])-controls["fixed_preferences_assigned_count"]
         stage = "pre_commit_readback"
         report["pre_commit_readback"] = _read_created(probe,report["created_element_ids"],identities)
         verify_new_rebar_worksets(document,DB,report["created_element_ids"],worksharing,"pre_commit")

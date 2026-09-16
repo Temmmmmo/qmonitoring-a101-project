@@ -22,7 +22,7 @@ SOURCE_TAB = "QMonitoring.tab"
 
 TOOLS = (
     {
-        "id": "rebar-review-mvp", "title": "Вся прямая партия · настоящий Rebar Review", "runtime_version": "0.1.3",
+        "id": "rebar-review-mvp", "title": "Вся прямая партия · настоящий Rebar Review", "runtime_version": "0.1.4",
         "button": "RebarReview", "command": "Rebar Review", "extension": "QMonitoringRebarReview",
         "panel": "Review", "mode": "native_rebar_review",
         "description": "Создаёт всю переданную прямую партию как native Rebar в копии RVT, сверяет после Commit и оставляет только по отдельному подтверждению.",
