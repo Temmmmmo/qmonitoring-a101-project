@@ -3,21 +3,22 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>QMonitoring · Раскладка всей плиты</title>
-  <link rel="stylesheet" href="/static/composite.css?v=4">
+  <link rel="stylesheet" href="/static/composite.css?v=5">
   <link rel="stylesheet" href="/static/engineering-start.css?v=3">
 </head>
 <body>
   <header class="workspace-header"><a class="workspace-brand" href="/">QMonitoring <span>× A101</span></a>
-    <nav aria-label="Разделы"><a href="/composite" aria-current="page">Раскладка плиты</a><a href="/revit">Revit</a><a href="/?advanced=1">Одно направление</a></nav></header>
+    <nav aria-label="Разделы"><a href="/composite" aria-current="page">Раскладка плиты</a><a href="/revit">Открыть в Revit</a></nav></header>
   <main>
     <div class="engineering-start">
       <p class="start-eyebrow">1 · Реальная плита</p>
       <h1>Рассчитать раскладку арматуры</h1>
-      <p class="start-description">Четыре исходных DXF уже подключены. Схема, стержни и статус проверок появятся ниже.</p>
+      <p class="start-description">Выберите плиту и нажмите «Рассчитать». Файлы и параметры готового примера уже подключены.
+        После расчёта сравните варианты и скачайте выбранную раскладку для Revit.</p>
       <article class="example-card">
         <div><span class="example-tag">Выбран реальный комплект проекта</span>
           <label class="example-choice">Плита <select id="example-selector" aria-label="Инженерный комплект"></select></label>
-          <h2 id="example-title">С1 · плоский MVP</h2>
+          <h2 id="example-title">Проверяем доступные плиты…</h2>
           <p id="example-description" class="example-description">Реальные четыре направления проекта.</p>
           <button id="run-engineering-example" type="button" class="start-primary" disabled>Рассчитать плиту</button>
           <p id="example-status" class="example-status" role="status" aria-live="polite">Проверяем наличие исходных данных на сервере…</p>
@@ -29,29 +30,37 @@
             <dl><dt>Масса</dt><dd id="example-mass">—</dd><dt>Стержни</dt><dd id="example-bars">—</dd><dt>Позиции</dt><dd id="example-positions">—</dd></dl>
             <p id="example-reference-note">Проверяем эталон…</p></aside>
           <div id="example-files" class="example-files" aria-label="Выбранные исходные файлы"></div>
-          <details class="boundary-trim-options"><summary>Отдельный пересчёт К09 по рабочему Revit-host</summary>
+          <details class="boundary-trim-options"><summary>Отдельный пересчёт К09 по границам рабочей Revit-плиты</summary>
             <form id="boundary-trim-form">
               <label>Снимок Working Host из Revit, JSON<input id="boundary-trim-host" name="working_host" type="file" accept=".json" required></label>
               <label class="check"><input name="host_xy_confirmed" type="checkbox" value="true" required>
                 Подтверждаю совпадение XY этих DXF и выбранной плиты без смещения, поворота и масштаба</label>
-              <p>Отдельный пересчёт К09 по обоим внешним контурам рабочей плиты 200 мм:
-                стержни корректируются по границе, затронутые участки восстанавливаются.
-                Исходная потребность не удаляется. Отверстия и защитный слой вне постановки MVP.
-                Если тело на краевой оси не помещается, допускается сдвиг оси на радиус внутрь (Ø/2) с повторной проверкой.
-                Стержни без пересечения с материалом плиты не оставляют отрезков — их список сохраняется в отчёте, КЭ не удаляются.
-                Затем удаляются только резервные отрезки, без потери уже покрытых участков КЭ и без изменения оставшихся стержней.
-                Наличие стали, запас 40d и новый раскрой проверяются раздельно; обрезка и удаление не доказывают анкеровку.</p>
+              <p>Обычный пример использует границу DXF. Этот режим использует границы настоящей плиты
+                из отчёта Working Host Probe. Нужна плита К09 толщиной 200 мм и совпадение координат.
+                Стержни ограничиваются контуром, затем покрытие проверяется заново.
+                Отверстия и защитный слой в MVP не учитываются; 40d и раскрой проверяются отдельно.</p>
               <button id="run-boundary-trim" type="submit" disabled>Рассчитать варианты по контуру Revit</button>
             </form>
           </details></details>
       </article>
-      <p class="start-caption">Результат — расчётный черновик. Незакрытые проверки и запрет инженерного размещения показаны явно.</p>
+      <p class="start-caption">Программа предлагает раскладку, конструктор проверяет её перед применением. Результаты проверок показаны рядом с вариантом.</p>
+      <details class="start-more" id="layout-help"><summary>Что такое фон, добавки и варианты?</summary>
+        <p><strong>Фон</strong> — основная сетка арматуры, предусмотренная проектом. Программа рассчитывает
+          <strong>добавки</strong> там, где этой сетки недостаточно; сам фон не создаёт и не заменяет.</p>
+        <p><strong>Варианты</strong> — разные раскладки по одной исходной потребности. Сравнивайте массу,
+          число отдельных стержней и число позиций — разных типоразмеров в ведомости.
+          Более лёгкий вариант не обязательно удобнее в монтаже. Проверки относятся к выбранному варианту.</p>
+        <p>Для готовой плиты ничего про фон вводить не нужно. Для своего проекта его положение
+          нужно знать, чтобы поставить добавки относительно основной сетки. Наличие фона в модели
+          и все его пересечения с добавками сайт автоматически не проверяет.</p>
+      </details>
       <details class="start-more"><summary>Другой проект и технические режимы</summary><div class="start-alternatives">
         <a href="#custom-inputs" class="start-secondary" id="open-custom-inputs">Загрузить свои четыре DXF →</a>
         <a href="/revit" class="start-secondary">Инструменты Revit →</a></div></details>
     </div>
     <p id="progress" role="status" aria-live="polite"></p>
     <p id="error" role="alert" hidden></p>
+    <details id="error-details" class="result-details" hidden><summary>Техническая причина ошибки</summary><pre id="error-technical"></pre></details>
     <details id="custom-inputs" class="custom-inputs">
       <summary>Свой проект · загрузить четыре DXF и шкалы</summary>
     <form id="composite-form">
@@ -62,25 +71,36 @@
           Неподдержанную схему программа отклонит, а не заменит другой.</p>
         <div id="direction-inputs" class="direction-grid"></div>
       </section>
-      <details class="custom-parameters"><summary>Параметры проекта, укладки и поиска</summary>
-      <section><h2>2. Параметры раскладки</h2>
-        <p>Начало фона — глобальная поперечная координата в мм (для X это Y и наоборот).
-          Первая добавка @150 автоматически следует подтверждённой схеме 100/200 относительно фона.
-          Для первой @300 и второй добавки задайте смещение относительно начала фона.
-          Пустые поля не заменяются нулём. Эти параметры не означают инженерного согласования.</p>
+      <details class="custom-parameters"><summary>Привязка к фоновой сетке · только для своего проекта</summary>
+      <section><h2>2. Где проходят фон и добавки</h2>
+        <p>Эти поля нужны только при загрузке своих файлов. Изополе задаёт потребность, но не всегда
+          положение отдельных стержней. Возьмите координату фоновой сетки из проекта.</p>
+        <p>Пример: фон @300 с началом 0 проходит через 0, 300, 600 мм.
+          Добавка @300 со сдвигом 100 проходит через 100, 400, 700 мм.
+          Для X-стержней эти координаты отсчитываются по Y, для Y-стержней — по X.
+          Это положение в плане, не границы плиты и не глубина по высоте.</p>
+        <p>Первая добавка @150 размещается по схеме 100/200 между фоновыми осями;
+          поле сдвига первой @300 на неё не влияет. Сдвиг второго набора используется, только если
+          он есть в шкале. Ноль — конкретная координата; пустое поле означает неизвестную привязку.</p>
         <div id="placement-inputs" class="direction-grid"></div>
         <div class="fields">
           <label>Название расчёта<input name="case_id" maxlength="200" placeholder="Плита / отметка"></label>
           <label>Класс стали добавок<input id="steel-class" required maxlength="100" placeholder="Укажите по проекту"></label>
-          <label>Источник параметров<input id="phase-source" required maxlength="1000" placeholder="Проект / правило / автор выбора"></label>
-          <label>Сторона касания фона при @100<select id="contact-side"><option value="left">Слева (как на рисунке СТО)</option><option value="right">Справа (зеркально)</option></select></label>
+          <label>Откуда взята привязка фона<input id="phase-source" required maxlength="1000" placeholder="Чертёж / профиль проекта / автор выбора"></label>
+        </div>
+        <details class="result-details"><summary>Настройки поиска и раскроя · можно оставить стандартные</summary>
+        <p>Они влияют на время поиска и форму вариантов, а не изменяют исходную потребность.
+          Больше предложений и времени — шире поиск, но это не гарантия лучшего результата.
+          Лимиты зон и позиций ограничивают сложность раскладки; слишком малые лимиты могут исключить решение.</p>
+        <div class="fields">
+          <label>Схема @100: с какой стороны касаться фона<select id="contact-side"><option value="left">Слева (по рисунку СТО)</option><option value="right">Справа (зеркально)</option></select></label>
           <label>Максимум позиций всей плиты<input name="maximum_positions" type="number" min="1" max="512" placeholder="Без лимита"></label>
           <label>Максимум зон на направление<input name="maximum_zones" type="number" min="1" max="128" value="64" required></label>
-          <label>Минимальная ширина<select name="min_width_cells"><option value="2">2 КЭ</option><option value="3">3 КЭ</option></select></label>
-          <label>Длины стержней<select name="cutting_profile"><option value="plate-11700-batch">Подобрать длины под безотходную партию 11700</option><option value="plate-11700">Каталог 11700 — только проверка партии</option><option value="continuous">Непрерывные длины до 11700 мм</option></select></label>
+          <label>Минимальная ширина зоны в расчётных ячейках<select name="min_width_cells"><option value="2">2 КЭ</option><option value="3">3 КЭ</option></select></label>
+          <label>Длины стержней<select name="cutting_profile"><option value="plate-11700-batch">Попробовать безотходный раскрой 11700 мм</option><option value="plate-11700">Стандартные длины: проверить раскрой</option><option value="continuous">Любая длина до 11700 мм</option></select></label>
           <label>Максимальный прирост массы ради раскроя, %<input name="maximum_cutting_overhead_pct" type="number" min="0" max="100" step="0.1" value="5" required></label>
-          <label>Кандидатов на направление<input name="maximum_candidates" type="number" min="1" max="1024" value="384" required></label>
-          <label>Бюджет MILP на направление, с<input name="solver_time_limit_s" type="number" min="1" max="30" value="10" required></label>
+          <label>Предложений для поиска на направление<input name="maximum_candidates" type="number" min="1" max="1024" value="384" required></label>
+          <label>Время работы решателя на направление, с<input name="solver_time_limit_s" type="number" min="1" max="30" value="10" required></label>
         </div>
         <p>Пока используется контрольная анкеровка 40d с каждого конца. Осреднение по СТО не применяется.
           Для @100 принята схема касания при одинаковой высоте осей: смещение рядом с фоном равно
@@ -88,14 +108,16 @@
           Подбор длин — только вверх и без добавления стержней; при превышении лимита массы вариант отклоняется.
           Это ограничение к исходному кандидату, не сравнение с инженером. Проверка партии использует смешанные отрезки одного
           диаметра и класса из прутка 11700 мм при нулевом пропиле; допущение явно сохраняется в отчёте.</p>
+        </details>
       </section>
-      <section><h2>3. Проверка границ плиты</h2>
+      <section><h2>3. Дополнительная проверка прямоугольной плиты</h2>
         <label>Отчёт Reference Probe, JSON <input name="host_reference" type="file" accept=".json"></label>
         <label class="check"><input name="host_xy_confirmed" type="checkbox" value="true">
           Проверено совпадение XY-координат DXF и выбранной плиты в этом снимке</label>
-        <p>Необязателен для расчёта вариантов, обязателен для проверки границ. Проверяется прямоугольная
-          плита с прямоугольными сквозными проёмами. Другая геометрия отклоняется.
-          Краевой спрос не удаляется, стержни не обрезаются. Снимок не заменяет актуальную проверку модели.</p>
+        <p>Этот отдельный режим принимает Reference Probe для прямоугольной плиты с прямоугольными проёмами.
+          Другую геометрию он не поддерживает и стержни не обрезает.
+          Для готового К09 используйте пересчёт по Working Host выше; это другой режим.
+          Без отчёта для своего проекта можно рассчитать варианты, но границы Revit-плиты не будут проверены.</p>
       </section>
       </details>
       <button id="run" type="submit">Рассчитать четыре направления</button>
@@ -162,5 +184,5 @@
       <button id="run-demo" type="button">Посмотреть пример на синтетических данных</button></details>
   </main>
   <script src="/static/engineering-example.js?v=3" defer></script>
-  <script src="/static/composite.js?v=8" defer></script>
+  <script src="/static/composite.js?v=9" defer></script>
 </body></html>

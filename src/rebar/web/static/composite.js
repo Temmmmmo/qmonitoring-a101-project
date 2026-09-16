@@ -74,9 +74,9 @@ q("#direction-inputs").innerHTML = directions.map((d) => `<fieldset><legend>${d.
   <label>Изополе DXF<input name="dxf_${d.key}" type="file" accept=".dxf" required></label>
   <label>Соответствующая шкала<input name="shk_${d.key}" type="file" accept=".shk" required></label></fieldset>`).join("");
 q("#placement-inputs").innerHTML = directions.map((d) => `<fieldset data-direction="${d.key}"><legend>${d.title}</legend>
-  <label>Начало фона, мм<input data-param="background_origin_mm" type="number" step="any" required></label>
-  <label>Смещение первой добавки @300, мм<input data-param="first_300_offset_mm" type="number" step="any" required></label>
-  <label>Смещение второй добавки, мм<input data-param="second_offset_mm" type="number" step="any" required></label></fieldset>`).join("");
+  <label>Координата фоновой оси, мм<input data-param="background_origin_mm" type="number" step="any" placeholder="Из проекта" required></label>
+  <label>Сдвиг первой добавки @300 от фона, мм<input data-param="first_300_offset_mm" type="number" step="any" required></label>
+  <label>Сдвиг второго набора от фона, мм<input data-param="second_offset_mm" type="number" step="any" required></label></fieldset>`).join("");
 q("#direction-tabs").innerHTML = directions.map((d, i) => `<button type="button" data-index="${i}">${d.title}</button>`).join("");
 
 function selectedPoint() { return result?.front[layoutVariants.length ? result.selected_index : Number(q("#candidate").value)]; }
@@ -370,10 +370,24 @@ q("#drawing-layers").addEventListener("click", (event) => {
 q("#zoom-in").addEventListener("click", () => setZoom(zoom + .5));
 q("#zoom-out").addEventListener("click", () => setZoom(zoom - .5));
 q("#zoom-reset").addEventListener("click", () => setZoom(1));
+function readableCalculationError(error) {
+  const reason = String(error.message || "");
+  if (error.httpStatus === 409) return "Другой расчёт уже выполняется. Дождитесь его завершения и повторите запуск.";
+  if (error.httpStatus === 503) return "Исходные файлы выбранной плиты недоступны на сервере. Выберите другую доступную плиту или сообщите об этом разработчику.";
+  if (/fetch|network|связь/i.test(reason)) return "Не удалось связаться с сервером. Проверьте соединение и повторите запуск.";
+  if (/шкал|legend|mapping|SHK/i.test(reason)) return "Не удалось применить шкалу армирования. Проверьте, что каждому DXF соответствует его SHK и поддержанная схема добавок.";
+  if (/origin_mm|фаз|поперечн|привязк.*ос|phase.source|placement.settings/i.test(reason)) return "Не удалось определить положение добавок относительно фона. Для своего проекта проверьте координаты в разделе «Привязка к фоновой сетке» и источник этих значений.";
+  if (/контур|границ|native|exterior|host|polygon|200mm/i.test(reason)) return "Не удалось проверить границы плиты в выбранном режиме. Для К09 нужен отчёт Working Host той же плиты 200 мм и подтверждённое совпадение XY. Подробная причина указана ниже.";
+  if (/coverage|покры|исходн.*потреб|source limits|complete.*variant/i.test(reason)) return "Не удалось подготовить полную раскладку в текущих ограничениях. Исходная потребность не уменьшена. Проверьте схему добавок и лимиты поиска; точная причина указана ниже.";
+  if (/формат|schema|верси/i.test(reason)) return "Формат данных не подходит этой версии приложения. Обновите страницу и выберите файл для соответствующей команды.";
+  if (error.httpStatus === 422) return "Проверьте исходные файлы и параметры своего проекта. Одно из значений не поддерживается; подробности указаны ниже.";
+  return "Расчёт не завершён. Техническая причина указана ниже — её можно передать разработчику вместе с названием плиты.";
+}
 async function runAnalysis(url, options) {
   if (busy) return;
   busy = true;
   q("#error").hidden = true;
+  q("#error-details").hidden = true;
   q("#output").hidden = true;
   result = null;
   q("#run").disabled = true;
@@ -392,7 +406,11 @@ async function runAnalysis(url, options) {
   try {
     const response = await fetch(url, options);
     const payload = await response.json();
-    if (!response.ok) throw new Error(typeof payload.detail === "string" ? payload.detail : JSON.stringify(payload.detail));
+    if (!response.ok) {
+      const failure = new Error(typeof payload.detail === "string" ? payload.detail : JSON.stringify(payload.detail));
+      failure.httpStatus = response.status;
+      throw failure;
+    }
     result = payload;
     if (result.schema_version !== "composite-plate-analysis/v1" || !Array.isArray(result.front) || result.directions?.length !== 4) throw new Error("Неподдержанный формат результата. Обновите страницу.");
     setLayoutVariants(payload);
@@ -422,9 +440,11 @@ async function runAnalysis(url, options) {
     q("#progress").textContent = result.front.length ? "Расчёт закончен. Проверки размещения показаны отдельно." : "Полного решения не найдено. Смотрите причины по направлениям.";
     q("#output").scrollIntoView({ behavior: "smooth" });
   } catch (error) {
-    q("#error").textContent = error.message;
+    q("#error").textContent = readableCalculationError(error);
     q("#error").hidden = false;
-    q("#progress").textContent = "Расчёт не завершён; старый результат не выдан за новый.";
+    q("#error-technical").textContent = String(error.message || error);
+    q("#error-details").hidden = false;
+    q("#progress").textContent = "Расчёт остановлен. Проверьте пояснение выше и повторите запуск.";
   } finally {
     clearInterval(progressTimer); document.body.classList.remove("is-calculating");
     busy = false; q("#run").disabled = false; q("#run-demo").disabled = false;

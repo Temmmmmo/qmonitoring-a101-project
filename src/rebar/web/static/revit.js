@@ -14,13 +14,17 @@ function textElement(tag, text, className) {
 function toolCard(tool) {
   const card = document.createElement("article");
   card.className = "tool-card";
-  const modeLabel = tool.id === "rebar-review-mvp" ? "Диагностические Rebar · не approval" : tool.mode === "read_only" ? "Только чтение" :
+  const modeLabel = tool.id === "rebar-review-mvp" ? "Арматура в модели · требуется проверка" : tool.mode === "read_only" ? "Только чтение" :
     tool.mode === "view_family" ? "Семейства на виде, не Rebar" : "Графический вид, не Rebar";
   card.append(textElement("span", modeLabel, "tool-mode"));
   card.append(textElement("h3", tool.title));
-  card.append(textElement("p", tool.description));
+  const descriptions = {
+    'rebar-review-mvp': 'Создаёт стержни выбранного варианта в плите. Используйте JSON «Раскладка» и копию модели; после создания проверьте результат.',
+    'plan-preview': 'Показывает исходные изополя и прямоугольники зон на новых чертёжных видах. Используйте JSON «Изополя и зоны»; арматуру этот инструмент не создаёт.',
+  };
+  card.append(textElement("p", descriptions[tool.id] || tool.description));
   card.append(textElement("p", `${tool.tab} → ${tool.panel || "Diagnostics"} → ${tool.command}`, "command-path"));
-  card.append(textElement("p", `Runtime ${tool.runtime_version} · ${Math.ceil(tool.bytes / 1024)} КБ`, "metadata"));
+  card.append(textElement("p", `Версия ${tool.version}`, "metadata"));
   const link = textElement("a", "Скачать расширение ZIP", "download");
   const expectedUrl = `/api/revit/tools/${encodeURIComponent(tool.id)}/${encodeURIComponent(tool.version)}/download`;
   if (tool.download_url !== expectedUrl) throw new Error("Каталог содержит неверную ссылку скачивания.");
@@ -35,6 +39,7 @@ function toolCard(tool) {
   details.append(textElement("p", tool.limitations));
   details.append(textElement("p", tool.verification, "verification"));
   details.append(textElement("p", `Версия сборки: ${tool.version}`, "metadata"));
+  details.append(textElement("p", `Runtime ${tool.runtime_version} · ${Math.ceil(tool.bytes / 1024)} КБ`, "metadata"));
   details.append(textElement("code", `SHA256: ${tool.sha256}`, "checksum"));
   if (tool.accepted_input_schemas.length) {
     details.append(textElement("p", `Входные форматы: ${tool.accepted_input_schemas.join(", ")}`));
@@ -52,9 +57,16 @@ async function loadCatalog() {
       throw new Error("Версия списка инструментов не поддерживается. Обновите страницу.");
     }
     const priority = {"rebar-review-mvp": 0, "plan-preview": 1};
-    const cards = [...catalog.tools].sort((a, b) => (priority[a.id] ?? 9) - (priority[b.id] ?? 9)).map(toolCard);
-    toolsContainer.replaceChildren(...cards);
-    statusElement.textContent = "Пакеты доступны. Версия и SHA256 указаны для каждого архива.";
+    const main = catalog.tools.filter((tool) => tool.id in priority).sort((a, b) => priority[a.id]-priority[b.id]);
+    toolsContainer.replaceChildren(...main.map(toolCard));
+    const other = catalog.tools.filter((tool) => !(tool.id in priority));
+    if (other.length) {
+      const diagnostics = document.createElement('details');
+      diagnostics.append(textElement('summary', 'Служебные инструменты: чтение модели и диагностика'));
+      other.forEach((tool) => diagnostics.append(toolCard(tool)));
+      toolsContainer.append(diagnostics);
+    }
+    statusElement.textContent = "Выберите создание арматуры или просмотр изополей и зон.";
   } catch (error) {
     statusElement.textContent = "Скачивание сейчас недоступно.";
     errorElement.textContent = error.message;

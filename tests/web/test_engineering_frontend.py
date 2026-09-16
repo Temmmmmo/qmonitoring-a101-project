@@ -143,6 +143,41 @@ assert.equal(vm.runInContext('layoutVariants.length',context),0);
     node(script, STATIC / "composite.js")
 
 
+def test_project_parameters_are_explained_and_optional_search_is_collapsed():
+    html = (STATIC / 'composite.html').read_text(encoding='utf-8')
+    assert 'id="layout-help"' in html and 'сам фон не создаёт и не заменяет' in html
+    assert 'Для готовой плиты ничего про фон вводить не нужно' in html
+    assert 'Добавка @300 со сдвигом 100 проходит через 100, 400, 700 мм' in html
+    assert 'Это положение в плане, не границы плиты и не глубина по высоте' in html
+    assert 'Настройки поиска и раскроя · можно оставить стандартные' in html
+    assert 'Бюджет MILP' not in html
+    assert 'id="error-details"' in html and 'id="error-technical"' in html
+
+
+def test_calculation_error_has_plain_next_step_and_keeps_exact_technical_reason():
+    script = r"""
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const nodes=new Map();const make=()=>({innerHTML:'',textContent:'',value:'0',disabled:false,hidden:false,dataset:{},style:{},
+ addEventListener(){},querySelectorAll(){return[];},setAttribute(){}});
+const q=id=>{if(!nodes.has(id))nodes.set(id,make());return nodes.get(id);};
+const technical='origin_mm is missing <img src=x onerror=alert(1)>';
+const context={document:{querySelector:q,body:{classList:{add(){},remove(){}}}},window:{location:{search:'',hash:''},engineeringExampleReady:Promise.resolve(null)},
+ fetch:async()=>({ok:false,status:422,json:async()=>({detail:technical})}),
+ URLSearchParams,Intl,console,setTimeout,clearTimeout,setInterval,clearInterval};
+vm.createContext(context);vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),context);
+assert(vm.runInContext('readableCalculationError({httpStatus:409,message:"busy"})',context).includes('Дождитесь'));
+assert(vm.runInContext('readableCalculationError({httpStatus:503,message:"files missing"})',context).includes('на сервере'));
+assert(vm.runInContext('readableCalculationError({message:"legend mismatch"})',context).includes('SHK'));
+assert(vm.runInContext('readableCalculationError({message:"coverage failed"})',context).includes('потребность не уменьшена'));
+vm.runInContext('runAnalysis("/api/engineering-examples/k09/analyze",{method:"POST"})',context).then(()=>{
+ assert(q('#error').textContent.includes('фоновой сетке'));assert(!q('#error').textContent.includes('<img'));
+ assert.equal(q('#error-technical').textContent,technical);assert.equal(q('#error-technical').innerHTML,'');
+ assert.equal(q('#error-details').hidden,false);assert.equal(q('#output').hidden,true);
+}).catch(error=>{console.error(error);process.exitCode=1;});
+"""
+    node(script, STATIC / 'composite.js')
+
+
 @pytest.mark.parametrize("file", ["engineering-example.js", "home.js", "composite.js"])
 def test_javascript_syntax(file):
     executable = shutil.which("node")

@@ -27,7 +27,7 @@ def test_revit_page_and_navigation_are_available_without_private_results():
     assert "Открыть расчёт в Revit" in response.text
     assert "родительскую папку" in response.text
     assert "не является пакетом для Plan Preview" in response.text
-    assert "Rebar Review" in response.text and "без Save/Sync" in response.text
+    assert "Rebar Review" in response.text and "автоматического сохранения и синхронизации нет" in response.text
     assert response.headers["cache-control"] == "no-store, max-age=0"
     assert 'href="/revit"' in client.get("/").text
     assert 'href="/revit"' in client.get("/composite").text
@@ -63,7 +63,8 @@ def test_catalog_describes_review_and_four_data_free_support_tools():
 def test_revit_depths_help_explains_axes_units_order_and_zero_blocker():
     page = client.get("/revit").text
     block = page.split('<section id="axis-depths"', 1)[1].split("</section>", 1)[0]
-    assert "Глубины осей: что вводить" in block and "Rebar Review" in block
+    assert "Положение стержней по высоте" in block and "Rebar Review" in block
+    assert "<details>" in block and "не нужно вводить четыре глубины вручную" in block
     assert "глубины предлагаются автоматически" in block
     assert "ручной ввод нужен только через «Другие настройки»" in block
     assert "от native-грани плиты до оси (центра) стержня" in block
@@ -79,7 +80,8 @@ def test_revit_depths_example_is_explicitly_k09_diagnostic_not_universal():
     assert "<code>46;62;48;68</code> мм" in block
     assert "Оси X ближе к граням, оси Y глубже" in block
     assert "не универсальная настройка, не норматив и не инженерное подтверждение" in block
-    assert "Для другой плиты нужен собственный профиль глубин" in block
+    assert "Для другой плиты предложение вычисляется по её геометрии и диаметрам" in block
+    assert "требует проверки конструктора" in block
     assert "все коллизии этим примером не проверены" in block
 
 
