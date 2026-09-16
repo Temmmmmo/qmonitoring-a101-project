@@ -1,6 +1,13 @@
-# Plan Preview 0.2.3 — исходные изополя, зоны и отдельная физическая схема
+# Plan Preview 0.2.4 — исходные изополя, зоны и отдельная физическая схема
 
 Revit 2024 / pyRevit / IronPython 2.7. **Графические элементы, не Rebar.**
+
+`graphic-bar-plan-repaired/v1` — отдельная полная партия с retained/modified/added,
+точными исходными trim bytes/SHA и известными lane/FE. Проверяется согласованность
+транспорта, FE-доказательство в Revit не пересчитывается. Свежие recorded coverage,
+40d, stock и conditional collisions показаны отдельно; actual RVT not_checked.
+Для настоящих Rebar используй отдельный Rebar Review 0.1.1 в копии с native Floor,
+соответствующей С1; Plan Preview создаёт только графику.
 
 Новый `graphic-bar-plan-pruned/v1` показывает только оставленные отрезки после
 удаления 160 избыточных частей. Проверяются точный SHA исходного trim JSON,

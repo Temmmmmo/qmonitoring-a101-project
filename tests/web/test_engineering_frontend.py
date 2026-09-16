@@ -9,6 +9,34 @@ import pytest
 STATIC = Path(__file__).resolve().parents[2] / "src/rebar/web/static"
 
 
+def test_actual_s1_repaired_report_keeps_current_gates_and_export_visible():
+    report = Path(__file__).resolve().parents[2] / "artifacts/s1-flat-repaired-report.json"
+    if not report.exists():
+        pytest.skip("Local revalidated S1 report not available")
+    script = r"""
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const nodes=new Map();const make=()=>({innerHTML:'',textContent:'',value:'0',disabled:false,hidden:false,dataset:{},style:{},
+ callbacks:{},addEventListener(name,fn){this.callbacks[name]=fn;},querySelectorAll(){return[];},setAttribute(){}});
+const q=id=>{if(!nodes.has(id))nodes.set(id,make());return nodes.get(id);};
+const context={document:{querySelector:q,body:{classList:{add(){},remove(){}}}},window:{location:{search:'',hash:''},engineeringExampleReady:Promise.resolve(null)},
+ URLSearchParams,Intl,console,setTimeout,clearTimeout,setInterval,clearInterval};
+vm.createContext(context);vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),context);
+context.payload=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
+vm.runInContext('result=payload;renderPoint();download=(value,filename)=>{window.downloaded={value,filename};}',context);
+assert.equal(q('#download-selected').disabled,false);q('#download-selected').callbacks.click();
+assert.equal(context.window.downloaded.value.schema_version,'graphic-bar-plan-repaired/v1');
+assert.equal(context.window.downloaded.filename,'graphic-bar-plan-repaired.json');
+assert(q('#gate-status').textContent.includes('Нет полной инженерной проверки'));
+assert.equal(q('#gate-status').dataset.status,'fail');
+const cards=q('#check-summary').innerHTML;
+assert(cards.includes('545 КЭ'));assert(cards.includes('1383')||cards.includes('1 383'));
+assert(cards.includes('Исходный спрос сохранён'));assert(!cards.includes('38 КЭ'));
+assert(q('#drawing-view-note').textContent.includes('добавленные стержни'));
+assert.equal(q('#drawing').dataset.view,'combined');
+"""
+    node(script, STATIC / "composite.js", report)
+
+
 class Page(HTMLParser):
     def __init__(self, name):
         super().__init__()

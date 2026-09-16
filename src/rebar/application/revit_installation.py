@@ -22,20 +22,20 @@ SOURCE_TAB = "QMonitoring.tab"
 
 TOOLS = (
     {
-        "id": "rebar-review-mvp", "title": "Вся прямая партия · настоящий Rebar Review", "runtime_version": "0.1.0",
+        "id": "rebar-review-mvp", "title": "Вся прямая партия · настоящий Rebar Review", "runtime_version": "0.1.1",
         "button": "RebarReview", "command": "Rebar Review", "extension": "QMonitoringRebarReview",
         "panel": "Review", "mode": "native_rebar_review",
         "description": "Создаёт всю переданную прямую партию как native Rebar в копии RVT, сверяет после Commit и оставляет только по отдельному подтверждению.",
         "report_schema": "revit-rebar-review-mvp-report/v1",
-        "input_schemas": ["graphic-bar-plan-draft/v1", "graphic-bar-plan-pruned/v1"],
+        "input_schemas": ["graphic-bar-plan-draft/v1", "graphic-bar-plan-pruned/v1", "graphic-bar-plan-repaired/v1"],
         "runtime_module": "qm_rebar_review.py",
         "modules": ("qm_probe_geometry.py", "qm_revit_probe.py", "qm_trial_geometry.py", "qm_trial_input.py",
             "qm_core_trial.py", "qm_plate_packet.py", "qm_physical_packet.py", "qm_revit_trial.py",
             "qm_trial_worksharing.py", "qm_revit_plan_preview.py", "qm_revit_source_preview.py", "qm_revit_pruned_preview.py",
-            "qm_rebar_review.py", "qm_revit_rebar_review.py"),
+            "qm_revit_repaired_preview.py", "qm_rebar_review.py", "qm_revit_rebar_review.py"),
         "steps": (
             "Открой локальную или отсоединённую КОПИЮ Revit 2024 и выдели одну native Floor. Central/cloud и семейство не поддержаны.",
-            "Выбери полный graphic-bar-plan-draft/pruned JSON, задай только явный XY-перенос и четыре глубины осей от native-граней; масштаб и поворот не угадываются.",
+            "Выбери полный graphic-bar-plan-draft/pruned/repaired JSON, задай только явный XY-перенос и четыре глубины осей от native-граней; масштаб и поворот не угадываются.",
             "Для каждого D/steel выбери точный загруженный RebarBarType и подтверди копию. Создаётся вся партия отдельных прямых Rebar без загибов, муфт и пропуска проблемных стержней.",
             "После Commit команда перечитает каждый ID, host, тип, конечную ось XYZ, длину, диаметр, количество и расчётную массу. Любое отличие откатывает всю партию.",
             "Только после успешного readback отдельно выбери: оставить диагностические Rebar в копии или откатить всё. Команда не вызывает Save/Sync; сохрани JSON-отчёт.",
@@ -77,15 +77,15 @@ TOOLS = (
         "verification": "Новая команда проверена offline-тестами; её первый реальный запуск Revit ещё требуется.",
     },
     {
-        "id": "plan-preview", "title": "Изополя, зоны и раскладка в Revit", "runtime_version": "0.2.3",
+        "id": "plan-preview", "title": "Изополя, зоны и раскладка в Revit", "runtime_version": "0.2.4",
         "button": "PlanPreview", "command": "Plan Preview", "extension": "QMonitoringPreview",
         "mode": "graphic_preview", "description": "Исходные изополя и прямоугольные зоны в четырёх новых видах; физические стержни — отдельный режим. Графика, не арматура.",
         "report_schema": "revit-graphic-plan-preview-report/v1",
-        "input_schemas": ["source-isofields-zones/v1", "graphic-bar-plan-draft/v1", "graphic-bar-plan-pruned/v1", "physical-bar-plan-trial/v1", "physical-bar-relocation-draft/v1"],
+        "input_schemas": ["source-isofields-zones/v1", "graphic-bar-plan-draft/v1", "graphic-bar-plan-pruned/v1", "graphic-bar-plan-repaired/v1", "physical-bar-plan-trial/v1", "physical-bar-relocation-draft/v1"],
         "runtime_module": "qm_revit_plan_preview.py",
         "modules": ("qm_probe_geometry.py", "qm_revit_probe.py", "qm_trial_geometry.py", "qm_trial_input.py",
             "qm_core_trial.py", "qm_plate_packet.py", "qm_physical_packet.py", "qm_revit_trial.py",
-            "qm_trial_worksharing.py", "qm_revit_plan_preview.py", "qm_revit_source_preview.py", "qm_revit_pruned_preview.py"),
+            "qm_trial_worksharing.py", "qm_revit_plan_preview.py", "qm_revit_source_preview.py", "qm_revit_pruned_preview.py", "qm_revit_repaired_preview.py"),
         "steps": (
             "Открой файловую локальную либо отсоединённую модель с сохранёнными worksets. Центральная/облачная модель этой командой не поддержана.",
             "В расчёте плиты нажми «Скачать изополя + исходные зоны». В Revit выдели одну плиту, нажми Plan Preview и выбери source-isofields-zones.json. Совместимый физический JSON открывается отдельно.",
@@ -105,7 +105,7 @@ TOOLS = (
         "modules": ("qm_probe_geometry.py", "qm_revit_probe.py", "qm_trial_geometry.py", "qm_trial_input.py",
             "qm_core_trial.py", "qm_plate_packet.py", "qm_physical_packet.py", "qm_revit_trial.py",
             "qm_trial_worksharing.py", "qm_revit_plan_preview.py", "qm_revit_source_preview.py", "qm_revit_pruned_preview.py",
-            "qm_workflow_81.py", "qm_workflow_81_native.py", "qm_workflow_81_transport.py"),
+            "qm_revit_repaired_preview.py", "qm_workflow_81.py", "qm_workflow_81_native.py", "qm_workflow_81_transport.py"),
         "steps": (
             "Открой локальный горизонтальный план и штатно подгрузи DXF; проверь единицы, оси и масштаб 1:1.",
             "Выбери направление и настройки расчёта. Выбери исходный DXF и совместимый SHK либо явный mapping.",

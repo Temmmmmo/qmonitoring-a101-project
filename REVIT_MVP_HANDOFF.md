@@ -11,7 +11,7 @@ JSON нужно получать отдельно. Живой Revit-run новы
 2. Скачай совместимый `source-isofields-zones/v1` для исходных изополей/зон либо
    отдельный `graphic-bar-plan-draft/v1` / `graphic-bar-plan-pruned/v1` для прямых
    обрезанных/оставленных стержней. Общий composite JSON напрямую не подходит.
-3. Установи [Plan Preview ZIP](downloads/qmonitoring-plan-preview-0.2.3-code-only.zip):
+3. Установи [Plan Preview ZIP](downloads/qmonitoring-plan-preview-0.2.4-code-only.zip):
    распакуй в **новую** папку, добавь в pyRevit Custom Extension Directories её
    родительский путь, внутри которого `QMonitoringPreview.extension`, нажми Reload.
    Старые расширения и worksets не удаляй.

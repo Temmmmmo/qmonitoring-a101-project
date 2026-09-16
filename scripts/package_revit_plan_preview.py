@@ -20,12 +20,13 @@ BUTTON = "QMonitoring.extension/QMonitoring.tab/Diagnostics.panel/PlanPreview.pu
 PREVIEW_FILES = ("QMonitoring.extension/lib/qm_revit_plan_preview.py",
                  "QMonitoring.extension/lib/qm_revit_source_preview.py",
                  "QMonitoring.extension/lib/qm_revit_pruned_preview.py",
+                 "QMonitoring.extension/lib/qm_revit_repaired_preview.py",
                  f"{BUTTON}/script.py", f"{BUTTON}/bundle.yaml", "GRAPHIC_PREVIEW_README.md")
 
 CODE_ONLY_MODULES = ("qm_probe_geometry.py", "qm_revit_probe.py", "qm_trial_geometry.py",
     "qm_trial_input.py", "qm_core_trial.py", "qm_plate_packet.py", "qm_physical_packet.py",
     "qm_revit_trial.py", "qm_trial_worksharing.py", "qm_revit_plan_preview.py", "qm_revit_source_preview.py",
-    "qm_revit_pruned_preview.py")
+    "qm_revit_pruned_preview.py", "qm_revit_repaired_preview.py")
 
 
 def build_code_only_package(output):
@@ -40,7 +41,7 @@ def build_code_only_package(output):
     contents["GRAPHIC_PREVIEW_README.md"] = (SOURCE / "GRAPHIC_PREVIEW_README.md").read_bytes()
     manifest = {"schema_version": "qmonitoring-graphic-preview-code-package/v1", "version": VERSION,
         "code_only": True, "placement_eligible": False, "engineering_approval": False,
-        "supported_input_schemas": ["source-isofields-zones/v1", "physical-bar-plan-trial/v1", "physical-bar-relocation-draft/v1", "graphic-bar-plan-draft/v1", "graphic-bar-plan-pruned/v1"],
+        "supported_input_schemas": ["source-isofields-zones/v1", "physical-bar-plan-trial/v1", "physical-bar-relocation-draft/v1", "graphic-bar-plan-draft/v1", "graphic-bar-plan-pruned/v1", "graphic-bar-plan-repaired/v1"],
         "files": [{"path": name, "bytes": len(value), "sha256": hashlib.sha256(value).hexdigest()}
                   for name, value in sorted(contents.items())]}
     contents["manifest.json"] = json.dumps(manifest, ensure_ascii=False, allow_nan=False, sort_keys=True, indent=2).encode("utf-8")

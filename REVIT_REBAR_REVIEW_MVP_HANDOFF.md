@@ -1,17 +1,18 @@
 # Rebar Review MVP — первая настоящая партия Rebar
 
 Дата: 16 сентября 2026. Пакет:
-[`qmonitoring-rebar-review-mvp-0.1.0-code-only.zip`](downloads/qmonitoring-rebar-review-mvp-0.1.0-code-only.zip).
+[`qmonitoring-rebar-review-mvp-0.1.1-code-only.zip`](downloads/qmonitoring-rebar-review-mvp-0.1.1-code-only.zip).
 
 Это отдельный review-only путь для Revit 2024/pyRevit. Он принимает полную
-прямую партию `graphic-bar-plan-draft/v1` или `graphic-bar-plan-pruned/v1`,
+прямую партию `graphic-bar-plan-draft/v1`, `graphic-bar-plan-pruned/v1` или `graphic-bar-plan-repaired/v1`,
 создаёт **каждый стержень** как native `DB.Structure.Rebar`, выполняет Commit и
 строгий post-Commit readback. Только после совпадения всей партии появляется
 отдельный вопрос Keep. Отказ и любая ошибка откатывают всю TransactionGroup.
 
 Короткий сценарий:
 
-1. Распаковать ZIP в новую папку и подключить родительский путь в pyRevit.
+1. Распаковать ZIP в `C:\QMonitoring\RebarReview\`, содержащую `QMonitoringRebarReview.extension`.
+   В pyRevit Settings → Custom Extension Directories добавить именно `C:\QMonitoring\RebarReview\`, не ZIP, не `script.py`, не саму `.extension`.
 2. Открыть локальную/отсоединённую **копию** RVT 2024, выделить native Floor,
    соответствующую исходной плите **С1**, не произвольную тестовую плиту.
    Matching Floor в переданных RVT не подтверждена; при её отсутствии нужно

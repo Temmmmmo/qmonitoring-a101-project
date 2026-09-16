@@ -69,7 +69,7 @@ q("#placement-inputs").innerHTML = directions.map((d) => `<fieldset data-directi
 q("#direction-tabs").innerHTML = directions.map((d, i) => `<button type="button" data-index="${i}">${d.title}</button>`).join("");
 
 function selectedPoint() { return result?.front[Number(q("#candidate").value)]; }
-function isTrimmedResult() { return ["boundary-trimmed-physical-bars", "pruned-trimmed-physical-bars"].includes(result?.output_kind); }
+function isTrimmedResult() { return ["boundary-trimmed-physical-bars", "pruned-trimmed-physical-bars", "repaired-trimmed-physical-bars"].includes(result?.output_kind); }
 function isPhysicalResult() { return result?.output_kind === "normalized-physical-bars" || isTrimmedResult(); }
 function trimDisplayChecks() {
   const trim = result.boundary_trim, cleanup = result.trimmed_cleanup;
@@ -84,6 +84,10 @@ function trimDisplayChecks() {
     actual_Revit_host_informational_failures: undefined};
 }
 function graphicDownload() {
+  if (result?.output_kind === "repaired-trimmed-physical-bars") {
+    const packet = result.graphic_bar_plan_repaired;
+    return packet?.schema_version === "graphic-bar-plan-repaired/v1" && packet.placement_eligible === false ? packet : null;
+  }
   const pruned = result?.output_kind === "pruned-trimmed-physical-bars";
   const packet = pruned ? result.graphic_bar_plan_pruned : result?.graphic_bar_plan_draft;
   const schema = pruned ? "graphic-bar-plan-pruned/v1" : "graphic-bar-plan-draft/v1";
@@ -209,7 +213,9 @@ function renderDirection() {
   q("#drawing-views").querySelectorAll("button").forEach((button) => button.setAttribute("aria-pressed", button.dataset.view === drawingView));
   q("#drawing-view-note").textContent = drawingView === "source"
     ? "Исходные изополя и параметрические зоны до физической обработки. Это не физическая ведомость и не размещённая арматура. Прямоугольники не заменены контуром нормализованных стержней."
-    : (isTrimmedResult() ? "Новая физическая партия: отрезки реально укорочены/разделены по внешнему контуру" +
+    : (isTrimmedResult() ? (result.output_kind === "repaired-trimmed-physical-bars"
+        ? "Партия после обрезки и локального repair: добавленные стержни и сдвиги осей явно записаны в JSON. Внешний контур"
+        : "Новая физическая партия: отрезки реально укорочены/разделены по внешнему контуру") +
         (result.boundary_trim.respect_openings ? " и отверстиям" : "") +
         (result.mvp_domain ? " плоской модели MVP по DXF. Это не обрезка картинки. " : " рабочего снимка. Это не обрезка картинки. ")
       : physical ? "Физическая партия после обработки; схема и ведомость относятся к одним стержням. "
@@ -452,7 +458,8 @@ q("#download-selected").addEventListener("click", () => {
   if (!point) return;
   if (isTrimmedResult()) {
     const packet = graphicDownload();
-    if (packet) download(packet, result.output_kind === "pruned-trimmed-physical-bars"
+    if (packet) download(packet, result.output_kind === "repaired-trimmed-physical-bars"
+      ? "graphic-bar-plan-repaired.json" : result.output_kind === "pruned-trimmed-physical-bars"
       ? "graphic-bar-plan-pruned.json" : "graphic-bar-plan-draft.json");
     return;
   }

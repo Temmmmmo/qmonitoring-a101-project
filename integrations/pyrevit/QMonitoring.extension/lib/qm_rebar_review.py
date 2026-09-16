@@ -10,9 +10,9 @@ from qm_probe_geometry import distance
 from qm_revit_plan_preview import build_preview_primitives, _validate_primitives
 from qm_trial_input import exact_keys, number
 
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 REPORT_SCHEMA = "revit-rebar-review-mvp-report/v1"
-INPUT_SCHEMAS = ("graphic-bar-plan-draft/v1", "graphic-bar-plan-pruned/v1")
+INPUT_SCHEMAS = ("graphic-bar-plan-draft/v1", "graphic-bar-plan-pruned/v1", "graphic-bar-plan-repaired/v1")
 AXIS_TOLERANCE_MM = 0.01
 MAX_REVIEW_BARS = 5000
 

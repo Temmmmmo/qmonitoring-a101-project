@@ -147,7 +147,7 @@ def _trim_web_report(problem, recovery, host, host_check, domain_bytes, *, profi
 
 def _render_trimmed_report(problem, report, raw, lanes, source_sha, host, host_check, domain_bytes, *,
                            profile, elevations, stock_time_limit_s=30, respect_openings=True,
-                           cleanup_redundant=False):
+                           cleanup_redundant=False, repair_flat_deficits=False):
     """Shared presentation after an independent source-geometry proof by the caller."""
     physical = tuple(PhysicalBar(row["id"], direction, row["steel_class"], row["diameter_mm"],
         row["coordinate_mm"], tuple(row["longitudinal_mm"]), tuple(row["source_bar_ids"]))
@@ -163,6 +163,30 @@ def _render_trimmed_report(problem, report, raw, lanes, source_sha, host, host_c
     host_sha = hashlib.sha256(domain_bytes).hexdigest()
     zone_count = report["front"][0]["zone_count"]
     graphic = _graphic_packet(problem, before, after, checks, source_sha, host_sha, zone_count)
+    if repair_flat_deficits:
+        from rebar.optimization.algorithms.flat_trim_repair import repair_flat_trimmed_bars
+        from .flat_trim_repair_web import build_repaired_graphic_packet
+        trimmed = after
+        after, fresh = repair_flat_trimmed_bars(trimmed, lanes, problem, host,
+            profile=profile, elevations=elevations, stock_time_limit_s=min(stock_time_limit_s, 60))
+        report["flat_trim_repair"] = fresh
+        report["boundary_trim_history"] = deepcopy(checks)
+        if after != trimmed and fresh["accepted_nonregression"]:
+            repaired = build_repaired_graphic_packet(graphic, trimmed, after, fresh, lanes, problem)
+            report["graphic_bar_plan_repaired"] = repaired
+            # Fresh display projection; exact trim history remains embedded unchanged.
+            checks = {**checks, **fresh, "external_boundary_failures_after": fresh["material_boundary_failures_after"]}
+            checks["blockers"] = [label for failed, label in (
+                (fresh["material_boundary_failures_after"] > 0, "external_boundary"),
+                (fresh["geometric_presence"]["status"] != "pass", "original_FE_geometric_presence"),
+                (fresh["coverage_with_control_40d"]["status"] != "pass", "original_FE_with_control_40d"),
+                (fresh["collisions"]["proven_collision_pair_count"] > 0, "additional_3D_collisions"),
+                (fresh["collisions"]["uncertain_pair_count"] > 0, "additional_3D_separation_unproven"),
+                (fresh["stock_cutting"]["status"] != "pass", "11700_zero_waste_cutting")) if failed]
+            checks["history_basis"] = "boundary_trim_history; original trim operations are not repair operations"
+            for history_key in ("piece_mapping", "changes", "policy"):
+                checks.pop(history_key, None)
+            graphic = repaired
     # Keep all section outlines, not the bounding box or a fabricated hole-free rectangle.
     contours = []
     holes = []
@@ -220,6 +244,11 @@ def _render_trimmed_report(problem, report, raw, lanes, source_sha, host, host_c
             "Стержни без пересечения с материалом плиты не оставляют отрезков; их список сохранён отдельно, "
             "а исходная потребность проверена без удаления КЭ. "
             "существующий фон Revit и инженерная пригодность не подтверждены. Старый пакет размещения не применяется.")
+    if report.get("graphic_bar_plan_repaired"):
+        report["graphic_bar_plan_draft"] = None
+        report["output_kind"] = "repaired-trimmed-physical-bars"
+        for row in report["directions"]:
+            row["candidates"][0]["output_kind"] = report["output_kind"]
     if cleanup_redundant:
         from .trimmed_cleanup_web import pruned_trimmed_web_report
         return pruned_trimmed_web_report(report, after, lanes, problem, host,

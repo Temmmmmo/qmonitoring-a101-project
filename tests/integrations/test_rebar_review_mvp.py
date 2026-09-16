@@ -333,7 +333,7 @@ def test_code_only_package_is_deterministic_and_dependency_complete(tmp_path, mo
     with ZipFile(first) as archive:
         names = set(archive.namelist())
         manifest = json.loads(archive.read("manifest.json"))
-        assert manifest["version"] == "0.1.0" and manifest["creates_structural_rebar"] is True
+        assert manifest["version"] == "0.1.1" and manifest["creates_structural_rebar"] is True
         assert manifest["review_only"] is True
         assert not any(name.endswith((".rvt", ".rfa", ".dxf", ".shk")) for name in names)
         assert set(name for name in names if name.endswith(".json")) == {"manifest.json"}

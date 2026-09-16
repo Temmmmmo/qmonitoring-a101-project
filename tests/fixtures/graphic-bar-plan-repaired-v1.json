@@ -1,0 +1,710 @@
+{
+  "schema_version": "graphic-bar-plan-repaired/v1",
+  "units": "mm",
+  "case_id": "synthetic-global",
+  "geometry_kind": "straight-bars-only",
+  "source_stage": "flat-trim-deficit-repaired",
+  "source_trim_packet": {
+    "schema_version": "graphic-bar-plan-draft/v1",
+    "units": "mm",
+    "case_id": "synthetic-global",
+    "geometry_kind": "straight-bars-only",
+    "source_stage": "physically-trimmed-to-outer-contour",
+    "source_report_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "source_host_report_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+    "provenance_status": "sha256_recorded",
+    "crop_policy_id": "user-physical-outer-boundary-trim-and-split/2026-09-15-v1",
+    "radius_sized_edge_axis_nudge_enabled": true,
+    "source_to_revit_xy_mm": [
+      0,
+      0
+    ],
+    "binding_source": "user-confirmed-identity-XY/research",
+    "coverage_policy": "physical-main-leg-presence-NOT-anchorage",
+    "original_FE_geometry_changed": false,
+    "source_demand_removed": false,
+    "checks": {
+      "anchorage_40d": "fail",
+      "coverage": "fail",
+      "stock_cutting": "fail",
+      "outer_boundary": {
+        "status": "pass",
+        "failure_count": 0
+      },
+      "collisions_3d": {
+        "status": "pass",
+        "proven_pair_count": 0,
+        "uncertain_pair_count": 0
+      }
+    },
+    "before": {
+      "physical_bar_count": 2,
+      "additional_mass_kg": 2.3427,
+      "directions": [
+        {
+          "direction": {
+            "layer": "bottom",
+            "axis": "X"
+          },
+          "bars": []
+        },
+        {
+          "direction": {
+            "layer": "bottom",
+            "axis": "Y"
+          },
+          "bars": []
+        },
+        {
+          "direction": {
+            "layer": "top",
+            "axis": "X"
+          },
+          "bars": [
+            {
+              "id": "a",
+              "steel_class": "A500",
+              "diameter_mm": 10,
+              "longitudinal_mm": [
+                25.0,
+                900.0
+              ],
+              "coordinate_mm": 100.0,
+              "source_bar_ids": [
+                "zone-a/0/0"
+              ]
+            },
+            {
+              "id": "b",
+              "steel_class": "A500",
+              "diameter_mm": 10,
+              "longitudinal_mm": [
+                25.0,
+                2950.0
+              ],
+              "coordinate_mm": 200.0,
+              "source_bar_ids": [
+                "zone-b/0/0"
+              ]
+            }
+          ]
+        },
+        {
+          "direction": {
+            "layer": "top",
+            "axis": "Y"
+          },
+          "bars": []
+        }
+      ]
+    },
+    "after": {
+      "physical_bar_count": 2,
+      "additional_mass_kg": 2.3427,
+      "position_count": 2,
+      "source_zone_count": 2
+    },
+    "piece_mapping": [
+      {
+        "direction": "top-X",
+        "source_bar_id": "a",
+        "piece_ids": [
+          "a"
+        ],
+        "policy": "user-physical-outer-boundary-trim-and-split/2026-09-15-v1"
+      },
+      {
+        "direction": "top-X",
+        "source_bar_id": "b",
+        "piece_ids": [
+          "b"
+        ],
+        "policy": "user-physical-outer-boundary-trim-and-split/2026-09-15-v1"
+      }
+    ],
+    "directions": [
+      {
+        "direction": {
+          "layer": "bottom",
+          "axis": "X"
+        },
+        "bars": []
+      },
+      {
+        "direction": {
+          "layer": "bottom",
+          "axis": "Y"
+        },
+        "bars": []
+      },
+      {
+        "direction": {
+          "layer": "top",
+          "axis": "X"
+        },
+        "bars": [
+          {
+            "id": "a",
+            "steel_class": "A500",
+            "diameter_mm": 10,
+            "longitudinal_mm": [
+              25.0,
+              900.0
+            ],
+            "coordinate_mm": 100.0,
+            "source_bar_ids": [
+              "zone-a/0/0"
+            ],
+            "original_bar_id": "a",
+            "original_longitudinal_mm": [
+              25.0,
+              900.0
+            ],
+            "original_coordinate_mm": 100.0,
+            "axis_nudged": false,
+            "physically_cut": false
+          },
+          {
+            "id": "b",
+            "steel_class": "A500",
+            "diameter_mm": 10,
+            "longitudinal_mm": [
+              25.0,
+              2950.0
+            ],
+            "coordinate_mm": 200.0,
+            "source_bar_ids": [
+              "zone-b/0/0"
+            ],
+            "original_bar_id": "b",
+            "original_longitudinal_mm": [
+              25.0,
+              2950.0
+            ],
+            "original_coordinate_mm": 200.0,
+            "axis_nudged": false,
+            "physically_cut": false
+          }
+        ]
+      },
+      {
+        "direction": {
+          "layer": "top",
+          "axis": "Y"
+        },
+        "bars": []
+      }
+    ],
+    "removed_wholly_external_bars": [],
+    "placement_eligible": false,
+    "engineering_approval": false
+  },
+  "source_trim_packet_json": "{\n  \"schema_version\": \"graphic-bar-plan-draft/v1\",\n  \"units\": \"mm\",\n  \"case_id\": \"synthetic-global\",\n  \"geometry_kind\": \"straight-bars-only\",\n  \"source_stage\": \"physically-trimmed-to-outer-contour\",\n  \"source_report_sha256\": \"1111111111111111111111111111111111111111111111111111111111111111\",\n  \"source_host_report_sha256\": \"2222222222222222222222222222222222222222222222222222222222222222\",\n  \"provenance_status\": \"sha256_recorded\",\n  \"crop_policy_id\": \"user-physical-outer-boundary-trim-and-split/2026-09-15-v1\",\n  \"radius_sized_edge_axis_nudge_enabled\": true,\n  \"source_to_revit_xy_mm\": [\n    0,\n    0\n  ],\n  \"binding_source\": \"user-confirmed-identity-XY/research\",\n  \"coverage_policy\": \"physical-main-leg-presence-NOT-anchorage\",\n  \"original_FE_geometry_changed\": false,\n  \"source_demand_removed\": false,\n  \"checks\": {\n    \"anchorage_40d\": \"fail\",\n    \"coverage\": \"fail\",\n    \"stock_cutting\": \"fail\",\n    \"outer_boundary\": {\n      \"status\": \"pass\",\n      \"failure_count\": 0\n    },\n    \"collisions_3d\": {\n      \"status\": \"pass\",\n      \"proven_pair_count\": 0,\n      \"uncertain_pair_count\": 0\n    }\n  },\n  \"before\": {\n    \"physical_bar_count\": 2,\n    \"additional_mass_kg\": 2.3427,\n    \"directions\": [\n      {\n        \"direction\": {\n          \"layer\": \"bottom\",\n          \"axis\": \"X\"\n        },\n        \"bars\": []\n      },\n      {\n        \"direction\": {\n          \"layer\": \"bottom\",\n          \"axis\": \"Y\"\n        },\n        \"bars\": []\n      },\n      {\n        \"direction\": {\n          \"layer\": \"top\",\n          \"axis\": \"X\"\n        },\n        \"bars\": [\n          {\n            \"id\": \"a\",\n            \"steel_class\": \"A500\",\n            \"diameter_mm\": 10,\n            \"longitudinal_mm\": [\n              25.0,\n              900.0\n            ],\n            \"coordinate_mm\": 100.0,\n            \"source_bar_ids\": [\n              \"zone-a/0/0\"\n            ]\n          },\n          {\n            \"id\": \"b\",\n            \"steel_class\": \"A500\",\n            \"diameter_mm\": 10,\n            \"longitudinal_mm\": [\n              25.0,\n              2950.0\n            ],\n            \"coordinate_mm\": 200.0,\n            \"source_bar_ids\": [\n              \"zone-b/0/0\"\n            ]\n          }\n        ]\n      },\n      {\n        \"direction\": {\n          \"layer\": \"top\",\n          \"axis\": \"Y\"\n        },\n        \"bars\": []\n      }\n    ]\n  },\n  \"after\": {\n    \"physical_bar_count\": 2,\n    \"additional_mass_kg\": 2.3427,\n    \"position_count\": 2,\n    \"source_zone_count\": 2\n  },\n  \"piece_mapping\": [\n    {\n      \"direction\": \"top-X\",\n      \"source_bar_id\": \"a\",\n      \"piece_ids\": [\n        \"a\"\n      ],\n      \"policy\": \"user-physical-outer-boundary-trim-and-split/2026-09-15-v1\"\n    },\n    {\n      \"direction\": \"top-X\",\n      \"source_bar_id\": \"b\",\n      \"piece_ids\": [\n        \"b\"\n      ],\n      \"policy\": \"user-physical-outer-boundary-trim-and-split/2026-09-15-v1\"\n    }\n  ],\n  \"directions\": [\n    {\n      \"direction\": {\n        \"layer\": \"bottom\",\n        \"axis\": \"X\"\n      },\n      \"bars\": []\n    },\n    {\n      \"direction\": {\n        \"layer\": \"bottom\",\n        \"axis\": \"Y\"\n      },\n      \"bars\": []\n    },\n    {\n      \"direction\": {\n        \"layer\": \"top\",\n        \"axis\": \"X\"\n      },\n      \"bars\": [\n        {\n          \"id\": \"a\",\n          \"steel_class\": \"A500\",\n          \"diameter_mm\": 10,\n          \"longitudinal_mm\": [\n            25.0,\n            900.0\n          ],\n          \"coordinate_mm\": 100.0,\n          \"source_bar_ids\": [\n            \"zone-a/0/0\"\n          ],\n          \"original_bar_id\": \"a\",\n          \"original_longitudinal_mm\": [\n            25.0,\n            900.0\n          ],\n          \"original_coordinate_mm\": 100.0,\n          \"axis_nudged\": false,\n          \"physically_cut\": false\n        },\n        {\n          \"id\": \"b\",\n          \"steel_class\": \"A500\",\n          \"diameter_mm\": 10,\n          \"longitudinal_mm\": [\n            25.0,\n            2950.0\n          ],\n          \"coordinate_mm\": 200.0,\n          \"source_bar_ids\": [\n            \"zone-b/0/0\"\n          ],\n          \"original_bar_id\": \"b\",\n          \"original_longitudinal_mm\": [\n            25.0,\n            2950.0\n          ],\n          \"original_coordinate_mm\": 200.0,\n          \"axis_nudged\": false,\n          \"physically_cut\": false\n        }\n      ]\n    },\n    {\n      \"direction\": {\n        \"layer\": \"top\",\n        \"axis\": \"Y\"\n      },\n      \"bars\": []\n    }\n  ],\n  \"removed_wholly_external_bars\": [],\n  \"placement_eligible\": false,\n  \"engineering_approval\": false\n}",
+  "source_trim_packet_sha256": "5fbff1edd0005c26ee85f20eabccd90ecc954d352290ea407eaf135819aa23b7",
+  "directions": [
+    {
+      "direction": {
+        "layer": "bottom",
+        "axis": "X"
+      },
+      "bars": []
+    },
+    {
+      "direction": {
+        "layer": "bottom",
+        "axis": "Y"
+      },
+      "bars": []
+    },
+    {
+      "direction": {
+        "layer": "top",
+        "axis": "X"
+      },
+      "bars": [
+        {
+          "id": "a",
+          "steel_class": "A500",
+          "diameter_mm": 10,
+          "longitudinal_mm": [
+            25.0,
+            900.0
+          ],
+          "coordinate_mm": 100.0,
+          "source_bar_ids": [
+            "zone-a/0/0"
+          ],
+          "provenance": {
+            "kind": "retained",
+            "policy_id": "flat-post-trim-deficit-lane-additions/separate-control40d/v1",
+            "source_fe_ids": [
+              1
+            ],
+            "lane_ids": [
+              "zone-a/0/0"
+            ],
+            "reason": "unchanged-trimmed-bar"
+          }
+        },
+        {
+          "id": "b",
+          "steel_class": "A500",
+          "diameter_mm": 10,
+          "longitudinal_mm": [
+            25.0,
+            2950.0
+          ],
+          "coordinate_mm": 200.0,
+          "source_bar_ids": [
+            "zone-b/0/0"
+          ],
+          "provenance": {
+            "kind": "retained",
+            "policy_id": "flat-post-trim-deficit-lane-additions/separate-control40d/v1",
+            "source_fe_ids": [
+              1
+            ],
+            "lane_ids": [
+              "zone-b/0/0"
+            ],
+            "reason": "unchanged-trimmed-bar"
+          }
+        },
+        {
+          "id": "flat-repair-1",
+          "steel_class": "A500",
+          "diameter_mm": 10,
+          "longitudinal_mm": [
+            900.0,
+            2070.0
+          ],
+          "coordinate_mm": 100.0,
+          "source_bar_ids": [
+            "zone-a/0/0"
+          ],
+          "provenance": {
+            "kind": "added",
+            "policy_id": "flat-post-trim-deficit-lane-additions/separate-control40d/v1",
+            "source_fe_ids": [
+              1
+            ],
+            "lane_ids": [
+              "zone-a/0/0"
+            ],
+            "reason": "finite-source-lane-positive-deficit-gain"
+          }
+        }
+      ]
+    },
+    {
+      "direction": {
+        "layer": "top",
+        "axis": "Y"
+      },
+      "bars": []
+    }
+  ],
+  "operations": [
+    {
+      "direction": "top-X",
+      "reason": "unchanged-trimmed-bar",
+      "source_fe_ids": [
+        1
+      ],
+      "lane_ids": [
+        "zone-a/0/0"
+      ],
+      "source_bar_id": "a",
+      "output_bar_ids": [
+        "a"
+      ],
+      "kind": "retained"
+    },
+    {
+      "direction": "top-X",
+      "reason": "unchanged-trimmed-bar",
+      "source_fe_ids": [
+        1
+      ],
+      "lane_ids": [
+        "zone-b/0/0"
+      ],
+      "source_bar_id": "b",
+      "output_bar_ids": [
+        "b"
+      ],
+      "kind": "retained"
+    }
+  ],
+  "additions": [
+    {
+      "direction": "top-X",
+      "reason": "finite-source-lane-positive-deficit-gain",
+      "source_fe_ids": [
+        1
+      ],
+      "lane_ids": [
+        "zone-a/0/0"
+      ],
+      "bar_id": "flat-repair-1",
+      "policy_id": "flat-post-trim-deficit-lane-additions/separate-control40d/v1"
+    }
+  ],
+  "repair": {
+    "schema_version": "flat-trim-repair-certificate/v1",
+    "policy_id": "flat-post-trim-deficit-lane-additions/separate-control40d/v1",
+    "accepted_nonregression": true,
+    "source_demand_removed": false,
+    "original_FE_geometry_changed": false,
+    "weak_As_summation": false,
+    "source_fe_ids_by_direction": {
+      "bottom-X": [],
+      "bottom-Y": [],
+      "top-X": [
+        1
+      ],
+      "top-Y": []
+    },
+    "source_lanes": [
+      {
+        "source": {
+          "id": "zone-a/0/0",
+          "direction": {
+            "layer": "top",
+            "axis": "X"
+          },
+          "steel_class": "A500",
+          "diameter_mm": 10,
+          "transverse_axis_mm": 100.0,
+          "installed_interval_mm": [
+            25,
+            2950
+          ],
+          "required_interval_mm": [
+            500,
+            2000
+          ],
+          "background_diameter_mm": 10,
+          "background_origin_mm": 0,
+          "background_step_mm": 300.0
+        },
+        "zone_id": "zone-a",
+        "component_index": 0,
+        "bar_index": 0,
+        "nominal_step_mm": 300,
+        "axis_window_mm": [
+          -50,
+          350
+        ],
+        "service_half_widths_mm": [
+          150,
+          150
+        ],
+        "source_fe_ids": [
+          1
+        ]
+      },
+      {
+        "source": {
+          "id": "zone-b/0/0",
+          "direction": {
+            "layer": "top",
+            "axis": "X"
+          },
+          "steel_class": "A500",
+          "diameter_mm": 10,
+          "transverse_axis_mm": 200.0,
+          "installed_interval_mm": [
+            25,
+            2950
+          ],
+          "required_interval_mm": [
+            500,
+            2000
+          ],
+          "background_diameter_mm": 10,
+          "background_origin_mm": 0,
+          "background_step_mm": 300.0
+        },
+        "zone_id": "zone-b",
+        "component_index": 0,
+        "bar_index": 0,
+        "nominal_step_mm": 300,
+        "axis_window_mm": [
+          -50,
+          450
+        ],
+        "service_half_widths_mm": [
+          150,
+          150
+        ],
+        "source_fe_ids": [
+          1
+        ]
+      }
+    ],
+    "checks": {
+      "schema_version": "flat-trim-repair-check/v1",
+      "policy_id": "flat-post-trim-deficit-lane-additions/separate-control40d/v1",
+      "accepted_nonregression": true,
+      "physical_metrics_before": {
+        "physical_bar_count": 2,
+        "mass_kg": 2.3427,
+        "position_count": 2,
+        "true_cut_length_mm": 3800.0,
+        "cut_length_by_direction_mm": {
+          "top-X": 3800.0
+        },
+        "placement_eligible": false,
+        "production_ready": false
+      },
+      "physical_metrics": {
+        "physical_bar_count": 3,
+        "mass_kg": 3.064005,
+        "position_count": 3,
+        "true_cut_length_mm": 4970.0,
+        "cut_length_by_direction_mm": {
+          "top-X": 4970.0
+        },
+        "placement_eligible": false,
+        "production_ready": false
+      },
+      "geometric_presence": {
+        "status": "pass",
+        "uncovered_cell_count": 0,
+        "directions": [
+          {
+            "direction": "bottom-X",
+            "demanded_cell_count": 0,
+            "uncovered_cell_count": 0,
+            "uncovered_area_mm2": 0.0,
+            "cells": []
+          },
+          {
+            "direction": "bottom-Y",
+            "demanded_cell_count": 0,
+            "uncovered_cell_count": 0,
+            "uncovered_area_mm2": 0.0,
+            "cells": []
+          },
+          {
+            "direction": "top-X",
+            "demanded_cell_count": 1,
+            "uncovered_cell_count": 0,
+            "uncovered_area_mm2": 0.0,
+            "cells": [
+              {
+                "cell_id": 1,
+                "uncovered_area_mm2": 0.0,
+                "covered": true
+              }
+            ]
+          },
+          {
+            "direction": "top-Y",
+            "demanded_cell_count": 0,
+            "uncovered_cell_count": 0,
+            "uncovered_area_mm2": 0.0,
+            "cells": []
+          }
+        ],
+        "source_demand_removed": false,
+        "policy": "global-original-FE-union-finite-source-lanes-qshift-exterior-U/research-v1",
+        "shared_tolerance_coverage_status": "pass",
+        "positive_area_loss_tolerance_mm2": 0,
+        "demand_transfer_used": false,
+        "original_FE_geometry_changed": false,
+        "weak_offer_As_summation": false
+      },
+      "coverage_with_control_40d": {
+        "status": "fail",
+        "uncovered_cell_count": 1,
+        "directions": [
+          {
+            "direction": "bottom-X",
+            "demanded_cell_count": 0,
+            "uncovered_cell_count": 0,
+            "uncovered_area_mm2": 0.0,
+            "cells": []
+          },
+          {
+            "direction": "bottom-Y",
+            "demanded_cell_count": 0,
+            "uncovered_cell_count": 0,
+            "uncovered_area_mm2": 0.0,
+            "cells": []
+          },
+          {
+            "direction": "top-X",
+            "demanded_cell_count": 1,
+            "uncovered_cell_count": 1,
+            "uncovered_area_mm2": 113000.0,
+            "cells": [
+              {
+                "cell_id": 1,
+                "uncovered_area_mm2": 113000.0,
+                "covered": false
+              }
+            ]
+          },
+          {
+            "direction": "top-Y",
+            "demanded_cell_count": 0,
+            "uncovered_cell_count": 0,
+            "uncovered_area_mm2": 0.0,
+            "cells": []
+          }
+        ],
+        "source_demand_removed": false,
+        "policy": "global-original-FE-union-finite-source-lanes-qshift-exterior-U/research-v1",
+        "shared_tolerance_coverage_status": "fail",
+        "positive_area_loss_tolerance_mm2": 0,
+        "demand_transfer_used": false,
+        "original_FE_geometry_changed": false,
+        "weak_offer_As_summation": false
+      },
+      "material_boundary_failures_after": 0,
+      "host_failures": [],
+      "previously_covered_area_lost_mm2": {
+        "geometric_presence": 0.0,
+        "control_40d": 0.0
+      },
+      "new_collision_pair_count": 0,
+      "grown_collision_pair_count": 0,
+      "collisions": {
+        "schema_version": "shaped-collision-check/research-v1",
+        "status": "pass",
+        "physical_bar_count": 3,
+        "additional_bar_count": 3,
+        "provided_background_bar_count": null,
+        "background_input_state": "not_provided",
+        "background_inventory_complete": false,
+        "proven_collision_pair_count": 0,
+        "uncertain_pair_count": 0,
+        "proven_collision_pairs": [],
+        "uncertain_pairs": [],
+        "complete_no_body_collision_proof": true,
+        "candidate_pairs_checked": 1,
+        "certified_separated_candidate_pairs": 1,
+        "chord_pair_checks": 0,
+        "refinement_level_pair_counts": {
+          "0": 1
+        },
+        "maximum_chord_error_mm": 0.05,
+        "maximum_refinements": 3,
+        "numerical_roundoff_reserve_mm": 1e-10,
+        "straight_flat_ends_checked": true,
+        "positive_collision_requires_interior_body_witness": true,
+        "modeled_cross_direction_and_face_3d_checked": true,
+        "collision_scope": "every_distinct_pair_of_provided_physical_bars",
+        "individual_bar_self_intersection_checked": false,
+        "host_checked": false,
+        "source_demand_checked": false,
+        "anchorage_capacity_checked": false,
+        "revit_readback_checked": false,
+        "placement_eligible": false,
+        "production_ready": false
+      },
+      "stock_cutting": {
+        "schema_version": "stock-cutting-check/v1",
+        "status": "fail",
+        "units": "mm",
+        "policy_id": "11700-zero-kerf-mixed-straight-cuts/v1",
+        "stock_length_mm": 11700,
+        "kerf_mm": 0,
+        "mixed_lengths_per_stock_allowed": true,
+        "manufacturing_approval": "not_checked",
+        "geometry_changed": false,
+        "extra_uninstalled_pieces": 0,
+        "groups": [
+          {
+            "steel_class": "A500",
+            "diameter_mm": 10,
+            "status": "fail",
+            "position_marks": [
+              "П3",
+              "П2",
+              "П1"
+            ],
+            "physical_bar_count": 3,
+            "installed_length_mm": 4970.0,
+            "stock_bar_count": null,
+            "waste_mm": null,
+            "patterns": [],
+            "reason": "batch_total_not_multiple_of_stock",
+            "minimum_possible_waste_mm": 6730.0
+          }
+        ],
+        "physical_bar_count": 3,
+        "stock_bar_count": null,
+        "waste_mm": null,
+        "warning": "Проверка заданной партии; нулевой пропил и смешанные отрезки — явные допущения модели. Не подтверждает технологию стыков, геометрию host или разрешение Revit."
+      },
+      "maximum_mass_kg": 4.6854,
+      "maximum_axis_nudge_mm": 0.01,
+      "diameter_increase_permitted": false,
+      "minimum_new_length_mm": 100,
+      "maximum_new_length_mm": 11700,
+      "original_FE_geometry_changed": false,
+      "source_demand_removed": false,
+      "weak_As_summation": false,
+      "actual_Revit_checked": false,
+      "placement_eligible": false,
+      "engineering_approval": false,
+      "search": {
+        "policy_id": "flat-post-trim-deficit-lane-additions/separate-control40d/v1",
+        "generated_count": 140,
+        "candidate_count": 52,
+        "maximum_candidates": 500,
+        "maximum_additions": 40,
+        "time_limit_s": 10,
+        "elapsed_s": 0.027071833959780633,
+        "budget_exhausted": false,
+        "maximum_mass_increase_pct": 100,
+        "actions": [
+          {
+            "kind": "added",
+            "direction": "top-X",
+            "bar_id": "flat-repair-1",
+            "gain_mm2": 110000.0,
+            "gain_per_kg": 152501.3690463812
+          }
+        ],
+        "removed_redundant_additions": [],
+        "ranking": "descending-local-newly-covered-area-per-kg; deterministic-id-tie",
+        "global_optimality_claimed": false
+      }
+    },
+    "checker_json": "{\n  \"schema_version\": \"flat-trim-repair-check/v1\",\n  \"policy_id\": \"flat-post-trim-deficit-lane-additions/separate-control40d/v1\",\n  \"accepted_nonregression\": true,\n  \"physical_metrics_before\": {\n    \"physical_bar_count\": 2,\n    \"mass_kg\": 2.3427,\n    \"position_count\": 2,\n    \"true_cut_length_mm\": 3800.0,\n    \"cut_length_by_direction_mm\": {\n      \"top-X\": 3800.0\n    },\n    \"placement_eligible\": false,\n    \"production_ready\": false\n  },\n  \"physical_metrics\": {\n    \"physical_bar_count\": 3,\n    \"mass_kg\": 3.064005,\n    \"position_count\": 3,\n    \"true_cut_length_mm\": 4970.0,\n    \"cut_length_by_direction_mm\": {\n      \"top-X\": 4970.0\n    },\n    \"placement_eligible\": false,\n    \"production_ready\": false\n  },\n  \"geometric_presence\": {\n    \"status\": \"pass\",\n    \"uncovered_cell_count\": 0,\n    \"directions\": [\n      {\n        \"direction\": \"bottom-X\",\n        \"demanded_cell_count\": 0,\n        \"uncovered_cell_count\": 0,\n        \"uncovered_area_mm2\": 0.0,\n        \"cells\": []\n      },\n      {\n        \"direction\": \"bottom-Y\",\n        \"demanded_cell_count\": 0,\n        \"uncovered_cell_count\": 0,\n        \"uncovered_area_mm2\": 0.0,\n        \"cells\": []\n      },\n      {\n        \"direction\": \"top-X\",\n        \"demanded_cell_count\": 1,\n        \"uncovered_cell_count\": 0,\n        \"uncovered_area_mm2\": 0.0,\n        \"cells\": [\n          {\n            \"cell_id\": 1,\n            \"uncovered_area_mm2\": 0.0,\n            \"covered\": true\n          }\n        ]\n      },\n      {\n        \"direction\": \"top-Y\",\n        \"demanded_cell_count\": 0,\n        \"uncovered_cell_count\": 0,\n        \"uncovered_area_mm2\": 0.0,\n        \"cells\": []\n      }\n    ],\n    \"source_demand_removed\": false,\n    \"policy\": \"global-original-FE-union-finite-source-lanes-qshift-exterior-U/research-v1\",\n    \"shared_tolerance_coverage_status\": \"pass\",\n    \"positive_area_loss_tolerance_mm2\": 0,\n    \"demand_transfer_used\": false,\n    \"original_FE_geometry_changed\": false,\n    \"weak_offer_As_summation\": false\n  },\n  \"coverage_with_control_40d\": {\n    \"status\": \"fail\",\n    \"uncovered_cell_count\": 1,\n    \"directions\": [\n      {\n        \"direction\": \"bottom-X\",\n        \"demanded_cell_count\": 0,\n        \"uncovered_cell_count\": 0,\n        \"uncovered_area_mm2\": 0.0,\n        \"cells\": []\n      },\n      {\n        \"direction\": \"bottom-Y\",\n        \"demanded_cell_count\": 0,\n        \"uncovered_cell_count\": 0,\n        \"uncovered_area_mm2\": 0.0,\n        \"cells\": []\n      },\n      {\n        \"direction\": \"top-X\",\n        \"demanded_cell_count\": 1,\n        \"uncovered_cell_count\": 1,\n        \"uncovered_area_mm2\": 113000.0,\n        \"cells\": [\n          {\n            \"cell_id\": 1,\n            \"uncovered_area_mm2\": 113000.0,\n            \"covered\": false\n          }\n        ]\n      },\n      {\n        \"direction\": \"top-Y\",\n        \"demanded_cell_count\": 0,\n        \"uncovered_cell_count\": 0,\n        \"uncovered_area_mm2\": 0.0,\n        \"cells\": []\n      }\n    ],\n    \"source_demand_removed\": false,\n    \"policy\": \"global-original-FE-union-finite-source-lanes-qshift-exterior-U/research-v1\",\n    \"shared_tolerance_coverage_status\": \"fail\",\n    \"positive_area_loss_tolerance_mm2\": 0,\n    \"demand_transfer_used\": false,\n    \"original_FE_geometry_changed\": false,\n    \"weak_offer_As_summation\": false\n  },\n  \"material_boundary_failures_after\": 0,\n  \"host_failures\": [],\n  \"previously_covered_area_lost_mm2\": {\n    \"geometric_presence\": 0.0,\n    \"control_40d\": 0.0\n  },\n  \"new_collision_pair_count\": 0,\n  \"grown_collision_pair_count\": 0,\n  \"collisions\": {\n    \"schema_version\": \"shaped-collision-check/research-v1\",\n    \"status\": \"pass\",\n    \"physical_bar_count\": 3,\n    \"additional_bar_count\": 3,\n    \"provided_background_bar_count\": null,\n    \"background_input_state\": \"not_provided\",\n    \"background_inventory_complete\": false,\n    \"proven_collision_pair_count\": 0,\n    \"uncertain_pair_count\": 0,\n    \"proven_collision_pairs\": [],\n    \"uncertain_pairs\": [],\n    \"complete_no_body_collision_proof\": true,\n    \"candidate_pairs_checked\": 1,\n    \"certified_separated_candidate_pairs\": 1,\n    \"chord_pair_checks\": 0,\n    \"refinement_level_pair_counts\": {\n      \"0\": 1\n    },\n    \"maximum_chord_error_mm\": 0.05,\n    \"maximum_refinements\": 3,\n    \"numerical_roundoff_reserve_mm\": 1e-10,\n    \"straight_flat_ends_checked\": true,\n    \"positive_collision_requires_interior_body_witness\": true,\n    \"modeled_cross_direction_and_face_3d_checked\": true,\n    \"collision_scope\": \"every_distinct_pair_of_provided_physical_bars\",\n    \"individual_bar_self_intersection_checked\": false,\n    \"host_checked\": false,\n    \"source_demand_checked\": false,\n    \"anchorage_capacity_checked\": false,\n    \"revit_readback_checked\": false,\n    \"placement_eligible\": false,\n    \"production_ready\": false\n  },\n  \"stock_cutting\": {\n    \"schema_version\": \"stock-cutting-check/v1\",\n    \"status\": \"fail\",\n    \"units\": \"mm\",\n    \"policy_id\": \"11700-zero-kerf-mixed-straight-cuts/v1\",\n    \"stock_length_mm\": 11700,\n    \"kerf_mm\": 0,\n    \"mixed_lengths_per_stock_allowed\": true,\n    \"manufacturing_approval\": \"not_checked\",\n    \"geometry_changed\": false,\n    \"extra_uninstalled_pieces\": 0,\n    \"groups\": [\n      {\n        \"steel_class\": \"A500\",\n        \"diameter_mm\": 10,\n        \"status\": \"fail\",\n        \"position_marks\": [\n          \"П3\",\n          \"П2\",\n          \"П1\"\n        ],\n        \"physical_bar_count\": 3,\n        \"installed_length_mm\": 4970.0,\n        \"stock_bar_count\": null,\n        \"waste_mm\": null,\n        \"patterns\": [],\n        \"reason\": \"batch_total_not_multiple_of_stock\",\n        \"minimum_possible_waste_mm\": 6730.0\n      }\n    ],\n    \"physical_bar_count\": 3,\n    \"stock_bar_count\": null,\n    \"waste_mm\": null,\n    \"warning\": \"Проверка заданной партии; нулевой пропил и смешанные отрезки — явные допущения модели. Не подтверждает технологию стыков, геометрию host или разрешение Revit.\"\n  },\n  \"maximum_mass_kg\": 4.6854,\n  \"maximum_axis_nudge_mm\": 0.01,\n  \"diameter_increase_permitted\": false,\n  \"minimum_new_length_mm\": 100,\n  \"maximum_new_length_mm\": 11700,\n  \"original_FE_geometry_changed\": false,\n  \"source_demand_removed\": false,\n  \"weak_As_summation\": false,\n  \"actual_Revit_checked\": false,\n  \"placement_eligible\": false,\n  \"engineering_approval\": false,\n  \"search\": {\n    \"policy_id\": \"flat-post-trim-deficit-lane-additions/separate-control40d/v1\",\n    \"generated_count\": 140,\n    \"candidate_count\": 52,\n    \"maximum_candidates\": 500,\n    \"maximum_additions\": 40,\n    \"time_limit_s\": 10,\n    \"elapsed_s\": 0.027071833959780633,\n    \"budget_exhausted\": false,\n    \"maximum_mass_increase_pct\": 100,\n    \"actions\": [\n      {\n        \"kind\": \"added\",\n        \"direction\": \"top-X\",\n        \"bar_id\": \"flat-repair-1\",\n        \"gain_mm2\": 110000.0,\n        \"gain_per_kg\": 152501.3690463812\n      }\n    ],\n    \"removed_redundant_additions\": [],\n    \"ranking\": \"descending-local-newly-covered-area-per-kg; deterministic-id-tie\",\n    \"global_optimality_claimed\": false\n  }\n}",
+    "checker_sha256": "1982ec581d64e079dd3c564ca5afbf520a53d8eb6c2a9f963f3b85c2559d0fca",
+    "placement_eligible": false,
+    "engineering_approval": false
+  },
+  "expected": {
+    "physical_bar_count": 3,
+    "additional_mass_kg": 3.064005,
+    "position_count": 3,
+    "source_zone_count": 2
+  },
+  "checks": {
+    "coverage": "pass",
+    "anchorage_40d": "fail",
+    "stock_cutting": "fail",
+    "outer_boundary": {
+      "status": "pass",
+      "failure_count": 0
+    },
+    "collisions_3d": {
+      "status": "not_checked",
+      "proven_pair_count": null,
+      "uncertain_pair_count": null
+    },
+    "conditional_collisions_3d": {
+      "status": "pass",
+      "proven_pair_count": 0,
+      "uncertain_pair_count": 0
+    }
+  },
+  "placement_eligible": false,
+  "engineering_approval": false
+}

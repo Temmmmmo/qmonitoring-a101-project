@@ -1,16 +1,17 @@
-# QMonitoring Rebar Review MVP 0.1.0
+# QMonitoring Rebar Review MVP 0.1.1
 
 Revit 2024 / pyRevit / IronPython 2.7. Это отдельный **review-only** путь для
 полной партии прямых `graphic-bar-plan-draft/v1` или
-`graphic-bar-plan-pruned/v1`. Он создаёт настоящие `DB.Structure.Rebar`, но не
+`graphic-bar-plan-pruned/v1` или `graphic-bar-plan-repaired/v1`. Он создаёт настоящие `DB.Structure.Rebar`, но не
 является инженерным выпуском. Первый запуск всей партии в настоящем Revit ещё
 не выполнен.
 
 ## Установка и запуск
 
-1. Распакуй code-only ZIP в новую папку. Добавь в pyRevit Custom Extension
-   Directories её родительский путь, внутри которого находится
-   `QMonitoringRebarReview.extension`. Reload. Старые инструменты не отключай.
+1. Распакуй code-only ZIP в `C:\QMonitoring\RebarReview\`: внутри этой папки
+   должна находиться `QMonitoringRebarReview.extension`. В pyRevit Settings →
+   Custom Extension Directories добавь именно `C:\QMonitoring\RebarReview\`
+   (не ZIP, не `script.py`, не саму `.extension`). Reload. Старые инструменты не отключай.
 2. Открой локальную либо отсоединённую **КОПИЮ** Revit 2024. Central/cloud
    блокируются. Выдели одну native Floor, **соответствующую исходной плите С1**
    по внешнему контуру и выбранной толщине, а не произвольную тестовую плиту.
@@ -51,3 +52,9 @@ metadata и не блокирует. Перепады, наклон, неско�
 `engineering_approval=false` сохраняются даже после Keep.
 
 В ZIP нет RVT/DXF/RFA/JSON проекта. Manifest содержит whitelist и SHA256.
+
+Repaired JSON — отдельная полная партия после trim с retained/modified/added,
+точными исходными bytes/SHA и известными исходными lane/FE. Команда проверяет
+согласованность транспорта, а не повторяет FE-доказательство в Revit.
+Свежие coverage/40d/stock и условные collision-статусы записываются в отчёт;
+actual RVT collision остаётся not_checked. Новый JSON не даёт engineering approval.

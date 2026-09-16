@@ -71,7 +71,8 @@ def flat_mvp_web_report(problem, recovery, *, stock_time_limit_s=10):
     return _label_flat_report(report, declaration)
 
 
-def flat_mvp_source_web_report(problem, patterned_report, *, stock_time_limit_s=10, normalize_source=False):
+def flat_mvp_source_web_report(problem, patterned_report, *, stock_time_limit_s=10, normalize_source=False,
+                               repair_deficits=False):
     """A failed batch cut cannot hide valid source geometry; no trial is fabricated."""
     from rebar.reporting.source_graphics import build_source_graphics, render_source_graphics_svg
     from .physical_bar_trial import _revalidate_source_geometry
@@ -117,7 +118,7 @@ def flat_mvp_source_web_report(problem, patterned_report, *, stock_time_limit_s=
     report = _render_trimmed_report(problem, report, raw, lanes, source_sha,
         host, {"host_id": None, "geometry": declaration}, _bytes(declaration),
         profile=FlatMvpLayers(), elevations=flat_mvp_elevations,
-        stock_time_limit_s=stock_time_limit_s, respect_openings=False)
+        stock_time_limit_s=stock_time_limit_s, respect_openings=False, repair_flat_deficits=repair_deficits)
     return _label_flat_report(report, declaration)
 
 
@@ -131,7 +132,8 @@ def _label_flat_report(report, declaration):
         "Отверстия, перепады высоты и защитный слой исключены по принятому допущению. "
         "Стержни физически укорочены по контуру; исходная потребность не удалена. "
         "Покрытие, 40d и раскрой пересчитаны отдельно. Коллизии относятся только к условной раскладке; "
-        "соответствие реальной 3D-модели не проверено. Экспорт в Revit — графика, не разрешение на монтаж.")
+        "соответствие реальной 3D-модели не проверено. Экспорт в Revit — просмотр или диагностические Rebar "
+        "в копии через совместимый плагин; не инженерный выпуск и не разрешение на монтаж.")
     graphic = report.get("graphic_bar_plan_draft")
     if graphic:
         # Existing transport carries a domain digest, never a fabricated native-host report.

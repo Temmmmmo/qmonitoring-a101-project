@@ -67,6 +67,6 @@ def analyze_s1_example():
             **{key: source.provenance[key] for key in ("algorithm", "config", "candidate_id", "selection")}}
         recovery = recover_patterned_layout(source.problem, source.solution, tuple(settings))
         recovery.report["source_provenance"] = provenance
-        report = flat_mvp_source_web_report(source.problem, recovery.report)
+        report = flat_mvp_source_web_report(source.problem, recovery.report, repair_deficits=True)
     report["engineering_example"] = metadata(available=True, status="ready")
     return report

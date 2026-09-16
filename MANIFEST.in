@@ -15,6 +15,7 @@ include integrations/pyrevit/QMonitoring.extension/lib/qm_trial_worksharing.py
 include integrations/pyrevit/QMonitoring.extension/lib/qm_revit_plan_preview.py
 include integrations/pyrevit/QMonitoring.extension/lib/qm_revit_source_preview.py
 include integrations/pyrevit/QMonitoring.extension/lib/qm_revit_pruned_preview.py
+include integrations/pyrevit/QMonitoring.extension/lib/qm_revit_repaired_preview.py
 include integrations/pyrevit/QMonitoring.extension/lib/qm_workflow_81.py
 include integrations/pyrevit/QMonitoring.extension/lib/qm_workflow_81_native.py
 include integrations/pyrevit/QMonitoring.extension/lib/qm_workflow_81_transport.py

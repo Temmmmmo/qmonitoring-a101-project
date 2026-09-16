@@ -51,7 +51,7 @@ def main():
         if len(floors) != 1 or not isinstance(floors[0],DB.Floor):
             raise ValueError("До запуска выдели ровно одну native Floor активного документа")
         floor = floors[0]
-        source = forms.pick_file(file_ext="json",title="Полная прямая партия: graphic-bar-plan-draft/pruned.json")
+        source = forms.pick_file(file_ext="json",title="Полная прямая партия: graphic-bar-plan-draft/pruned/repaired.json")
         if not source:
             return
         destination = forms.save_file(file_ext="json",default_name="qmonitoring-rebar-review-{0}.json".format(
@@ -96,14 +96,17 @@ def main():
             raise ValueError("Глубины осей отменены")
         depths = dict(zip(DIRECTIONS,numbers(depth_text,4)))
         checks = primitives["trim_graphics"]["checks"]
+        conditional = checks.get("conditional_collisions_3d", checks["collisions_3d"])
+        collision_notice = "Backend conditional 3D={0}; proven={1}; uncertain={2}; actual RVT NOT CHECKED.".format(
+            conditional["status"],conditional["proven_pair_count"],conditional["uncertain_pair_count"])
         confirmed = forms.alert("КОПИЯ RVT: {0}; Floor id={1}.\n"
             "Создам ВСЮ прямую партию: {2} отдельных native Rebar; расчётное время зависит от размера (до 5000).\n"
-            "Coverage={3}; 40d={4}; stock={5}. Fail/not_checked НЕ снимаются.\n"
+            "Coverage={3}; 40d={4}; stock={5}. Fail/not_checked НЕ снимаются.\n{6}\n"
             "MVP проверяет native ПЛОСКИЙ внешний контур и толщину. Отверстия, cover, перепады и фон ИСКЛЮЧЕНЫ.\n"
             "Не удаляю/не меняю существующую арматуру, не Save/Sync. После Commit будет строгий readback и ОТДЕЛЬНЫЙ вопрос keep.\n"
             "Подтверди, что это локальная/отсоединённая КОПИЯ для диагностического review.".format(
                 doc.Title,element_id(floor.Id),len(primitives["bars"]),checks["coverage"],
-                checks["anchorage_40d"],checks["stock_cutting"]),yes=True,no=True)
+                checks["anchorage_40d"],checks["stock_cutting"],collision_notice),yes=True,no=True)
         if not confirmed:
             raise ValueError("Копия/полный диагностический запуск не подтверждены")
 
@@ -116,10 +119,10 @@ def main():
 
         def keep(result):
             return forms.alert("Post-Commit readback совпал для ВСЕХ {0} Rebar.\n"
-                "Coverage={1}; 40d={2}; stock={3}; holes/cover/background NOT CHECKED.\n"
+                "Coverage={1}; 40d={2}; stock={3}; holes/cover/background NOT CHECKED.\n{4}\n"
                 "ОСТАВИТЬ диагностическую арматуру в этой КОПИИ? Это не выпуск и не Save/Sync.\n"
                 "Нет = откатить всю созданную партию.".format(len(result["created_element_ids"]),
-                    checks["coverage"],checks["anchorage_40d"],checks["stock_cutting"]),yes=True,no=True)
+                    checks["coverage"],checks["anchorage_40d"],checks["stock_cutting"],collision_notice),yes=True,no=True)
 
         report = run_rebar_review(doc,DB,floor,primitives,selected,depths,lambda:List[DB.Curve](),
             keep,copy_confirmed=True,worksharing_consent=confirm_review_worksharing,preview=preview)

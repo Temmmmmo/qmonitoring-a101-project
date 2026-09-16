@@ -24,7 +24,8 @@ from qm_trial_worksharing import classify_document
 from qm_revit_source_preview import (SCHEMA as SOURCE_SCHEMA, build_source_primitives,
     draw_source_views, readback_source_views, source_graphic_types, _finite_tree, _normal_text)
 
-VERSION = "0.2.3"
+VERSION = "0.2.4"
+REPAIRED_BAR_SCHEMA = "graphic-bar-plan-repaired/v1"
 GRAPHIC_BAR_SCHEMA = "graphic-bar-plan-draft/v1"
 PRUNED_BAR_SCHEMA = "graphic-bar-plan-pruned/v1"
 REPORT_SCHEMA = "revit-graphic-plan-preview-report/v1"
@@ -49,6 +50,9 @@ def build_preview_primitives(packet, offset_x_mm, offset_y_mm):
     demand_bbox. They are retained in the adapter but not drawn by default.
     Coordinates are Revit internal-frame MILLIMETRES, never CAD elevation.
     """
+    if isinstance(packet, dict) and packet.get("schema_version") == REPAIRED_BAR_SCHEMA:
+        from qm_revit_repaired_preview import build_repaired_primitives
+        return build_repaired_primitives(packet, offset_x_mm, offset_y_mm)
     if isinstance(packet, dict) and packet.get("schema_version") == SOURCE_SCHEMA:
         return build_source_primitives(packet, offset_x_mm, offset_y_mm)
     if isinstance(packet, dict) and packet.get("schema_version") == PRUNED_BAR_SCHEMA:
@@ -538,6 +542,11 @@ def _relocation_primitives(packet, offset_x_mm, offset_y_mm):
 
 def _validate_primitives(primitives):
     """Rendering boundary, not an engineering/source certificate validator."""
+    if isinstance(primitives, dict) and primitives.get("input_schema") == REPAIRED_BAR_SCHEMA:
+        from qm_revit_repaired_preview import build_repaired_primitives
+        rebuilt = build_repaired_primitives(primitives["repaired_input"], *primitives["offset_xy_mm"])
+        if rebuilt != primitives:
+            raise ValueError("Repaired graphic primitives changed after provenance validation")
     if isinstance(primitives, dict) and primitives.get("input_schema") == SOURCE_SCHEMA:
         rebuilt = build_source_primitives(primitives["source_packet"], *primitives["offset_xy_mm"])
         if rebuilt != primitives:
@@ -601,6 +610,19 @@ def _validate_primitives(primitives):
 def _trim_caption(primitives):
     trim, after = primitives["trim_graphics"], primitives["summary"]
     checks = trim["checks"]
+    if primitives["input_schema"] == REPAIRED_BAR_SCHEMA:
+        conditional = checks["conditional_collisions_3d"]
+        return ("REPAIRED GRAPHIC REVIEW / НЕ АРМАТУРА / НЕ ВЫДАЧА\n"
+            "Полная партия: {0} стержней / {1:.3f} кг / {2} позиций. Добавлено: {3}; tiny axis nudge: {4}.\n"
+            "Исходные trim bytes/SHA, lane/FE provenance и полный mapping проверены на согласованность.\n"
+            "Свежее геометрическое FE-покрытие: {5}; контроль 40d: {6}; раскрой: {7}.\n"
+            "Условные backend 3D: {8}; доказанных пар: {9}; uncertain: {10}. Actual RVT: not_checked.\n"
+            "FE-доказательство в Revit НЕ пересчитывается; engineering approval=false.\n"
+            "Flat MVP: внешний контур DXF, без отверстий/перепадов/cover; не измеренный Revit. Явный XY: {11}.").format(
+                after["physical_bar_count"], after["additional_mass_kg"], after["position_count"],
+                trim["repair_added_count"], trim["repair_modified_count"], checks["coverage"], checks["anchorage_40d"],
+                checks["stock_cutting"], conditional["status"], conditional["proven_pair_count"], conditional["uncertain_pair_count"],
+                primitives["offset_xy_mm"])
     text = ("ФИЗИЧЕСКАЯ ОБРЕЗКА ПО ВНЕШНЕМУ КОНТУРУ / НЕ АРМАТУРА / НЕ ВЫДАЧА\n"
         "Исходно: {0} стержней / {1:.3f} кг. После обработки: {2} прямых отрезков / {3:.3f} кг / {4} позиций.\n"
         "Укорочено исходных стержней: {5}; укороченных отрезков: {6}. Все отрезки показаны, скрытого клиппинга нет.\n"
