@@ -42,6 +42,8 @@ Thumbs.db
 *.pdf
 *.dxf
 *.png
+!integrations/pyrevit/QMonitoring.extension/QMonitoring.tab/Review.panel/RebarReview.pushbutton/icon.png
+!integrations/pyrevit/QMonitoring.extension/QMonitoring.tab/Review.panel/RebarReview.pushbutton/icon.dark.png
 *.shk
 
 # Outputs

@@ -21,8 +21,41 @@ from qm_revit_probe import Probe, element_id, text_type, write_report_json
 from qm_revit_rebar_review import run_rebar_review
 from qm_revit_presentation_view import create_presentation_view
 
-__title__ = "Rebar Review\nMVP"
-__doc__ = "Вся прямая партия native Rebar в копии: Commit, readback и отдельное keep. Не инженерный выпуск."
+__title__ = "Раскладка\nарматуры"
+__doc__ = "Создать арматуру в копии проекта, проверить и отдельно оставить результат. Требует проверки конструктора."
+
+
+def alert(message,**options):
+    return forms.alert(message,title="QMonitoring",**options)
+
+
+def check_label(value):
+    return {"pass":"пройдено в исходном расчёте","fail":"есть замечания",
+        "not_checked":"не проверено"}.get(value,text_type(value))
+
+
+def friendly_stop_reason(report):
+    """Technical evidence stays intact in console/JSON, not a long user dialog."""
+    issues = report.get("issues",[])
+    issue = issues[0] if issues else {}
+    stage, message = issue.get("stage","setup"),text_type(issue.get("message",""))
+    if "existing compatible straight RebarShape" in message:
+        return "В проекте нет подходящей прямой формы арматуры. Загрузите её и повторите запуск."
+    if stage == "setup" and message and all(ord(char) < 128 for char in message):
+        return "Не удалось подготовить раскладку. Проверьте выбранную плиту и JSON; подробная причина сохранена в отчёте."
+    if stage == "setup" and message:
+        return message.replace("КОПИЮ","копию").replace("native Floor","плиту Revit")
+    reasons = {
+        "preflight":"Не удалось проверить исходные настройки. Проверьте копию проекта, выбранную плиту и типы арматуры.",
+        "worksharing_authorization":"Не удалось получить доступ к элементам. Проверьте рабочие наборы в локальной копии.",
+        "create_whole_party":"Не удалось создать всю партию. Проверьте прямую форму и типы арматуры; подробности в отчёте.",
+        "constrain_new_axes":"Не удалось согласовать оси арматуры в Revit. Для демонстрации можно выбрать режим презентации с замечаниями.",
+        "pre_commit_readback":"Сверка созданной арматуры не завершилась. Проверьте замечания в отчёте перед повторным запуском.",
+        "post_commit_readback":"Итоговая сверка выявила замечания, не допускаемые выбранным режимом. Проверьте отчёт.",
+        "explicit_keep_confirmation":"Оставление не подтверждено. Созданная партия удалена откатом; можно повторить запуск.",
+        "commit":"Revit не подтвердил создание партии. Подробная причина сохранена в отчёте.",
+        "optional_presentation_view":"Не удалось безопасно завершить создание 3D-вида. Проверьте отчёт перед повторным запуском."}
+    return reasons.get(stage,"Не удалось завершить раскладку. Проверьте отчёт перед повторным запуском.")
 
 
 def numbers(text,count):
@@ -34,11 +67,11 @@ def numbers(text,count):
 
 def confirm_review_worksharing(state):
     workset = state["before"]["host_workset"]
-    return forms.alert("Это ЖИВАЯ ЛОКАЛЬНАЯ workshared-модель. Запрошу выбранную Floor id={0}; "
-        "Revit может заимствовать связанные элементы. Новые Rebar попадут в workset «{1}» (id={2}).\n"
-        "После проверки ты сможешь откатить ВСЮ партию либо ОСТАВИТЬ её локально. "
-        "Rollback/Keep не возвращает центральное владение автоматически. Save/Sync/Relinquish не вызываются.\n"
-        "Безопаснее detached COPY с Preserve Worksets. Разрешить checkout в этой локальной копии?".format(
+    return alert("Это локальная копия совместного проекта. Запрошу доступ к выбранной плите (ID {0}); "
+        "Revit может заимствовать связанные элементы. Новая арматура попадёт в рабочий набор «{1}» (ID {2}).\n"
+        "После проверки можно оставить результат или откатить всю партию. Владение элементами "
+        "не возвращается автоматически; сохранения и синхронизации нет.\n"
+        "Безопаснее отсоединённая копия с сохранёнными рабочими наборами. Разрешить доступ в этой локальной копии?".format(
             state["before"]["elements"][0]["element_id"],workset["name"],workset["id"]),yes=True,no=True) is True
 
 
@@ -53,26 +86,26 @@ def main():
     destination = os.path.join(tempfile.gettempdir(), "qmonitoring-rebar-review-setup-{0}.json".format(uuid.uuid4().hex))
     try:
         if doc is None or doc.IsFamilyDocument:
-            raise ValueError("Открой КОПИЮ рабочего проекта Revit 2024")
+            raise ValueError("Откройте копию рабочего проекта Revit 2024 и повторите запуск")
         floors = [doc.GetElement(value) for value in uidoc.Selection.GetElementIds()]
         if len(floors) != 1 or not isinstance(floors[0],DB.Floor):
-            raise ValueError("До запуска выдели ровно одну native Floor активного документа")
+            raise ValueError("Выделите одну плиту Revit в текущем проекте и повторите запуск")
         floor = floors[0]
-        source = forms.pick_file(file_ext="json",title="Полная прямая партия: graphic-bar-plan-draft/pruned/repaired.json")
+        source = forms.pick_file(file_ext="json",title="Выберите JSON раскладки с сайта")
         if not source:
-            raise ValueError("Выбор входного JSON отменён; Rebar не создавались")
+            raise ValueError("Выбор JSON отменён; арматура не создавалась")
         requested_destination = forms.save_file(file_ext="json",default_name="qmonitoring-rebar-review-{0}.json".format(
-            datetime.datetime.now().strftime("%Y%m%d-%H%M%S-%f")),title="Новое имя обязательного отчёта Rebar Review")
+            datetime.datetime.now().strftime("%Y%m%d-%H%M%S-%f")),title="Куда сохранить отчёт проверки")
         if not requested_destination:
-            raise ValueError("Без пути нового JSON-отчёта создание Rebar запрещено")
+            raise ValueError("Выберите путь нового отчёта перед созданием арматуры")
         if os.path.exists(requested_destination):
             raise ValueError("Существующий отчёт не перезаписывается")
         destination = requested_destination
         packet,digest = load_preview_input(source)
-        offset = forms.ask_for_string(prompt="DXF → Revit, мм: X; Y. Только перенос; масштаб/поворот не угадываются.",
-            title="Явная XY-привязка")
+        offset = forms.ask_for_string(prompt="Смещение раскладки относительно проекта, мм: X; Y.\nДля проверенной плиты К09: 0;0. Масштаб и поворот не меняются.",
+            title="Привязка к проекту")
         if offset is None:
-            raise ValueError("XY-привязка отменена")
+            raise ValueError("Привязка к проекту отменена; можно повторить запуск")
         offset_x,offset_y = numbers(offset,2)
         primitives = validated_graphics(packet,offset_x,offset_y)
         report.update({"source_input_sha256":digest,"source_schema":packet["schema_version"],
@@ -92,9 +125,9 @@ def main():
                         and abs(data["model_diameter_mm"]-bar["diameter_mm"]) < .001):
                     choices["{0} | id={1}".format(data["name"],data["element_id"])] = value
             if not choices:
-                raise ValueError("Нет точного RebarBarType по nominal/model D для "+key)
+                raise ValueError("Нет типа арматуры с точным диаметром для "+key+". Загрузите подходящий тип и повторите запуск.")
             label = forms.SelectFromList.show(sorted(choices),multiselect=False,
-                title="Подтверди сталь/тип для "+key,button_name="Использовать этот тип")
+                title="Выберите тип арматуры для "+key,button_name="Использовать этот тип")
             if not label:
                 raise ValueError("Выбор типа отменён")
             selected[key] = choices[label]
@@ -102,16 +135,16 @@ def main():
         selected_rows = dict((key,probe.bar_type(value)) for key,value in selected.items())
 
         def choose_depths(proposal,error):
+            report["automatic_depth_proposal_error"] = text_type(error) if error is not None else None
             if proposal is not None:
                 values = ";".join(text_type(proposal["computed_depths_mm"][d]) for d in DIRECTIONS)
-                message = "Предлагаем глубины ОСЕЙ: {0} мм\nниз X; низ Y; верх X; верх Y.\n".format(values)
+                message = "Предлагаемые глубины осей: {0} мм\nниз X; низ Y; верх X; верх Y.\n".format(values)
             else:
-                message = "Автоматический профиль не подходит: {0}\nМожно выбрать другой ручной review-профиль.\n".format(error)
-            message += ("Профиль MVP: отступ тела от грани 40 мм, вертикальный зазор 4 мм; максимальные диаметры выбранных типов.\n"
-                "Это НЕ Revit cover/норматив/инженерное approval. Отверстия, фон и все коллизии НЕ проверены.\n"
-                "X ближе к граням, Y глубже. Профиль перепроверяется перед созданием.")
+                message = "Автоматический профиль не подходит этой плите. Выберите другие настройки или отмените запуск.\n"
+            message += ("X ближе к граням, Y глубже. Отступ тела от грани 40 мм, зазор между слоями 4 мм.\n"
+                "Это расстояния до осей, не защитный слой и не норматив. Требует проверки конструктора.")
             options = (["Использовать предлагаемый профиль"] if proposal is not None else [])+["Другие настройки","Отмена"]
-            choice = forms.alert(message,options=options,ok=False)
+            choice = alert(message,options=options,ok=False)
             report["axis_depth_policy"] = dict(proposal) if proposal is not None else {"schema_version":"revit-axis-depth-policy/v1","mode":"not_selected"}
             report["computed_axis_depths_mm"] = proposal["computed_depths_mm"] if proposal is not None else None
             if choice == "Другие настройки":
@@ -120,8 +153,8 @@ def main():
             return "auto" if choice == "Использовать предлагаемый профиль" else "manual" if choice == "Другие настройки" else None
 
         def ask_manual(proposal):
-            return forms.ask_for_string(prompt="Другие настройки: глубины ОСЕЙ от native-граней, мм:\n"
-                "низ X; низ Y; верх X; верх Y. Это НЕ cover/DXF Z. Auto gap4 для ручного профиля не подтверждается.",
+            return forms.ask_for_string(prompt="Глубины осей от граней плиты, мм:\n"
+                "низ X; низ Y; верх X; верх Y. Это расстояние до оси, не защитный слой. Зазор 4 мм для ручных настроек не подтверждается автоматически.",
                 title="Дополнительная ручная настройка")
 
         depth_policy = select_axis_depth_policy(primitives,native_host,selected_rows,choose_depths,ask_manual)
@@ -130,26 +163,22 @@ def main():
             computed_axis_depths_mm=depth_policy["computed_depths_mm"])
         checks = primitives["trim_graphics"]["checks"]
         conditional = checks.get("conditional_collisions_3d", checks["collisions_3d"])
-        collision_notice = "Исходный backend Z-profile: conditional 3D={0}; proven={1}; uncertain={2}. Выбранные4глубины/actual RVT collisions NOT CHECKED.".format(
-            conditional["status"],conditional["proven_pair_count"],conditional["uncertain_pair_count"])
+        collision_notice = "Исходная пространственная проверка: {0}; подтверждённых пар {1}, неопределённых {2}. Коллизии Revit при выбранных глубинах не проверены.".format(
+            check_label(conditional["status"]),conditional["proven_pair_count"],conditional["uncertain_pair_count"])
         presentation_label = "Для презентации — показать с замечаниями"
         strict_label = "Строгая сверка осей"
-        mode_choice = forms.alert("Выбери режим. Презентация сохраняет измеренные сдвиги осей только после отдельного Keep.\n"
-            "Это диагностическая модель, НЕ инженерная выдача. Все замечания останутся в JSON.",
+        mode_choice = alert("Выберите режим. В презентации измеренные сдвиги можно оставить с замечаниями после отдельного подтверждения.\n"
+            "Результат требует проверки конструктора. Замечания сохранятся в отчёте.",
             options=[presentation_label,strict_label,"Отмена"],ok=False)
         if mode_choice not in (presentation_label,strict_label):
-            raise ValueError("Выбор режима отменён; Rebar не создавались")
+            raise ValueError("Выбор режима отменён; арматура не создавалась")
         review_mode = "presentation" if mode_choice == presentation_label else "strict"
         report["review_mode"] = review_mode
-        confirmed = forms.alert("КОПИЯ RVT: {0}; Floor id={1}.\n"
-            "Создам ВСЮ прямую партию: {2} отдельных native Rebar; расчётное время зависит от размера (до 5000).\n"
-            "Coverage={3}; 40d={4}; stock={5}. Fail/not_checked НЕ снимаются.\n{6}\n"
-            "MVP проверяет native ПЛОСКИЙ внешний контур и толщину. Отверстия, cover, перепады и фон ИСКЛЮЧЕНЫ.\n"
-            "Не удаляю/не меняю существующую арматуру, не Save/Sync. После Commit будет полная сверка и ОТДЕЛЬНЫЙ вопрос «Оставить».\n"
-            "В режиме презентации измеренные отклонения останутся замечаниями.\n"
-            "Подтверди, что это локальная/отсоединённая КОПИЯ для диагностического review.".format(
-                doc.Title,element_id(floor.Id),len(primitives["bars"]),checks["coverage"],
-                checks["anchorage_40d"],checks["stock_cutting"],collision_notice),yes=True,no=True)
+        confirmed = alert("В копии «{0}» будет создано {1} прямых стержней. Операция может занять время.\n"
+            "Существующая арматура не меняется. Сохранения и синхронизации нет.\n"
+            "После сверки можно отдельно оставить результат. Требует проверки конструктора; подробные проверки будут в отчёте.\n"
+            "Подтвердите, что это локальная или отсоединённая копия.".format(
+                doc.Title,len(primitives["bars"])),options=["Создать арматуру","Отмена"],ok=False) == "Создать арматуру"
         if not confirmed:
             raise ValueError("Копия/полный диагностический запуск не подтверждены")
 
@@ -169,18 +198,17 @@ def main():
             summary = result.get("presentation_deviations",{})
             native_notice = "Полная строгая сверка осей совпала."
             if review_mode == "presentation":
-                native_notice = "ПРЕЗЕНТАЦИЯ, НЕ ИНЖЕНЕРНАЯ ВЫДАЧА. С замечаниями: {0} стержней; максимум сдвига {1:.3f} мм; фактическая масса {2:.3f} кг.".format(
+                native_notice = "С замечаниями: {0} стержней; максимальный сдвиг {1:.3f} мм; фактическая масса {2:.3f} кг.".format(
                     summary["deviating_bar_count"],summary["max_endpoint_delta_mm"],summary["actual_mass_from_axes_kg"])
-            return forms.alert(native_notice+"\nПолный readback выполнен для {0} Rebar.\n"
-                "Coverage={1}; 40d={2}; stock={3}; holes/cover/background NOT CHECKED.\n{4}\n"
-                "ОСТАВИТЬ диагностическую арматуру в этой КОПИИ? Это не выпуск и не Save/Sync.\n"
-                "Нет = откатить всю созданную партию.".format(len(result["created_element_ids"]),
-                    checks["coverage"],checks["anchorage_40d"],checks["stock_cutting"],collision_notice),yes=True,no=True)
+            return alert(native_notice+"\nПеречитаны данные всех {0} созданных стержней.\n"
+                "Требует проверки конструктора. Подробные проверки остаются в отчёте.\n"
+                "Оставить результат в копии? Сохранения и синхронизации нет.".format(
+                    len(result["created_element_ids"])),options=["Оставить","Откатить"],ok=False) == "Оставить"
 
         report = run_rebar_review(doc,DB,floor,primitives,selected,depths,lambda:List[DB.Curve](),
             keep,copy_confirmed=True,worksharing_consent=confirm_review_worksharing,preview=preview,axis_depth_policy=depth_policy,review_mode=review_mode)
         report.update({"source_input_sha256":digest,"source_file_name":os.path.basename(source),
-            "coordinate_offset_xy_mm":[offset_x,offset_y]})
+            "coordinate_offset_xy_mm":[offset_x,offset_y],"source_check_notice":collision_notice})
         if review_mode == "presentation":
             report["presentation_view"] = captured_view or {"status":"not_created","error":report.get("preview_error")}
             if report.get("kept_element_ids") and captured_view.get("view_id"):
@@ -211,26 +239,27 @@ def main():
             print(traceback.format_exc())
             print(json.dumps(report,ensure_ascii=False,sort_keys=True,default=text_type))
             if report.get("status") in ("kept_diagnostic_rebar_review","kept_presentation_rebar_with_deviations"):
-                forms.alert("АРМАТУРА ОСТАВЛЕНА, НО JSON НЕ ЗАПИСАН.\nIDs: {0}\n"
-                    "Выполни Undo либо закрой КОПИЮ без сохранения; пришли traceback из pyRevit.".format(
+                alert("Арматура оставлена, но отчёт не удалось записать.\nID стержней: {0}\n"
+                    "Выполните Undo или закройте копию без сохранения. Подробная ошибка — в выводе pyRevit.".format(
                         ", ".join(str(v) for v in report.get("kept_element_ids",[]))))
                 raise
     if report["status"] in ("kept_diagnostic_rebar_review","kept_presentation_rebar_with_deviations"):
-        finish_notice = "Это НЕ инженерное разрешение."
+        finish_notice = "Требует проверки конструктора."
         if report.get("review_mode") == "presentation":
             summary = report["presentation_deviations"]
             view_info = report.get("presentation_view",{})
             view_notice = "3D-вид открыт." if view_info.get("activation") == "activated_after_whole_party_keep" else "3D-вид не открыт; подробности в JSON."
-            finish_notice = "ПРЕЗЕНТАЦИЯ, НЕ ИНЖЕНЕРНАЯ ВЫДАЧА.\nС замечаниями: {0} стержней; максимум сдвига {1:.3f} мм; фактическая масса {2:.3f} кг.\n{3}".format(
+            finish_notice = "Требует проверки конструктора.\nС замечаниями: {0} стержней; максимальный сдвиг {1:.3f} мм; фактическая масса {2:.3f} кг.\n{3}".format(
                 summary["deviating_bar_count"],summary["max_endpoint_delta_mm"],summary["actual_mass_from_axes_kg"],view_notice)
-        forms.alert("В КОПИИ оставлено {0} диагностических Rebar. Модель НЕ сохранена/не синхронизирована.\n"
-            "{1}\nОбязательный отчёт: {2}\n{3}".format(
-                len(report["kept_element_ids"]),finish_notice,destination,report.get("ownership_notice","")))
+        alert("В копии оставлено {0} стержней.\n{1}\n"
+            "Отчёт: {2}\nМодель не сохранена и не синхронизирована. Можно посмотреть результат и сделать снимок вида.\n{3}".format(
+                len(report["kept_element_ids"]),finish_notice,destination,
+                "Проверьте владение элементами рабочего набора; оно не возвращается автоматически."
+                if report.get("worksharing",{}).get("mode") == "live_local" else ""))
     elif report["status"] in ("rollback_unconfirmed","restoration_failed"):
-        forms.alert("ОТКАТ НЕ ПОДТВЕРЖДЁН. Закрой КОПИЮ без сохранения и пришли JSON: "+text_type(destination))
+        alert("Не удалось подтвердить откат. Закройте копию без сохранения и передайте отчёт: "+text_type(destination))
     else:
-        reasons = "\n".join(text_type(issue.get("message","")) for issue in report.get("issues",[]))
-        forms.alert("Rebar не оставлен. Статус: {0}.\nПричина: {1}\nОтчёт: {2}\nTraceback — в выводе pyRevit и JSON (если записан).".format(report["status"],reasons,report_path_notice))
+        alert("Арматура не оставлена.\n{0}\nОтчёт: {1}".format(friendly_stop_reason(report),report_path_notice))
 
 
 if __name__ == "__main__":

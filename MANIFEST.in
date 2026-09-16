@@ -22,6 +22,9 @@ include integrations/pyrevit/QMonitoring.extension/lib/qm_workflow_81_transport.
 include integrations/pyrevit/QMonitoring.extension/lib/qm_rebar_review.py
 include integrations/pyrevit/QMonitoring.extension/lib/qm_revit_rebar_review.py
 include integrations/pyrevit/QMonitoring.extension/lib/qm_revit_presentation_view.py
+include integrations/pyrevit/QMonitoring.extension/QMonitoring.tab/Review.panel/RebarReview.pushbutton/icon.svg
+include integrations/pyrevit/QMonitoring.extension/QMonitoring.tab/Review.panel/RebarReview.pushbutton/icon.png
+include integrations/pyrevit/QMonitoring.extension/QMonitoring.tab/Review.panel/RebarReview.pushbutton/icon.dark.png
 include integrations/pyrevit/QMonitoring.extension/QMonitoring.tab/Diagnostics.panel/WorkingHostProbe.pushbutton/script.py
 include integrations/pyrevit/QMonitoring.extension/QMonitoring.tab/Diagnostics.panel/WorkingHostProbe.pushbutton/bundle.yaml
 include integrations/pyrevit/QMonitoring.extension/QMonitoring.tab/Diagnostics.panel/WorkingRebarProbe.pushbutton/script.py

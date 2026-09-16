@@ -22,7 +22,7 @@ def build_package(output):
     for name in MODULES:
         contents["QMonitoringRebarReview.extension/lib/" + name] = (
             SOURCE / "QMonitoring.extension/lib" / name).read_bytes()
-    for name in ("script.py", "bundle.yaml"):
+    for name in ("script.py", "bundle.yaml", "icon.svg", "icon.png", "icon.dark.png"):
         target = "QMonitoringRebarReview.extension/QMonitoringRebarReview.tab/Review.panel/RebarReview.pushbutton/" + name
         contents[target] = (SOURCE / BUTTON / name).read_bytes()
     contents["REBAR_REVIEW_MVP_README.md"] = (SOURCE / "REBAR_REVIEW_MVP_README.md").read_bytes()

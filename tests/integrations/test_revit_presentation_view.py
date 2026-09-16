@@ -87,7 +87,7 @@ def test_new_view_transaction_never_activates_and_rolls_back_own_failures(monkey
     else:
         result = helper.create_presentation_view(document,DB,floor,[100],{100:"top-X"})
         assert result["activation"] == "deferred_until_whole_party_kept"
-        assert "НЕ ДЛЯ СТРОИТЕЛЬСТВА" in result["view_name"]
+        assert "результат раскладки" in result["view_name"]
         assert ("isolate",[99,100]) in calls and ("transparency",75) in calls
         assert result["view_id"] == 200 and view.DetailLevel == "Fine"
         assert view.IsSectionBoxActive is True

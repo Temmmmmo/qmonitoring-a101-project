@@ -33,7 +33,7 @@ def create_presentation_view(document, DB, floor, created_ids, direction_by_id=N
             failure_recorder(DB,failures)))
         view = DB.View3D.CreateIsometric(document,types[0].Id)
         view.ViewTemplateId = DB.ElementId.InvalidElementId
-        view.Name = "QMonitoring — ПРЕЗЕНТАЦИЯ — НЕ ДЛЯ СТРОИТЕЛЬСТВА — "+datetime.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+        view.Name = "QMonitoring — результат раскладки — "+datetime.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
         view.DetailLevel = DB.ViewDetailLevel.Fine
         box = floor.get_BoundingBox(None)
         if box is None:

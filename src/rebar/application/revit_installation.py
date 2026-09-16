@@ -22,8 +22,9 @@ SOURCE_TAB = "QMonitoring.tab"
 
 TOOLS = (
     {
-        "id": "rebar-review-mvp", "title": "Вся прямая партия · настоящий Rebar Review", "runtime_version": "0.1.5",
-        "button": "RebarReview", "command": "Rebar Review", "extension": "QMonitoringRebarReview",
+        "id": "rebar-review-mvp", "title": "Раскладка арматуры в Revit", "runtime_version": "0.1.6",
+        "button": "RebarReview", "command": "Раскладка арматуры", "extension": "QMonitoringRebarReview",
+        "button_assets": ("icon.svg", "icon.png", "icon.dark.png"),
         "panel": "Review", "mode": "native_rebar_review",
         "description": "Вся прямая партия Rebar в копии RVT: строгая сверка или явно выбранная презентация с измеренными замечаниями и новым 3D-видом. Оставление только по отдельному подтверждению; не инженерная выдача.",
         "report_schema": "revit-rebar-review-mvp-report/v1",
@@ -184,7 +185,7 @@ def _entries(tool: dict, source_root: Path) -> list[tuple[str, bytes]]:
     requested = []
     for module in tool["modules"]:
         requested.append((f"{SOURCE_EXTENSION}/lib/{module}", f"{extension}/lib/{module}"))
-    for name in ("script.py", "bundle.yaml"):
+    for name in ("script.py", "bundle.yaml", *tool.get("button_assets", ())):
         panel = tool.get("panel", "Diagnostics")
         source = f"{SOURCE_EXTENSION}/{SOURCE_TAB}/{panel}.panel/{tool['button']}.pushbutton/{name}"
         target = f"{extension}/{tab}/{panel}.panel/{tool['button']}.pushbutton/{name}"

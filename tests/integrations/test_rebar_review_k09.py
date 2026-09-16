@@ -186,7 +186,7 @@ def test_non_k09_real_boundary_difference_still_unsupported():
 
 def test_pre_save_dialog_error_has_reason_traceback_and_real_report(monkeypatch, tmp_path, capsys):
     alerts = []
-    forms = SimpleNamespace(alert=alerts.append)
+    forms = SimpleNamespace(alert=lambda message,**_: alerts.append(message))
     monkeypatch.setitem(
         sys.modules,
         "pyrevit",
@@ -205,6 +205,6 @@ def test_pre_save_dialog_error_has_reason_traceback_and_real_report(monkeypatch,
     assert len(reports) == 1
     result = json.loads(reports[0].read_text())
     assert result["status"] == "blocked_setup" and result["issues"][0]["traceback"]
-    assert "Причина:" in alerts[-1] and str(reports[0]) in alerts[-1]
+    assert "копию рабочего проекта" in alerts[-1] and str(reports[0]) in alerts[-1]
     assert "Отчёт: None" not in alerts[-1]
     assert "Traceback" in capsys.readouterr().out

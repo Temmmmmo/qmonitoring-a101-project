@@ -100,7 +100,7 @@ def test_source_graphics_download_has_matching_new_runtime_and_complete_helper()
 
 def test_native_rebar_review_catalog_and_code_bundle_are_explicitly_review_only():
     row = next(t for t in client.get("/api/revit/tools").json()["tools"] if t["id"] == "rebar-review-mvp")
-    assert row["runtime_version"] == "0.1.5" and row["panel"] == "Review"
+    assert row["runtime_version"] == "0.1.6" and row["panel"] == "Review"
     assert row["report_schema"] == "revit-rebar-review-mvp-report/v1"
     assert row["capabilities"]["creates_structural_rebar"] is True
     assert row["capabilities"]["placement_eligible"] is row["capabilities"]["engineering_approval"] is False
@@ -254,7 +254,7 @@ def test_sdist_manifest_contains_every_exact_public_dependency_without_private_g
     for tool in installation.TOOLS:
         for name in tool["modules"]:
             assert "include integrations/pyrevit/QMonitoring.extension/lib/" + name in manifest
-        for name in ("script.py", "bundle.yaml"):
+        for name in ("script.py", "bundle.yaml", *tool.get("button_assets", ())):
             relative = f"integrations/pyrevit/QMonitoring.extension/QMonitoring.tab/{tool.get('panel', 'Diagnostics')}.panel/{tool['button']}.pushbutton/{name}"
             assert "include " + relative in manifest
     assert "recursive-include" not in manifest and "artifacts" not in manifest
