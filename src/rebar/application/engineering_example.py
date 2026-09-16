@@ -104,8 +104,11 @@ def engineering_example_catalog() -> dict:
 
 
 def analyze_engineering_example(example_id: str, *, working_host_bytes: bytes | None = None,
-                                confirm_identity_xy: bool = False) -> dict:
+                                confirm_identity_xy: bool = False, outer_only_repair: bool = False) -> dict:
     from . import s1_example
+    if type(outer_only_repair) is not bool or (outer_only_repair and (
+            example_id != EXAMPLE_ID or working_host_bytes is None or confirm_identity_xy is not True)):
+        raise ValueError('Outer-only repair requires explicit K09 host and identity XY')
     if example_id == s1_example.EXAMPLE_ID:
         if working_host_bytes is not None or confirm_identity_xy:
             raise ValueError("С1 MVP использует плоский контур DXF, не снимок другой Revit-плиты")
@@ -135,7 +138,12 @@ def analyze_engineering_example(example_id: str, *, working_host_bytes: bytes | 
         recovery = recover_physical_layout(source.problem, source.solution, tuple(settings),
             normalization_config=PhysicalNormalizationConfig(allow_diameter_increase=True),
             source_provenance=provenance)
-        report = (physical_web_report(source.problem, recovery) if working_host_bytes is None else
+        if outer_only_repair:
+            from .k09_outer_repair_web import k09_outer_repaired_web_report
+            report = k09_outer_repaired_web_report(source.problem, recovery, working_host_bytes,
+                                                   confirm_identity_xy=confirm_identity_xy)
+        else:
+            report = (physical_web_report(source.problem, recovery) if working_host_bytes is None else
             boundary_trim_web_report(source.problem, recovery, working_host_bytes,
                                      confirm_identity_xy=confirm_identity_xy, cleanup_redundant=True))
     report["engineering_example"] = example_metadata(available=True, status="ready")

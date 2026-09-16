@@ -77,7 +77,7 @@ def test_source_graphics_download_has_matching_new_runtime_and_complete_helper()
 
 def test_native_rebar_review_catalog_and_code_bundle_are_explicitly_review_only():
     row = next(t for t in client.get("/api/revit/tools").json()["tools"] if t["id"] == "rebar-review-mvp")
-    assert row["runtime_version"] == "0.1.1" and row["panel"] == "Review"
+    assert row["runtime_version"] == "0.1.2" and row["panel"] == "Review"
     assert row["report_schema"] == "revit-rebar-review-mvp-report/v1"
     assert row["capabilities"]["creates_structural_rebar"] is True
     assert row["capabilities"]["placement_eligible"] is row["capabilities"]["engineering_approval"] is False

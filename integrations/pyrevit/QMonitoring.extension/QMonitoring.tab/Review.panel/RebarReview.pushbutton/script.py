@@ -6,6 +6,9 @@ import datetime
 import os
 import platform
 import traceback
+import tempfile
+import uuid
+import json
 
 from pyrevit import DB, forms, revit
 from System.Collections.Generic import List
@@ -43,7 +46,9 @@ def main():
     doc,uidoc = revit.doc,revit.uidoc
     report = {"schema_version":REPORT_SCHEMA,"version":VERSION,"status":"blocked_setup",
         "placement_eligible":False,"engineering_approval":False,"issues":[]}
-    destination = None
+    # A pre-dialog setup failure must still have a concrete, non-overwriting
+    # report destination and an immediately visible traceback.
+    destination = os.path.join(tempfile.gettempdir(), "qmonitoring-rebar-review-setup-{0}.json".format(uuid.uuid4().hex))
     try:
         if doc is None or doc.IsFamilyDocument:
             raise ValueError("Открой КОПИЮ рабочего проекта Revit 2024")
@@ -53,13 +58,14 @@ def main():
         floor = floors[0]
         source = forms.pick_file(file_ext="json",title="Полная прямая партия: graphic-bar-plan-draft/pruned/repaired.json")
         if not source:
-            return
-        destination = forms.save_file(file_ext="json",default_name="qmonitoring-rebar-review-{0}.json".format(
+            raise ValueError("Выбор входного JSON отменён; Rebar не создавались")
+        requested_destination = forms.save_file(file_ext="json",default_name="qmonitoring-rebar-review-{0}.json".format(
             datetime.datetime.now().strftime("%Y%m%d-%H%M%S-%f")),title="Новое имя обязательного отчёта Rebar Review")
-        if not destination:
+        if not requested_destination:
             raise ValueError("Без пути нового JSON-отчёта создание Rebar запрещено")
-        if os.path.exists(destination):
+        if os.path.exists(requested_destination):
             raise ValueError("Существующий отчёт не перезаписывается")
+        destination = requested_destination
         packet,digest = load_preview_input(source)
         offset = forms.ask_for_string(prompt="DXF → Revit, мм: X; Y. Только перенос; масштаб/поворот не угадываются.",
             title="Явная XY-привязка")
@@ -97,7 +103,7 @@ def main():
         depths = dict(zip(DIRECTIONS,numbers(depth_text,4)))
         checks = primitives["trim_graphics"]["checks"]
         conditional = checks.get("conditional_collisions_3d", checks["collisions_3d"])
-        collision_notice = "Backend conditional 3D={0}; proven={1}; uncertain={2}; actual RVT NOT CHECKED.".format(
+        collision_notice = "Исходный backend Z-profile: conditional 3D={0}; proven={1}; uncertain={2}. Выбранные4глубины/actual RVT collisions NOT CHECKED.".format(
             conditional["status"],conditional["proven_pair_count"],conditional["uncertain_pair_count"])
         confirmed = forms.alert("КОПИЯ RVT: {0}; Floor id={1}.\n"
             "Создам ВСЮ прямую партию: {2} отдельных native Rebar; расчётное время зависит от размера (до 5000).\n"
@@ -130,12 +136,18 @@ def main():
             "coordinate_offset_xy_mm":[offset_x,offset_y]})
     except Exception as exc:
         report["issues"].append({"stage":"setup","message":text_type(exc),"traceback":traceback.format_exc()})
+        print("ПРИЧИНА ОТКАЗА: "+text_type(exc))
+        print(traceback.format_exc())
     if destination:
+        report_path_notice = destination
         try:
             write_report_json(destination,report)
             print("Обязательный отчёт: "+destination)
         except Exception as exc:
+            report_path_notice = "JSON НЕ ЗАПИСАН: "+destination
             print("ОШИБКА ЗАПИСИ ОТЧЁТА: "+text_type(exc))
+            print(traceback.format_exc())
+            print(json.dumps(report,ensure_ascii=False,sort_keys=True,default=text_type))
             if report.get("status") == "kept_diagnostic_rebar_review":
                 forms.alert("АРМАТУРА ОСТАВЛЕНА, НО JSON НЕ ЗАПИСАН.\nIDs: {0}\n"
                     "Выполни Undo либо закрой КОПИЮ без сохранения; пришли traceback из pyRevit.".format(
@@ -148,7 +160,8 @@ def main():
     elif report["status"] in ("rollback_unconfirmed","restoration_failed"):
         forms.alert("ОТКАТ НЕ ПОДТВЕРЖДЁН. Закрой КОПИЮ без сохранения и пришли JSON: "+text_type(destination))
     else:
-        forms.alert("Rebar не оставлен. Статус: {0}. Отчёт: {1}".format(report["status"],destination))
+        reasons = "\n".join(text_type(issue.get("message","")) for issue in report.get("issues",[]))
+        forms.alert("Rebar не оставлен. Статус: {0}.\nПричина: {1}\nОтчёт: {2}\nTraceback — в выводе pyRevit и JSON (если записан).".format(report["status"],reasons,report_path_notice))
 
 
 if __name__ == "__main__":

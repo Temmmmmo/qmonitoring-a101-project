@@ -10,10 +10,11 @@ from qm_probe_geometry import distance
 from qm_revit_plan_preview import build_preview_primitives, _validate_primitives
 from qm_trial_input import exact_keys, number
 
-VERSION = "0.1.1"
+VERSION = "0.1.2"
 REPORT_SCHEMA = "revit-rebar-review-mvp-report/v1"
 INPUT_SCHEMAS = ("graphic-bar-plan-draft/v1", "graphic-bar-plan-pruned/v1", "graphic-bar-plan-repaired/v1")
 AXIS_TOLERANCE_MM = 0.01
+OUTER_COMPUTATIONAL_EPS_MM = 0.000001
 MAX_REVIEW_BARS = 5000
 
 
@@ -99,20 +100,92 @@ def flat_outer_host(floor):
         plane = face.get("plane")
         if plane is None or len(plane.get("normal", [])) != 3 or len(plane.get("origin_mm", [])) != 3:
             raise ValueError("Sloping or nonplanar native Floor unsupported")
+        if any(math.isnan(v) or math.isinf(v) for v in plane["normal"]+plane["origin_mm"]):
+            raise ValueError("Nonfinite native Floor plane")
         if any(abs(a-b) > 1e-8 for a,b in zip(plane["normal"], (0,0,normal))):
             raise ValueError("Sloping native Floor unsupported")
         polygon, holes = _outer_loop(face)
+        if any(abs(point[2]-plane["origin_mm"][2]) > AXIS_TOLERANCE_MM
+                for edges in face["edge_loops"] for edge in edges for point in (edge["start_mm"],edge["end_mm"])):
+            raise ValueError("Native boundary edges differ from flat face elevation")
         faces[side] = {"z_mm": plane["origin_mm"][2], "outer_xy_mm": polygon, "excluded_hole_count": holes}
     if faces["top"]["z_mm"]-faces["bottom"]["z_mm"] <= AXIS_TOLERANCE_MM:
         raise ValueError("Native Floor thickness is invalid")
     top, bottom = faces["top"]["outer_xy_mm"], faces["bottom"]["outer_xy_mm"]
-    if len(top) != len(bottom) or any(not any(distance(a,b) <= AXIS_TOLERANCE_MM for b in bottom) for a in top):
-        raise ValueError("Top/bottom native outer contours differ; stepped/sloping host unsupported")
+    # Each native boundary is retained, including its genuine recesses. Vertex
+    # counts need not match: Revit can split collinear sides differently.
+    # Unequal boundaries are NOT relabeled as a prismatic Solid proof. The
+    # K09's flat 200 mm top-subset-bottom geometry uses conservative BOTH checks.
+    same = _boundaries_equivalent(top, bottom)
+    if not same and (abs(faces["top"]["z_mm"]-faces["bottom"]["z_mm"]-200) > AXIS_TOLERANCE_MM or not _polygon_subset(top, bottom)):
+        raise ValueError("Unequal native outer contours unsupported except flat 200 mm TOP-subset-BOTTOM dual-exterior MVP")
     return {"host_id": floor["element_id"], "top_z_mm": faces["top"]["z_mm"],
         "bottom_z_mm": faces["bottom"]["z_mm"], "thickness_mm": faces["top"]["z_mm"]-faces["bottom"]["z_mm"],
-        "outer_xy_mm": top, "excluded_hole_count": max(faces["top"]["excluded_hole_count"], faces["bottom"]["excluded_hole_count"]),
+        "outer_xy_mm": top, "top_outer_xy_mm": top, "bottom_outer_xy_mm": bottom,
+        "outer_boundaries_equivalent": same,
+        "outer_computational_epsilon_mm": OUTER_COMPUTATIONAL_EPS_MM,
+        "outer_profile": "equivalent-flat-exteriors/v1" if same else "flat200-top-subset-bottom-dual-exterior-mvp/v1",
+        "outer_policy": "every bar body inside BOTH native top and bottom outer projections; no bbox; intermediate Solid not certified",
+        "excluded_hole_count": max(faces["top"]["excluded_hole_count"], faces["bottom"]["excluded_hole_count"]),
         "cover_metadata": copy.deepcopy(floor.get("covers")),
         "scope": "native flat Floor planar outer line loops + thickness; holes and cover excluded; NOT actual-Solid containment proof"}
+
+
+def _boundaries_equivalent(first, second):
+    """Subdivision/order-independent line-boundary identity, strict 0.01 mm."""
+    def segment_covered(a, b, polygon):
+        length = distance(a, b)
+        intervals = []
+        for index, c in enumerate(polygon):
+            d = polygon[(index+1)%len(polygon)]
+            def projection(p):
+                return ((p[0]-a[0])*(b[0]-a[0])+(p[1]-a[1])*(b[1]-a[1]))/length
+            def off(p):
+                return abs((b[0]-a[0])*(p[1]-a[1])-(b[1]-a[1])*(p[0]-a[0]))/length
+            if max(off(c), off(d)) <= AXIS_TOLERANCE_MM:
+                lo, hi = sorted((projection(c), projection(d)))
+                if hi >= 0 and lo <= length:
+                    intervals.append((max(0,lo), min(length,hi)))
+        reached = 0.0
+        for lo, hi in sorted(intervals):
+            if lo > reached+AXIS_TOLERANCE_MM:
+                return False
+            reached = max(reached, hi)
+        return reached >= length-AXIS_TOLERANCE_MM
+    return all(segment_covered(polygon[i], polygon[(i+1)%len(polygon)], other)
+        for polygon, other in ((first,second),(second,first)) for i in range(len(polygon)))
+
+
+def _polygon_subset(inner, outer):
+    """Check every edge subinterval, including crossings at outer vertices."""
+    if any(not _point_inside(p,outer) for p in inner):
+        return False
+    for index,a in enumerate(inner):
+        b = inner[(index+1)%len(inner)]
+        vector = [b[i]-a[i] for i in range(2)]
+        squared = sum(v*v for v in vector)
+        cuts = [0.0,1.0]
+        for j,c in enumerate(outer):
+            d = outer[(j+1)%len(outer)]
+            edge = [d[i]-c[i] for i in range(2)]
+            delta = [c[i]-a[i] for i in range(2)]
+            determinant = vector[0]*edge[1]-vector[1]*edge[0]
+            if abs(determinant) > 1e-9:
+                t = (delta[0]*edge[1]-delta[1]*edge[0])/determinant
+                u = (delta[0]*vector[1]-delta[1]*vector[0])/determinant
+                if 0 <= t <= 1 and -1e-9 <= u <= 1+1e-9:
+                    cuts.append(t)
+            else:
+                for p in (c,d):
+                    t = sum((p[i]-a[i])*vector[i] for i in range(2))/squared
+                    if 0 <= t <= 1 and distance(p,[a[i]+t*vector[i] for i in range(2)]) <= AXIS_TOLERANCE_MM:
+                        cuts.append(t)
+        cuts.sort()
+        for lo,hi in zip(cuts,cuts[1:]):
+            t = (lo+hi)/2
+            if not _point_inside([a[i]+t*vector[i] for i in range(2)],outer):
+                return False
+    return True
 
 
 def _point_inside(point, polygon):
@@ -121,7 +194,9 @@ def _point_inside(point, polygon):
     for index, a in enumerate(polygon):
         b = polygon[(index+1)%len(polygon)]
         cross = (b[0]-a[0])*(y-a[1])-(b[1]-a[1])*(x-a[0])
-        if abs(cross) <= 1e-7 and min(a[0],b[0])-AXIS_TOLERANCE_MM <= x <= max(a[0],b[0])+AXIS_TOLERANCE_MM and min(a[1],b[1])-AXIS_TOLERANCE_MM <= y <= max(a[1],b[1])+AXIS_TOLERANCE_MM:
+        if (abs(cross)/distance(a,b) <= OUTER_COMPUTATIONAL_EPS_MM
+                and min(a[0],b[0])-OUTER_COMPUTATIONAL_EPS_MM <= x <= max(a[0],b[0])+OUTER_COMPUTATIONAL_EPS_MM
+                and min(a[1],b[1])-OUTER_COMPUTATIONAL_EPS_MM <= y <= max(a[1],b[1])+OUTER_COMPUTATIONAL_EPS_MM):
             return True
         if (a[1] > y) != (b[1] > y) and x < a[0]+(y-a[1])*(b[0]-a[0])/(b[1]-a[1]):
             inside = not inside
@@ -130,8 +205,12 @@ def _point_inside(point, polygon):
 
 def _proper_cross(a,b,c,d):
     def orient(p,q,r):
-        return (q[0]-p[0])*(r[1]-p[1])-(q[1]-p[1])*(r[0]-p[0])
-    return (orient(a,b,c)*orient(a,b,d) < -1e-8 and orient(c,d,a)*orient(c,d,b) < -1e-8)
+        length = distance(p,q)
+        return ((q[0]-p[0])*(r[1]-p[1])-(q[1]-p[1])*(r[0]-p[0]))/length if length else 0.0
+    def opposite(first,second):
+        return ((first > OUTER_COMPUTATIONAL_EPS_MM and second < -OUTER_COMPUTATIONAL_EPS_MM)
+            or (second > OUTER_COMPUTATIONAL_EPS_MM and first < -OUTER_COMPUTATIONAL_EPS_MM))
+    return opposite(orient(a,b,c),orient(a,b,d)) and opposite(orient(c,d,a),orient(c,d,b))
 
 
 def _corridor_contained(start,end,radius,polygon):
@@ -163,7 +242,7 @@ def _corridor_contained(start,end,radius,polygon):
         if leave > enter:
             t = (enter+leave)/2
             midpoint = [a[i]+t*(b[i]-a[i]) for i in range(2)]
-            if all(low[i]+1e-8 < midpoint[i] < high[i]-1e-8 for i in range(2)):
+            if all(low[i]+OUTER_COMPUTATIONAL_EPS_MM < midpoint[i] < high[i]-OUTER_COMPUTATIONAL_EPS_MM for i in range(2)):
                 return False
     for i,a in enumerate(corners):
         b = corners[(i+1)%4]
@@ -196,8 +275,11 @@ def make_review_plan(primitives, host, bar_types, depths):
         z = host[layer+"_z_mm"] + (depths[bar["direction"]] if layer == "bottom" else -depths[bar["direction"]])
         if z-radius < host["bottom_z_mm"]-AXIS_TOLERANCE_MM or z+radius > host["top_z_mm"]+AXIS_TOLERANCE_MM:
             raise ValueError("Whole batch blocked: bar body outside selected native Floor thickness")
-        if not _corridor_contained(bar["start_xy_mm"],bar["end_xy_mm"],radius,host["outer_xy_mm"]):
-            raise ValueError("Whole batch blocked: bar body exceeds native OUTER Floor contour; no clipping or omission")
+        for side in ("top", "bottom"):
+            polygon = host.get(side+"_outer_xy_mm",host["outer_xy_mm"])
+            if not _corridor_contained(bar["start_xy_mm"],bar["end_xy_mm"],radius,polygon):
+                raise ValueError("Whole batch blocked: {0}/{1} body exceeds native {2} OUTER Floor contour; no clipping or omission".format(
+                    bar["direction"],bar["bar_id"],side))
         start,end = bar["start_xy_mm"]+[z],bar["end_xy_mm"]+[z]
         length = distance(start,end)
         if length <= AXIS_TOLERANCE_MM:

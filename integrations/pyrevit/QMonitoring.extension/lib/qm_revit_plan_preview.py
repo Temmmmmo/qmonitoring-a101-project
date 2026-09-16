@@ -618,11 +618,11 @@ def _trim_caption(primitives):
             "Свежее геометрическое FE-покрытие: {5}; контроль 40d: {6}; раскрой: {7}.\n"
             "Условные backend 3D: {8}; доказанных пар: {9}; uncertain: {10}. Actual RVT: not_checked.\n"
             "FE-доказательство в Revit НЕ пересчитывается; engineering approval=false.\n"
-            "Flat MVP: внешний контур DXF, без отверстий/перепадов/cover; не измеренный Revit. Явный XY: {11}.").format(
+            "MVP без отверстий/перепадов/cover. Source binding: {11}; не доказательство текущего RVT. Явный XY: {12}.").format(
                 after["physical_bar_count"], after["additional_mass_kg"], after["position_count"],
                 trim["repair_added_count"], trim["repair_modified_count"], checks["coverage"], checks["anchorage_40d"],
                 checks["stock_cutting"], conditional["status"], conditional["proven_pair_count"], conditional["uncertain_pair_count"],
-                primitives["offset_xy_mm"])
+                trim["binding_source"], primitives["offset_xy_mm"])
     text = ("ФИЗИЧЕСКАЯ ОБРЕЗКА ПО ВНЕШНЕМУ КОНТУРУ / НЕ АРМАТУРА / НЕ ВЫДАЧА\n"
         "Исходно: {0} стержней / {1:.3f} кг. После обработки: {2} прямых отрезков / {3:.3f} кг / {4} позиций.\n"
         "Укорочено исходных стержней: {5}; укороченных отрезков: {6}. Все отрезки показаны, скрытого клиппинга нет.\n"

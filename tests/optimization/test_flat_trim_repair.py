@@ -14,6 +14,7 @@ from rebar.optimization.services.flat_trim_repair import check_flat_trim_repair
 from rebar.optimization.services.shaped_geometry import straight_bar_from_physical
 from rebar.optimization.algorithms.trimmed_repair import _bar
 from rebar.optimization.services.solid_host import SolidHostSection
+from rebar.optimization.services.shaped_fe_repair import ResearchLayerProfile, layer_elevations
 from rebar.optimization.services.tz_boundary_trim import check_boundary_trim
 from test_shaped_global_coverage import _case
 
@@ -117,3 +118,16 @@ def test_exact_deficit_edge_nudge_is_coordinate_operation_not_tolerance():
     assert checks["geometric_presence"]["status"] == "pass"
     assert checks["geometric_presence"]["positive_area_loss_tolerance_mm2"] == 0
     assert checks["previously_covered_area_lost_mm2"] == {"geometric_presence": 0, "control_40d": 0}
+
+
+def test_generic_repair_uses_explicit_k09_200mm_profile_not_s1_elevations():
+    physical, lanes, problem, host = _case(demand_bounds=(500, -50, 2000, 350))
+    physical = (replace(physical[0], installed_interval_mm=(25, 900)), physical[1])
+    profile = ResearchLayerProfile()
+    before = tuple(straight_bar_from_physical(bar, axis_z_mm=layer_elevations(
+        host, bar.direction, bar.diameter_mm, profile)[0], placement_profile_id=profile.id) for bar in physical)
+    after, checks = repair_flat_trimmed_bars(before, lanes, problem, host, elevations=layer_elevations,
+        profile=profile, maximum_mass_increase_pct=100, maximum_candidates=500, time_limit_s=10, stock_time_limit_s=.1)
+    assert checks["geometric_presence"]["status"] == "pass"
+    assert all(bar.segments[0].start_mm[2] == 155 for bar in after)
+    assert all(bar.placement_profile_id == profile.id for bar in after)

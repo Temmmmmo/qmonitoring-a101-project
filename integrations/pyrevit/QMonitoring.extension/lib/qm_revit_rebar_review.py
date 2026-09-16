@@ -56,7 +56,7 @@ def run_rebar_review(document, DB, floor, primitives, bar_types, depths, curve_l
         "source_schema":primitives.get("input_schema"),"case_id":primitives.get("case_id"),
         "source_checks":copy.deepcopy(primitives.get("trim_graphics",{}).get("checks")),
         "source_blockers":copy.deepcopy(primitives.get("source_blockers")),
-        "not_checked":["holes","cover","height-steps","background-rebar-collisions",
+        "not_checked":["holes","cover","height-steps","background-rebar-collisions", "collisions-at-user-selected-four-axis-depths",
             "engineering-coverage-acceptance","construction-release","automatic-save-or-sync"],
         "mvp_scope":"selected native flat Floor outer contour and thickness; holes/cover excluded; diagnostic straight Rebar review only"}
     started = time.time()

@@ -22,7 +22,7 @@ SOURCE_TAB = "QMonitoring.tab"
 
 TOOLS = (
     {
-        "id": "rebar-review-mvp", "title": "Вся прямая партия · настоящий Rebar Review", "runtime_version": "0.1.1",
+        "id": "rebar-review-mvp", "title": "Вся прямая партия · настоящий Rebar Review", "runtime_version": "0.1.2",
         "button": "RebarReview", "command": "Rebar Review", "extension": "QMonitoringRebarReview",
         "panel": "Review", "mode": "native_rebar_review",
         "description": "Создаёт всю переданную прямую партию как native Rebar в копии RVT, сверяет после Commit и оставляет только по отдельному подтверждению.",
@@ -40,7 +40,7 @@ TOOLS = (
             "После Commit команда перечитает каждый ID, host, тип, конечную ось XYZ, длину, диаметр, количество и расчётную массу. Любое отличие откатывает всю партию.",
             "Только после успешного readback отдельно выбери: оставить диагностические Rebar в копии или откатить всё. Команда не вызывает Save/Sync; сохрани JSON-отчёт.",
         ),
-        "limits": "Review-only MVP, не выпуск: исходные coverage/40d/stock fail/not_checked остаются видимыми. Проверяется native плоский внешний контур и толщина без bbox fallback; отверстия, cover, перепады, фон и его коллизии исключены. Наклонный/составной/криволинейный host блокируется. До 5000 отдельных стержней, поэтому операция может быть длительной. Существующая арматура не меняется.",
+        "limits": "Review-only MVP, не выпуск: исходные coverage/40d/stock fail/not_checked остаются видимыми. Проверяется тело каждого стержня по native top И bottom наружным контурам и толщине без bbox fallback; flat200 top-subset-bottom профиль поддерживает Пм-1 К09. Отверстия, cover, перепады, фон и его коллизии исключены; intermediate Solid не сертифицируется. Исходный conditional 3D Z-profile не проверяет четыре выбранные UI-глубины. Наклонный/составной/криволинейный host блокируется. До 5000 отдельных стержней, поэтому операция может быть длительной. Существующая арматура не меняется.",
         "verification": "Полнота inventory, CreateFromCurves-контракт, строгий readback 0,01 мм, tamper, rollback и explicit keep проверены offline doubles. Первый запуск всей партии в настоящем Revit ещё не выполнен.",
     },
     {

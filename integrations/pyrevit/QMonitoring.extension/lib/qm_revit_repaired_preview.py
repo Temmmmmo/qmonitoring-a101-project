@@ -158,7 +158,9 @@ def build_repaired_primitives(packet, offset_x_mm, offset_y_mm):
                 raise ValueError("Repair bar references unknown structural source lane")
             source = lane["source"]
             allowed.update(lane["source_fe_ids"])
-            if raw["diameter_mm"] != source["diameter_mm"] or raw["steel_class"] != source["steel_class"]:
+            if kind != "retained" and (raw["steel_class"] != source["steel_class"]
+                    or raw["diameter_mm"] < source["diameter_mm"]
+                    or (kind == "added" and raw["diameter_mm"] != source["diameter_mm"])):
                 raise ValueError("Repair material differs from original lane")
             if kind != "retained":
                 q = raw["coordinate_mm"]
