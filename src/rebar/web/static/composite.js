@@ -137,11 +137,16 @@ function renderComparison(point) {
 }
 function renderChecks(point, blockers) {
   const sourceCheck = hasSelectedSourceGraphics() ? result.source_zone_checks : null;
+  const edgeCheck = hasSelectedSourceGraphics() ? result.source_zone_edge_checks : null;
   q("#source-zone-check-status").textContent = sourceCheck?.status === "pass"
     ? `Огибающая компонентов: 40d проверено; ${fmt(sourceCheck.component_count, 0)} компонентов, 0 нарушений. Полное покрытие КЭ и native host: не проверено для source-пакета.`
     : sourceCheck?.status === "fail"
       ? `Огибающая компонентов: есть нарушения 40d; ${fmt(sourceCheck.component_count, 0)} компонентов, ${fmt(sourceCheck.violation_count, 0)} нарушений. Полное покрытие КЭ и native host: не проверено для source-пакета.`
       : "Огибающая 40d исходного пакета не сертифицирована для выбранного варианта. Полное покрытие КЭ и native host: не проверено.";
+  if (edgeCheck) {
+    const edgeStatus = (value) => value === "pass" ? "сохранён" : value === "fail" ? "нарушен" : "не проверен";
+    q("#source-zone-check-status").textContent += ` Краевой запас 80d: ${edgeStatus(edgeCheck.total_extension_status)}; внутри контура ${fmt(edgeCheck.placed_count, 0)}, исправлено ${fmt(edgeCheck.fixed_count, 0)}, за контуром ${fmt(edgeCheck.after_outside_count, 0)}, непроверенных направлений ${fmt(edgeCheck.unknown_count, 0)}. Сохранение логического ядра: ${edgeStatus(edgeCheck.longitudinal_core_containment_status)}. 40d с каждого конца — отдельный контроль; DXF-контур, не модель Revit.`;
+  }
   const selected = point ? result.directions.map((direction, i) => direction.candidates[point.direction_candidate_indexes[i]]) : [];
   const covered = selected.length === 4 && selected.every((candidate) => candidate?.coverage?.uncovered_cell_count === 0);
   const hostChecks = selected.map((candidate) => candidate?.host_preflight?.checks?.planar_host_and_openings);

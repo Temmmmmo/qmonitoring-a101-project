@@ -6,11 +6,15 @@ from rebar.optimization.services.bar_schedule import BarScheduleGroup, build_bar
 from rebar.reporting.composite_svg import render_composite_svg
 from rebar.reporting.serialization import to_jsonable
 from rebar.reporting.source_graphics import build_source_graphics, render_source_graphics_svg, source_zone_40d_certificate
+from rebar.reporting.source_edge_placement import apply_source_edge_placement
 
 
 def physical_web_report(problem, recovery) -> dict:
     report = deepcopy(recovery.patterned_report)
     source_graphics = build_source_graphics(problem, report) if report.get("front") else None
+    if source_graphics:
+        source_graphics, edge_checks = apply_source_edge_placement(source_graphics)
+        report["source_zone_edge_checks"] = edge_checks
     report["default_drawing_view"] = "source"
     report["source_graphics"] = source_graphics
     report["source_zone_checks"] = source_zone_40d_certificate(source_graphics) if source_graphics else None
@@ -46,7 +50,7 @@ def physical_web_report(problem, recovery) -> dict:
         masses.append(mass)
         source_candidate = direction["candidates"][report["front"][report["selected_index"]][
             "direction_candidate_indexes"][len(masses) - 1]]
-        direction["source_zone_drafts"] = source_candidate["zone_drafts"]
+        direction["source_zone_drafts"] = deepcopy(source_graphics["directions"][len(masses) - 1]["zone_drafts"])
         direction["candidates"] = [{"candidate_index": 0, "direction": direction["direction"],
             "metrics": {"zone_count": source_candidate["metrics"]["zone_count"], "physical_bar_count": len(bars),
                         "position_count": len(schedule), "additional_mass_kg": mass},
