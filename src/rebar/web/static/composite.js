@@ -138,15 +138,19 @@ function renderComparison(point) {
 function renderChecks(point, blockers) {
   const sourceCheck = hasSelectedSourceGraphics() ? result.source_zone_checks : null;
   const edgeCheck = hasSelectedSourceGraphics() ? result.source_zone_edge_checks : null;
+  const rebuildCheck = hasSelectedSourceGraphics() ? result.source_zone_rebuild_checks : null;
   q("#source-zone-check-status").textContent = sourceCheck?.status === "pass"
-    ? `Огибающая компонентов: 40d проверено; ${fmt(sourceCheck.component_count, 0)} компонентов, 0 нарушений. Полное покрытие КЭ и native host: не проверено для source-пакета.`
+    ? `Огибающая компонентов: 40d проверено; ${fmt(sourceCheck.component_count, 0)} компонентов, 0 нарушений. Этот контроль оценивает только 40d; фактическая плита Revit не проверена.`
     : sourceCheck?.status === "fail"
-      ? `Огибающая компонентов: есть нарушения 40d; ${fmt(sourceCheck.component_count, 0)} компонентов, ${fmt(sourceCheck.violation_count, 0)} нарушений. Полное покрытие КЭ и native host: не проверено для source-пакета.`
-      : "Огибающая 40d исходного пакета не сертифицирована для выбранного варианта. Полное покрытие КЭ и native host: не проверено.";
+      ? `Огибающая компонентов: есть нарушения 40d; ${fmt(sourceCheck.component_count, 0)} компонентов, ${fmt(sourceCheck.violation_count, 0)} нарушений. Этот контроль оценивает только 40d; фактическая плита Revit не проверена.`
+      : "Огибающая 40d исходного пакета не сертифицирована для выбранного варианта; фактическая плита Revit не проверена.";
   if (edgeCheck) {
     const edgeStatus = (value) => value === "pass" ? "сохранён" : value === "fail" ? "нарушен" : "не проверен";
     q("#source-zone-check-status").textContent += ` Краевой запас 80d: ${edgeStatus(edgeCheck.total_extension_status)}; внутри контура ${fmt(edgeCheck.placed_count, 0)}, исправлено ${fmt(edgeCheck.fixed_count, 0)}, за контуром ${fmt(edgeCheck.after_outside_count, 0)}, непроверенных направлений ${fmt(edgeCheck.unknown_count, 0)}. Сохранение логического ядра: ${edgeStatus(edgeCheck.longitudinal_core_containment_status)}. 40d с каждого конца — отдельный контроль; DXF-контур, не модель Revit.`;
   }
+  if (rebuildCheck) q("#source-zone-check-status").textContent += rebuildCheck.status === "pass"
+    ? ` Перестроение зон: ${fmt(rebuildCheck.before_outside_count, 0)}→${fmt(rebuildCheck.after_outside_count, 0)}; полное исходное покрытие подтверждено в принятой модели. Исходные зоны: ${fmt(rebuildCheck.after_metrics?.zone_count, 0)}, ${fmt(rebuildCheck.after_metrics?.bar_count, 0)} стержней, ${fmt(rebuildCheck.after_metrics?.mass_kg, 3)} кг, ${fmt(rebuildCheck.after_metrics?.position_count, 0)} позиций — это не физическая партия.`
+    : " Перестроение зон исходного пакета не выполнено.";
   const selected = point ? result.directions.map((direction, i) => direction.candidates[point.direction_candidate_indexes[i]]) : [];
   const covered = selected.length === 4 && selected.every((candidate) => candidate?.coverage?.uncovered_cell_count === 0);
   const hostChecks = selected.map((candidate) => candidate?.host_preflight?.checks?.planar_host_and_openings);

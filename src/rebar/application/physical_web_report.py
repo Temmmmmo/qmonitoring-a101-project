@@ -7,12 +7,15 @@ from rebar.reporting.composite_svg import render_composite_svg
 from rebar.reporting.serialization import to_jsonable
 from rebar.reporting.source_graphics import build_source_graphics, render_source_graphics_svg, source_zone_40d_certificate
 from rebar.reporting.source_edge_placement import apply_source_edge_placement
+from rebar.reporting.source_zone_rebuild import rebuild_source_graphics
 
 
 def physical_web_report(problem, recovery) -> dict:
     report = deepcopy(recovery.patterned_report)
     source_graphics = build_source_graphics(problem, report) if report.get("front") else None
     if source_graphics:
+        source_graphics, rebuild_checks = rebuild_source_graphics(problem, source_graphics)
+        report["source_zone_rebuild_checks"] = rebuild_checks
         source_graphics, edge_checks = apply_source_edge_placement(source_graphics)
         report["source_zone_edge_checks"] = edge_checks
     report["default_drawing_view"] = "source"

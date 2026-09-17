@@ -104,6 +104,8 @@ def test_composite_keeps_all_controls_but_checks_are_visible_and_metrics_unambig
     assert "const edgeCheck = hasSelectedSourceGraphics() ? result.source_zone_edge_checks : null;" in js
     assert "Краевой запас 80d" in js and "40d с каждого конца — отдельный контроль" in js
     assert "непроверенных направлений" in js and "DXF-контур, не модель Revit" in js
+    assert "полное исходное покрытие подтверждено в принятой модели" in js
+    assert "фактическая плита Revit не проверена" in js
     assert "не сертифицирована для выбранного варианта" in js
     assert "required" in page.ids["boundary-trim-host"][1]
 
