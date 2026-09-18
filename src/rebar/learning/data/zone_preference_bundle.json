@@ -113,15 +113,15 @@
   "manifest_sha256": "5d5b7cf5311939f8e4c6efbba803d9856ede07e9ce008a7f1844e2707c791e00",
   "validation": {
     "independent_cases": 3,
-    "mean_regret": 0.02892494074782768,
-    "knee_regret": 0.29564795622434276,
-    "top1_rate": 0.3333333333333333,
+    "mean_regret": 0.036322235630532475,
+    "knee_regret": 0.33378751765594666,
+    "top1_rate": 0.6666666666666666,
     "top3_rate": 0.6666666666666666,
-    "scope": "retained_v3_held_out_models_on_recombined_application_fronts",
+    "scope": "retained_v3_held_out_models_on_integrated_bridge_application_fronts",
     "source_report_sha256": {
-      "k09-minus-2": "ef01a6fad2a73545b64208624827c272890a288fa25f9e5ef5c6ab1b7bfefee3",
-      "plate-zero-k09": "534736ac22fc51fea2a8957d38380ec2f4eb19ddd4639590851b846f1352a72e",
-      "k09-typical-3-14": "4b292c33d39e6111e04c54e6259b9ed341e6984cf46808a038dc30f31adb289d"
+      "k09-minus-2": "da0de690a692f67856bc628938ead0ff5bdc3ec3aee06a2ede2c125ed607156a",
+      "plate-zero-k09": "d25bd05c3e935ae2dc36c67f561f995896332fc322a2306cc09097abe264cfcf",
+      "k09-typical-3-14": "9e4b6eb4494ffc8e879181e873f4efe858b72800eca190193879b32583bffdc7"
     }
   },
   "warning": "Малая выборка и слабая цель по массе/стержням. Не инженерная Точка 3; выбор требует проверки."
