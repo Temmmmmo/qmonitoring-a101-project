@@ -162,8 +162,11 @@ def analyze_composite_plate(
         paths = {"dxf": Path(source.dxf_path)}
         if source.shk_path is not None:
             paths["shk"] = Path(source.shk_path)
+        if source.png_path is not None:
+            paths["png"] = Path(source.png_path)
         hashes = {role: hashlib.sha256(path.read_bytes()).hexdigest() for role, path in paths.items()}
-        mosaic = load_direction_mosaic(source.dxf_path, shk_path=source.shk_path, mapping_id=source.mapping_id)
+        mosaic = load_direction_mosaic(source.dxf_path, shk_path=source.shk_path,
+                                       png_path=source.png_path, mapping_id=source.mapping_id)
         if any(hashlib.sha256(path.read_bytes()).hexdigest() != hashes[role] for role, path in paths.items()):
             raise ValueError("вход изменился во время чтения")
         parsed.append((mosaic, {"filenames": {role: path.name for role, path in paths.items()},

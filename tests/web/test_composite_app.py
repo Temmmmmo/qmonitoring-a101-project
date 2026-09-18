@@ -42,7 +42,31 @@ def test_composite_workspace_link_assets_and_no_cache():
     assert "расчётный черновик" in page.lower() and "конструктор проверяет её перед применением" in page
     assert 'id="run-demo" type="button"' in page and "Посмотреть пример" in page
     assert 'id="custom-inputs"' in page and 'id="demo-notice"' in page
+    assert "шкалы .shk или PNG" in page
+    assert 'accept=".shk,.png"' in client.get("/static/composite.js").text
     assert 'href="/composite?demo=1"' in client.get("/").text
+
+
+def test_composite_upload_accepts_four_png_scales(monkeypatch):
+    captured = []
+
+    def record(sources, *args, **kwargs):
+        captured.extend(sources)
+        assert all(source.png_path is not None and source.png_path.exists() for source in sources)
+        assert all(source.shk_path is None for source in sources)
+        return {"received": len(sources)}
+
+    monkeypatch.setattr(web, "analyze_composite_plate", record)
+    names = ("Нижняя по Х", "Нижняя по У", "Верхняя по Х", "Верхняя по У")
+    files = {}
+    for direction, name in zip(PLATE_DIRECTIONS, names):
+        key = f"{direction.layer.value}_{direction.axis.value.lower()}"
+        files[f"dxf_{key}"] = (f"{name}.dxf", b"dxf", "application/dxf")
+        files[f"shk_{key}"] = (f"{key}.png", b"png", "image/png")
+    response = client.post("/api/analyze-composite-plate", files=files, data=options())
+    assert response.status_code == 200, response.text
+    assert response.json() == {"received": 4}
+    assert all(not source.png_path.exists() for source in captured)
 
 
 def test_one_click_demo_runs_without_upload_and_does_not_approve_project_settings():

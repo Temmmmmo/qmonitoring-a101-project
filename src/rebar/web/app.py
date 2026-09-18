@@ -211,18 +211,23 @@ async def analyze_composite_plate_upload(
             raise ValueError("для host нужна явная проверка совпадения XY-координат")
         with TemporaryDirectory(prefix="rebar-composite-plate-") as folder:
             sources = []
-            for index, (direction, dxf, shk) in enumerate(zip(PLATE_DIRECTIONS, dxfs, scales)):
-                dxf_name, shk_name = _safe_name(dxf, "input.dxf"), _safe_name(shk, "scale.shk")
-                if Path(dxf_name).suffix.lower() != ".dxf" or Path(shk_name).suffix.lower() != ".shk":
-                    raise ValueError("для каждого направления нужны DXF и SHK")
+            for index, (direction, dxf, scale) in enumerate(zip(PLATE_DIRECTIONS, dxfs, scales)):
+                dxf_name, scale_name = _safe_name(dxf, "input.dxf"), _safe_name(scale, "scale.shk")
+                scale_suffix = Path(scale_name).suffix.casefold()
+                if Path(dxf_name).suffix.casefold() != ".dxf" or scale_suffix not in {".shk", ".png"}:
+                    raise ValueError("для каждого направления нужны DXF и шкала .shk или .png")
                 if direction_from_filename(dxf_name) != direction:
                     raise ValueError(f"файл {dxf_name!r} загружен не в своё направление {direction}")
                 parent = Path(folder) / str(index)
                 parent.mkdir()
-                dxf_path, shk_path = parent / dxf_name, parent / shk_name
+                dxf_path, scale_path = parent / dxf_name, parent / scale_name
                 await _save_upload(dxf, dxf_path)
-                await _save_upload(shk, shk_path)
-                sources.append(PlateDirectionSource(dxf_path, shk_path))
+                await _save_upload(scale, scale_path)
+                sources.append(PlateDirectionSource(
+                    dxf_path,
+                    shk_path=scale_path if scale_suffix == ".shk" else None,
+                    png_path=scale_path if scale_suffix == ".png" else None,
+                ))
             reference = None
             if host_reference is not None:
                 reference = load_review_input(await host_reference.read(256 * 1024 + 1))

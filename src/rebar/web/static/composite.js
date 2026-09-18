@@ -72,7 +72,7 @@ function setLayoutVariants(payload) {
 }
 q("#direction-inputs").innerHTML = directions.map((d) => `<fieldset><legend>${d.title}</legend>
   <label>Изополе DXF<input name="dxf_${d.key}" type="file" accept=".dxf" required></label>
-  <label>Соответствующая шкала<input name="shk_${d.key}" type="file" accept=".shk" required></label></fieldset>`).join("");
+  <label>Шкала армирования · .shk или PNG<input name="shk_${d.key}" type="file" accept=".shk,.png" required></label></fieldset>`).join("");
 q("#placement-inputs").innerHTML = directions.map((d) => `<fieldset data-direction="${d.key}"><legend>${d.title}</legend>
   <label>Координата фоновой оси, мм<input data-param="background_origin_mm" type="number" step="any" placeholder="Из проекта" required></label>
   <label>Сдвиг первой добавки @300 от фона, мм<input data-param="first_300_offset_mm" type="number" step="any" required></label>
@@ -394,7 +394,7 @@ function readableCalculationError(error) {
   if (error.httpStatus === 409) return "Другой расчёт уже выполняется. Дождитесь его завершения и повторите запуск.";
   if (error.httpStatus === 503) return "Исходные файлы выбранной плиты недоступны на сервере. Выберите другую доступную плиту или сообщите об этом разработчику.";
   if (/fetch|network|связь/i.test(reason)) return "Не удалось связаться с сервером. Проверьте соединение и повторите запуск.";
-  if (/шкал|legend|mapping|SHK/i.test(reason)) return "Не удалось применить шкалу армирования. Проверьте, что каждому DXF соответствует его SHK и поддержанная схема добавок.";
+  if (/шкал|legend|mapping|SHK|PNG/i.test(reason)) return "Не удалось применить шкалу армирования. Проверьте, что каждому DXF соответствует его .shk или PNG с легендой и поддержанная схема добавок.";
   if (/origin_mm|фаз|поперечн|привязк.*ос|phase.source|placement.settings/i.test(reason)) return "Не удалось определить положение добавок относительно фона. Для своего проекта проверьте координаты в разделе «Привязка к фоновой сетке» и источник этих значений.";
   if (/контур|границ|native|exterior|host|polygon|200mm/i.test(reason)) return "Не удалось проверить границы плиты в выбранном режиме. Для К09 нужен отчёт Working Host той же плиты 200 мм и подтверждённое совпадение XY. Подробная причина указана ниже.";
   if (/coverage|покры|исходн.*потреб|source limits|complete.*variant/i.test(reason)) return "Не удалось подготовить полную раскладку в текущих ограничениях. Исходная потребность не уменьшена. Проверьте схему добавок и лимиты поиска; точная причина указана ниже.";

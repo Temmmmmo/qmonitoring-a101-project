@@ -181,7 +181,8 @@ const context={document:{querySelector:q,body:{classList:{add(){},remove(){}}}},
 vm.createContext(context);vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),context);
 assert(vm.runInContext('readableCalculationError({httpStatus:409,message:"busy"})',context).includes('Дождитесь'));
 assert(vm.runInContext('readableCalculationError({httpStatus:503,message:"files missing"})',context).includes('на сервере'));
-assert(vm.runInContext('readableCalculationError({message:"legend mismatch"})',context).includes('SHK'));
+const scaleError=vm.runInContext('readableCalculationError({message:"legend mismatch"})',context);
+assert(scaleError.includes('.shk') && scaleError.includes('PNG'));
 assert(vm.runInContext('readableCalculationError({message:"coverage failed"})',context).includes('потребность не уменьшена'));
 vm.runInContext('runAnalysis("/api/engineering-examples/k09/analyze",{method:"POST"})',context).then(()=>{
  assert(q('#error').textContent.includes('фоновой сетке'));assert(!q('#error').textContent.includes('<img'));
