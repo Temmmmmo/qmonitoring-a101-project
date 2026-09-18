@@ -218,19 +218,22 @@ const nodes=new Map();const make=()=>({innerHTML:'',textContent:'',value:'0',dis
  addEventListener(){},querySelectorAll(){return[];},setAttribute(){}});
 const q=id=>{if(!nodes.has(id))nodes.set(id,make());return nodes.get(id);};
 const urls=[];const replies=[
- {ok:true,status:202,json:async()=>({job_id:'abc',status:'running'})},
- {ok:true,status:202,json:async()=>({job_id:'abc',status:'running'})},
+ {ok:true,status:202,json:async()=>({job_id:'abc',status:'running',progress_percent:0,progress_stage:'Подготовка'})},
+ {ok:true,status:202,json:async()=>({job_id:'abc',status:'running',progress_percent:35,progress_stage:'Найдены варианты'})},
  {ok:false,status:422,json:async()=>({detail:'legend mismatch'})}];
 const context={document:{querySelector:q,body:{classList:{add(){},remove(){}}}},
  window:{location:{search:'',hash:''},engineeringExampleReady:Promise.resolve(null)},
  fetch:async url=>{urls.push(url);return replies.shift();},URLSearchParams,Intl,console,
  setTimeout:callback=>{callback();return 0;},clearTimeout,setInterval,clearInterval};
 vm.createContext(context);vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),context);
-vm.runInContext('runAnalysis("/api/analyze-composite-plate",{method:"POST"})',context).then(()=>{
+vm.runInContext('runAnalysis("/api/analyze-composite-plate",{method:"POST",body:{get:()=>"true"}})',context).then(()=>{
  assert.deepEqual(urls,['/api/analyze-composite-plate',
    '/api/analyze-composite-plate/jobs/abc','/api/analyze-composite-plate/jobs/abc']);
  assert(q('#error').textContent.includes('legend mismatch'));
  assert.equal(q('#error-technical').textContent,'legend mismatch');
+ assert.equal(q('#progress-track').hidden,false);
+ assert.equal(q('#progress-bar').value,35);
+ assert.equal(q('#progress-percent').textContent,'35%');
 }).catch(error=>{console.error(error);process.exitCode=1;});
 """
     node(script, STATIC / 'composite.js')

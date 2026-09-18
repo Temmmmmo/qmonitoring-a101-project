@@ -59,6 +59,8 @@
         <a href="/revit" class="start-secondary">Инструменты Revit →</a></div></details>
     </div>
     <p id="progress" role="status" aria-live="polite"></p>
+    <div id="progress-track" hidden><label for="progress-bar">Этапы расчёта · <span id="progress-percent">0%</span></label>
+      <progress id="progress-bar" max="100" value="0"></progress></div>
     <p id="error" role="alert" hidden></p>
     <details id="error-details" class="result-details" hidden><summary>Техническая причина ошибки</summary><pre id="error-technical"></pre></details>
     <details id="custom-inputs" class="custom-inputs">
@@ -195,5 +197,5 @@
       <button id="run-demo" type="button">Посмотреть пример на синтетических данных</button></details>
   </main>
   <script src="/static/engineering-example.js?v=5" defer></script>
-  <script src="/static/composite.js?v=16" defer></script>
+  <script src="/static/composite.js?v=17" defer></script>
 </body></html>

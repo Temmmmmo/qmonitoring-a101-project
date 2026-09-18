@@ -47,6 +47,9 @@ legend { font-weight: 650; padding: 0 7px; color: #356476; }
 #error-technical { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; color: #58707b; }
 #progress { font-size: 14px; margin: 18px 0; }
 #progress:empty { display: none; }
+#progress-track { margin: -10px 0 18px; max-width: 600px; color: #356476; font-size: 13px; }
+#progress-track[hidden] { display: none; }
+#progress-track progress { display: block; width: 100%; height: 16px; margin-top: 7px; accent-color: #287989; }
 .is-calculating #progress { position: sticky; top: 12px; z-index: 5; background: #e5f1f2; color: #245a68; border: 1px solid #b7d7dd; border-radius: 8px; padding: 18px; box-shadow: 0 5px 20px #23434a15; }
 #output { margin-top: 30px; padding: 30px; background: #fff; border: 1px solid #d2dfe4; border-radius: 12px; scroll-margin-top: 20px; }
 .result-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; }

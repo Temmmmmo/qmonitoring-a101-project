@@ -77,6 +77,7 @@ def test_uploaded_plate_job_survives_post_and_returns_result(monkeypatch):
 
     def calculate(sources, *args, **kwargs):
         paths.extend(source.dxf_path for source in sources)
+        kwargs["progress_callback"](35, "Найдены варианты: Низ · X")
         started.set()
         assert release.wait(5)
         assert all(path.exists() for path in paths)
@@ -95,7 +96,10 @@ def test_uploaded_plate_job_survives_post_and_returns_result(monkeypatch):
     job_id = response.json()["job_id"]
     try:
         assert started.wait(5)
-        assert client.get(f"/api/analyze-composite-plate/jobs/{job_id}").status_code == 202
+        status = client.get(f"/api/analyze-composite-plate/jobs/{job_id}")
+        assert status.status_code == 202
+        assert status.json()["progress_percent"] == 35
+        assert status.json()["progress_stage"] == "Найдены варианты: Низ · X"
         assert all(path.exists() for path in paths)
         assert client.post("/api/analyze-composite-plate", files=files,
                            data=options(async_job="true")).status_code == 409

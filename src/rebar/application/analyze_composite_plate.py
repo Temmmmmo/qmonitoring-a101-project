@@ -9,6 +9,7 @@ from dataclasses import dataclass, replace
 import hashlib
 import math
 from pathlib import Path
+from typing import Callable
 
 from rebar.models import Direction
 from rebar.optimization.adapters.mosaic import build_demand_map
@@ -141,6 +142,7 @@ def analyze_composite_plate(
     min_width_cells: int = 2, cutting_profile: str = "plate-11700", case_id: str = "",
     host_reference: dict | None = None, coordinate_policy: str | None = None,
     maximum_cutting_overhead_pct: float = 5,
+    progress_callback: Callable[[int, str], None] | None = None,
 ) -> dict:
     """Один сценарий для API/CLI; класс и фазы задаёт вызывающая сторона, не алгоритм."""
     if len(sources) != 4:
@@ -162,8 +164,13 @@ def analyze_composite_plate(
     constraints = LayoutConstraints(min_width_cells=min_width_cells,
         allowed_cut_lengths_mm=_cutting_lengths("plate-11700" if cutting_profile == PLATE_11700_BATCH_PROFILE else cutting_profile),
         cutting_profile=cutting_profile)
+    def report_progress(percent: int, stage: str):
+        if progress_callback is not None:
+            progress_callback(percent, stage)
+
+    direction_labels = ("Низ · X", "Низ · Y", "Верх · X", "Верх · Y")
     parsed = []
-    for source in sources:
+    for index, source in enumerate(sources):
         paths = {"dxf": Path(source.dxf_path)}
         if source.shk_path is not None:
             paths["shk"] = Path(source.shk_path)
@@ -176,6 +183,7 @@ def analyze_composite_plate(
             raise ValueError("вход изменился во время чтения")
         parsed.append((mosaic, {"filenames": {role: path.name for role, path in paths.items()},
                                 "sha256": hashes, "mapping_id": source.mapping_id}))
+        report_progress(5 * (index + 1), f"Считаны DXF и шкала: {direction_labels[PLATE_DIRECTIONS.index(mosaic.direction)]}")
     parsed = _canonical_direction_items(tuple(parsed), lambda pair: pair[0].direction, item_name="DXF-комплект")
     demands = tuple(build_demand_map(mosaic) for mosaic, _ in parsed)
     if any(len(demand.cells) > MAX_CELLS for demand in demands):
@@ -189,13 +197,18 @@ def analyze_composite_plate(
     problems = tuple(CompositeSearchProblem(demand, _placements(demand, config), constraints,
                      STO_279_COVERAGE_POLICY, host) for demand, config in zip(demands, ordered_settings))
     mesh_domains = tuple(composite_mesh_domain(demand) for demand in demands)
-    searches = tuple(solve_composite_pool(problem, maximum_zones=maximum_zones_per_direction,
-        maximum_candidates=maximum_candidates, solver_time_limit_s=solver_time_limit_s,
-        maximum_bar_length_mm=11700, complexity_axis=ComplexityAxis.POSITION_COUNT,
-        maximum_positions=maximum_positions, steel_class=config.steel_class, retain_position_alternatives=True)
-        for problem, config in zip(problems, ordered_settings))
+    report_progress(25, "Проверены сетка КЭ и границы плиты")
+    searches = []
+    for index, (problem, config) in enumerate(zip(problems, ordered_settings)):
+        searches.append(solve_composite_pool(problem, maximum_zones=maximum_zones_per_direction,
+            maximum_candidates=maximum_candidates, solver_time_limit_s=solver_time_limit_s,
+            maximum_bar_length_mm=11700, complexity_axis=ComplexityAxis.POSITION_COUNT,
+            maximum_positions=maximum_positions, steel_class=config.steel_class, retain_position_alternatives=True))
+        report_progress(35 + 10 * index, f"Найдены варианты: {direction_labels[index]}")
+    searches = tuple(searches)
     by_direction, choice_groups = [], []
-    for problem, search, config, (_, source), mesh_domain in zip(problems, searches, ordered_settings, parsed, mesh_domains):
+    for index, (problem, search, config, (_, source), mesh_domain) in enumerate(
+            zip(problems, searches, ordered_settings, parsed, mesh_domains)):
         options = []
         for point in search.points:
             options.append(_direction_candidate(problem, point.zones, config, len(options), mesh_domain=mesh_domain))
@@ -205,6 +218,7 @@ def analyze_composite_plate(
                 c["cell_id"] for c in search.telemetry.get("host_demand_feasibility", {}).get("cells", ()))),
             "candidates": options, "telemetry": search.telemetry})
         choice_groups.append(tuple((i, j) for j in range(len(options)) for i in (len(by_direction) - 1,)))
+        report_progress(70 + 5 * index, f"Проверены варианты: {direction_labels[index]}")
 
     def candidate(choice):
         return by_direction[choice[0]]["candidates"][choice[1]]
@@ -215,6 +229,7 @@ def analyze_composite_plate(
 
     combinations = combine_keyed_candidates(tuple(choice_groups), keys_of=keys,
                                             mass_of=lambda choice: candidate(choice)["metrics"]["additional_mass_kg"])
+    report_progress(88, "Объединены варианты четырёх направлений")
     combined = []
     for choices in combinations:
         schedule = build_bar_schedule(group for i, j in choices for group in composite_schedule_groups(
@@ -235,6 +250,7 @@ def analyze_composite_plate(
     for point in front:
         point["stock_cutting"] = check_stock_cutting(point["bar_schedule"])
         point["bar_schedule"] = to_jsonable(point["bar_schedule"])
+    report_progress(92, "Проверен раскрой партии")
     selected = _select(front)
     diagnostic_front, balance_attempts = [], []
     if cutting_profile == PLATE_11700_BATCH_PROFILE and front:
@@ -298,6 +314,7 @@ def analyze_composite_plate(
                     front.append(point)
                     best_mass = point["additional_mass_kg"]
             selected = _select(front)
+    report_progress(97, "Расчёт готов, формируем отчёт")
     blocks = [*REMAINING_CHECKS, "stock-cutting-manufacturing-assumptions"]
     if any(spec.step == 100 for demand in demands for level in demand.levels for spec in level.recipe.additions):
         blocks.append("coplanar-background-contact-and-depths")

@@ -436,8 +436,23 @@ async function runAnalysis(url, options) {
   q("#run-engineering-example").disabled = true;
   q("#run-boundary-trim").disabled = true;
   const startedAt = Date.now();
+  const hasStages = url === "/api/analyze-composite-plate" && options?.body?.get?.("async_job") === "true";
+  q("#progress-track").hidden = !hasStages;
+  q("#progress-bar").value = 0;
+  q("#progress-percent").textContent = "0%";
+  let currentStage = "Подготовка входных файлов";
+  const showStage = (payload) => {
+    const percent = payload.progress_percent;
+    if (!Number.isInteger(percent) || percent < 0 || percent > 100 || typeof payload.progress_stage !== "string") return;
+    q("#progress-bar").value = percent;
+    q("#progress-percent").textContent = `${percent}%`;
+    currentStage = payload.progress_stage;
+    updateProgress();
+  };
   const updateProgress = () => {
-    const message = `Рассчитываем четыре направления · ${Math.floor((Date.now() - startedAt) / 1000)} с. Проверяем покрытие и всю партию. Не закрывайте страницу.`;
+    const message = hasStages
+      ? `${currentStage} · ${Math.floor((Date.now() - startedAt) / 1000)} с. Не закрывайте страницу.`
+      : `Рассчитываем четыре направления · ${Math.floor((Date.now() - startedAt) / 1000)} с. Проверяем покрытие и всю партию. Не закрывайте страницу.`;
     q("#progress").textContent = message;
     if (url.startsWith("/api/engineering-examples/")) q("#example-status").textContent = message;
   };
@@ -449,10 +464,12 @@ async function runAnalysis(url, options) {
     let payload = await readAnalysisResponse(response);
     if (response.status === 202 && payload.job_id) {
       const jobId = payload.job_id;
+      showStage(payload);
       do {
         await new Promise((resolve) => setTimeout(resolve, 3000));
         response = await fetch(`/api/analyze-composite-plate/jobs/${encodeURIComponent(jobId)}`, {cache: "no-store"});
         payload = await readAnalysisResponse(response);
+        if (response.status === 202) showStage(payload);
       } while (response.status === 202 && payload.status === "running");
     }
     if (!response.ok) {
@@ -461,6 +478,10 @@ async function runAnalysis(url, options) {
       throw failure;
     }
     result = payload;
+    if (hasStages) {
+      q("#progress-bar").value = 100;
+      q("#progress-percent").textContent = "100%";
+    }
     if (result.schema_version !== "composite-plate-analysis/v1" || !Array.isArray(result.front) || result.directions?.length !== 4) throw new Error("Неподдержанный формат результата. Обновите страницу.");
     setLayoutVariants(payload);
     q("#demo-notice").hidden = !result.demo;

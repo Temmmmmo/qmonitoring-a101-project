@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import json
 import logging
 from pathlib import Path
@@ -28,6 +28,8 @@ class CompositeJob:
     id: str
     folder: TemporaryDirectory
     status: str = "running"
+    progress_percent: int = 0
+    progress_stage: str = "Подготовка входных файлов"
     result_path: Path | None = None
     error_status: int | None = None
     error_detail: str | None = None
@@ -67,7 +69,8 @@ class CompositeJobs:
 
     def _run(self, job: CompositeJob, calculate):
         try:
-            result = calculate()
+            result = calculate(lambda percent, stage: self._progress(job, percent, stage))
+            self._progress(job, 99, "Сохраняем отчёт")
             path = Path(job.folder.name) / "result.json"
             with path.open("w", encoding="utf-8") as output:
                 json.dump(result, output, ensure_ascii=False, allow_nan=False)
@@ -81,14 +84,23 @@ class CompositeJobs:
             status, error_status, error_detail = "failed", 500, "Расчёт завершился внутренней ошибкой; сообщите ID задания разработчику"
         with self._lock:
             job.status, job.result_path = status, path
+            if status == "complete":
+                job.progress_percent, job.progress_stage = 100, "Расчёт завершён"
             job.error_status, job.error_detail = error_status, error_detail
             job.finished_at = time.monotonic()
             self._active_id = None
 
+    def _progress(self, job: CompositeJob, percent: int, stage: str):
+        with self._lock:
+            if not 0 <= percent <= 99 or percent < job.progress_percent:
+                raise ValueError("некорректный прогресс расчёта")
+            job.progress_percent, job.progress_stage = percent, stage
+
     def get(self, job_id: str) -> CompositeJob | None:
         with self._lock:
             self._prune()
-            return self._jobs.get(job_id)
+            job = self._jobs.get(job_id)
+            return replace(job) if job is not None else None
 
 
 composite_jobs = CompositeJobs()

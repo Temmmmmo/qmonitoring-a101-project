@@ -235,18 +235,19 @@ async def analyze_composite_plate_upload(
         if host_reference is not None:
             reference = load_review_input(await host_reference.read(256 * 1024 + 1))
 
-        def calculate():
+        def calculate(progress_callback=None):
             return analyze_composite_plate(tuple(sources), tuple(settings),
                 maximum_zones_per_direction=maximum_zones, maximum_positions=maximum_positions,
                 maximum_candidates=maximum_candidates, solver_time_limit_s=solver_time_limit_s,
                 min_width_cells=min_width_cells, cutting_profile=cutting_profile, case_id=case_id,
                 maximum_cutting_overhead_pct=maximum_cutting_overhead_pct,
-                host_reference=reference, coordinate_policy=HOST_COORDINATE_POLICY if reference is not None else None)
+                host_reference=reference, coordinate_policy=HOST_COORDINATE_POLICY if reference is not None else None,
+                progress_callback=progress_callback)
 
         if async_job:
-            def run_job():
+            def run_job(progress_callback):
                 try:
-                    return calculate()
+                    return calculate(progress_callback)
                 except (ValueError, KeyError, DXFError, MissingRebarSpecificationError, RebarMappingError) as error:
                     raise JobInputError(422, str(error)) from error
                 except OSError as error:
@@ -256,7 +257,10 @@ async def analyze_composite_plate_upload(
             if job_id is None:
                 raise HTTPException(status_code=409, detail="Другой расчёт плиты уже выполняется")
             temporary = None  # the job now owns and cleans up its input files
-            return JSONResponse(status_code=202, content={"job_id": job_id, "status": "running"})
+            job = composite_jobs.get(job_id)
+            return JSONResponse(status_code=202, content={"job_id": job_id, "status": "running",
+                                                          "progress_percent": job.progress_percent,
+                                                          "progress_stage": job.progress_stage})
         return await run_in_threadpool(calculate)
     except (ValueError, KeyError, DXFError, MissingRebarSpecificationError, RebarMappingError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
@@ -275,7 +279,9 @@ def composite_plate_job_result(job_id: str):
     if job is None:
         raise HTTPException(status_code=404, detail="Задание не найдено или срок хранения результата истёк")
     if job.status == "running":
-        return JSONResponse(status_code=202, content={"job_id": job_id, "status": "running"})
+        return JSONResponse(status_code=202, content={"job_id": job_id, "status": "running",
+                                                      "progress_percent": job.progress_percent,
+                                                      "progress_stage": job.progress_stage})
     if job.status == "failed":
         raise HTTPException(status_code=job.error_status or 500, detail=job.error_detail)
     return FileResponse(job.result_path, media_type="application/json")
