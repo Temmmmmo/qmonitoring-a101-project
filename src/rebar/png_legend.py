@@ -48,6 +48,27 @@ def _read_text(ocr, crop: np.ndarray) -> tuple[str, float]:
     return result[0][1].strip().replace(" ", ""), float(result[0][2])
 
 
+def _confirm_numeric_bounds(observed: list[tuple[str, float]], bounds: list[float]) -> int:
+    """Require a majority of raster ticks to agree with the authoritative DXF.
+
+    Tiny LIRA digits are occasionally hallucinated (for example ``3.77`` as
+    ``77``). One OCR disagreement is not evidence that the whole scale differs.
+    """
+    confirmed = 0
+    for index, (raw, confidence) in enumerate(observed):
+        if confidence < 0.6 or not _NUMBER.fullmatch(raw):
+            continue
+        value = float(raw.replace(",", "."))
+        if abs(value - float(bounds[index])) <= 0.65:
+            confirmed += 1
+    if confirmed < (len(observed) + 1) // 2:
+        raise ValueError(
+            "числовую шкалу PNG не удалось подтвердить по DXF: "
+            f"совпали {confirmed} из {len(observed)} границ"
+        )
+    return confirmed
+
+
 def apply_png_legend(mosaic: Mosaic, png_path: str | Path) -> Mosaic:
     """Bind PNG recipes to a DXF mosaic, rejecting incomplete or mismatched scales."""
     if mosaic.legend or any(cell.band is not None for cell in mosaic.cells):
@@ -109,13 +130,11 @@ def apply_png_legend(mosaic: Mosaic, png_path: str | Path) -> Mosaic:
     bottom = y
     while bottom + 1 < image.shape[0] and tuple(image[bottom + 1, (bars[0][0] + bars[0][1]) // 2]) == bars[0][2]:
         bottom += 1
-    for index, x in enumerate(boundaries):
+    numeric_ticks = []
+    for x in boundaries:
         crop = image[bottom + 1:min(image.shape[0], bottom + 18), max(0, x - 35):min(image.shape[1], x + 35)]
-        raw, confidence = _read_text(ocr, crop)
-        if confidence >= 0.6 and _NUMBER.fullmatch(raw):
-            value = float(raw.replace(",", "."))
-            if abs(value - float(bounds[index])) > 0.65:
-                raise ValueError(f"граница шкалы PNG {index + 1} ({value:g}) не соответствует DXF ({bounds[index]:g})")
+        numeric_ticks.append(_read_text(ocr, crop))
+    confirmed_ticks = _confirm_numeric_bounds(numeric_ticks, bounds)
 
     by_aci = {band.aci: band for band in bands}
     cells = [Cell(poly=list(cell.poly), centroid=cell.centroid, aci=cell.aci, band=by_aci[cell.aci]) for cell in mosaic.cells]
@@ -123,5 +142,6 @@ def apply_png_legend(mosaic: Mosaic, png_path: str | Path) -> Mosaic:
     meta["png_legend_path"] = str(path)
     meta["legend_source"] = "png"
     meta["png_legend_labels"] = [band.label for band in bands]
+    meta["png_numeric_bounds_confirmed"] = confirmed_ticks
     return Mosaic(direction=mosaic.direction, cells=cells, legend=bands, bbox=mosaic.bbox,
                   source_path=mosaic.source_path, meta=meta)
