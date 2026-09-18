@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from rebar.application.analyze_direction import load_direction_mosaic
-from rebar.png_legend import _confirm_numeric_bounds
+from rebar.application.analyze_direction import _validate_png_recipe_bounds, load_direction_mosaic
+from rebar.legend import parse_recipe
 
 
 def _foundation() -> Path:
@@ -81,13 +81,15 @@ def test_minus_two_plate_png_scales(dxf_name, axis, layer, expected_count):
     assert all(cell.band is not None for cell in mosaic.cells)
 
 
-def test_one_hallucinated_numeric_tick_does_not_reject_matching_scale():
-    assert _confirm_numeric_bounds(
-        [("1.6", 0.68), ("77", 0.63), ("7.54", 0.63), ("11.3", 0.68)],
-        [1.6, 3.8, 7.5, 11.0],
-    ) == 3
-    with pytest.raises(ValueError, match="не удалось подтвердить"):
-        _confirm_numeric_bounds(
-            [("1.6", 0.68), ("77", 0.63), ("75", 0.63), ("113", 0.68)],
-            [1.6, 3.8, 7.5, 11.0],
-        )
+def test_png_recipe_that_disagrees_with_dxf_area_is_rejected():
+    pytest.importorskip("rapidocr_onnxruntime")
+    root = Path(__file__).resolve().parents[1] / "Для верификации изополей 2"
+    folders = list(root.rglob("2025.02.04_плита над минус 2 этажом/Изополя"))
+    if not folders:
+        pytest.skip("локальные материалы плиты над −2 отсутствуют")
+    folder = folders[0]
+    png = next(path for path in folder.glob("*.png") if "оси_X_у_ниж" in path.name)
+    mosaic = load_direction_mosaic(folder / "Нижняя по Х.dxf", png_path=png)
+    mosaic.legend[1].recipe = parse_recipe("s300d18+s300d18")
+    with pytest.raises(ValueError, match="интервал DXF"):
+        _validate_png_recipe_bounds(mosaic)

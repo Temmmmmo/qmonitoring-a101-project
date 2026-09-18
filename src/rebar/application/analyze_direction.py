@@ -10,6 +10,7 @@ from typing import Any
 from rebar.dxf_ingest import read_mosaic
 from rebar.models import Mosaic
 from rebar.png_legend import apply_png_legend
+from rebar.optimization.services.reinforcement_area import recipe_area_cm2_m
 from rebar.optimization.mappings.legacy_s1 import LEGACY_S1_D18
 from rebar.optimization import (
     K09_ABOVE_3_D10,
@@ -117,8 +118,25 @@ def load_direction_mosaic(
         auto_shk=png_path is None and selected_mapping is None,
     )
     if png_path is not None:
-        return apply_png_legend(mosaic, png_path)
+        return _validate_png_recipe_bounds(apply_png_legend(mosaic, png_path))
     return apply_rebar_mapping(mosaic, selected_mapping) if selected_mapping is not None else mosaic
+
+
+def _validate_png_recipe_bounds(mosaic: Mosaic) -> Mosaic:
+    """Check raster recipes against DXF As intervals without OCR of tiny tick numbers."""
+    bounds = mosaic.meta["scale_bounds_as"]
+    aci_order = mosaic.meta["scale_aci_order"]
+    for index, band in enumerate(mosaic.legend):
+        area = recipe_area_cm2_m(band.reinforcement_recipe)
+        lower, upper = float(bounds[index]), float(bounds[index + 1])
+        # The terminal upper bound can be a display cap rather than a recipe area.
+        matches = (lower - 0.65 <= area <= upper + 0.65) if index == len(aci_order) - 1 else abs(area - upper) <= 0.65
+        if not matches:
+            raise ValueError(
+                f"подпись полосы PNG {index + 1} ({band.label}) даёт {area:.2f} см²/м, "
+                f"но интервал DXF — {lower:g}..{upper:g} см²/м"
+            )
+    return mosaic
 
 
 def _algorithm_requests(
