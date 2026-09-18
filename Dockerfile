@@ -21,6 +21,8 @@ COPY integrations/pyrevit/QMonitoring.extension/QMonitoring.tab/Review.panel/Reb
 
 RUN python -m pip install --upgrade pip \
     && python -m pip install -r requirements-runtime.txt \
+    && python -m pip uninstall --yes opencv-python \
+    && python -m pip install --force-reinstall --no-deps 'opencv-python-headless>=4.9' \
     && python -m pip install --no-deps .
 
 USER rebar

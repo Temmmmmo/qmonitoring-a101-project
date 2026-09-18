@@ -11,7 +11,7 @@ shapely>=2.0        # geometry (zones, rectangles) — used from stage B onward
 uvicorn>=0.34        # local ASGI server
 
 # PNG ingest path (stage A, fallback source)
-opencv-python>=4.9
+opencv-python-headless>=4.9
 Pillow>=10.0
 rapidocr-onnxruntime>=1.2.3,<2  # распознавание подписей шкалы в PNG
 
