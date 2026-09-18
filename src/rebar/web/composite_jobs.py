@@ -7,8 +7,10 @@ from dataclasses import dataclass, replace
 import json
 import logging
 from pathlib import Path
+import resource
 from tempfile import TemporaryDirectory
 from threading import Lock
+import sys
 import time
 from uuid import uuid4
 
@@ -95,6 +97,9 @@ class CompositeJobs:
             if not 0 <= percent <= 99 or percent < job.progress_percent:
                 raise ValueError("некорректный прогресс расчёта")
             job.progress_percent, job.progress_stage = percent, stage
+        peak_rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        peak_mib = peak_rss / (1024 * 1024 if sys.platform == "darwin" else 1024)
+        LOGGER.info("Composite plate job %s: %d%% %s; peak RSS %.1f MiB", job.id, percent, stage, peak_mib)
 
     def get(self, job_id: str) -> CompositeJob | None:
         with self._lock:

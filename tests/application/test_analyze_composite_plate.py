@@ -21,8 +21,10 @@ def test_full_dxf_plate_keeps_all_components_and_unions_positions(composite_plat
     progress = []
     report = analyze_composite_plate(sources, settings(), maximum_candidates=32, solver_time_limit_s=2,
                                      cutting_profile="continuous", progress_callback=lambda percent, stage: progress.append((percent, stage)))
-    assert [percent for percent, _ in progress] == [5, 10, 15, 20, 25, 35, 45, 55, 65,
-                                                     70, 75, 80, 85, 88, 92, 97]
+    assert [percent for percent, _ in progress] == sorted(percent for percent, _ in progress)
+    assert [percent for percent, stage in progress if stage.startswith("Читаем DXF")] == [0, 5, 10, 15]
+    assert [percent for percent, stage in progress if stage.startswith("Считаны DXF")] == [5, 10, 15, 20]
+    assert [percent for percent, stage in progress if stage.startswith("Найдены варианты")] == [35, 45, 55, 65]
     assert progress[-1][1] == "Расчёт готов, формируем отчёт"
     assert report["direction_count"] == 4 and report["front"]
     assert report["source_demand_preserved"] and not report["placement_eligible"]

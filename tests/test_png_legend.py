@@ -6,6 +6,7 @@ import pytest
 
 from rebar.application.analyze_direction import _validate_png_recipe_bounds, load_direction_mosaic
 from rebar.legend import parse_recipe
+from rebar.png_legend import _legend_ocr
 
 
 def _foundation() -> Path:
@@ -14,6 +15,13 @@ def _foundation() -> Path:
     if not matches:
         pytest.skip("локальные материалы фундаментной плиты отсутствуют")
     return matches[0].parent
+
+
+def test_png_ocr_reuses_one_recognition_engine_without_detection():
+    pytest.importorskip("rapidocr_onnxruntime")
+    ocr = _legend_ocr()
+    assert ocr is _legend_ocr()
+    assert not ocr.use_det and not ocr.use_cls and ocr.use_rec
 
 
 @pytest.mark.parametrize(

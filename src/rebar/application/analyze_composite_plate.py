@@ -171,6 +171,7 @@ def analyze_composite_plate(
     direction_labels = ("Низ · X", "Низ · Y", "Верх · X", "Верх · Y")
     parsed = []
     for index, source in enumerate(sources):
+        report_progress(5 * index, f"Читаем DXF и шкалу: {direction_labels[index]}")
         paths = {"dxf": Path(source.dxf_path)}
         if source.shk_path is not None:
             paths["shk"] = Path(source.shk_path)

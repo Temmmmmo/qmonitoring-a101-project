@@ -15,9 +15,10 @@ flowchart LR
     Deploy -->|"docker compose up"| Web
 ```
 
-Контейнер запускается непривилегированным пользователем, с read-only root filesystem и
-удаляет загруженные файлы вместе с временным каталогом после ответа. В `tmpfs` выделено
-256 МБ; HTTP-слой дополнительно ограничивает каждый загружаемый файл 30 МБ.
+Контейнер запускается непривилегированным пользователем, с read-only root filesystem.
+Файлы синхронного запроса удаляются после ответа; файлы фонового задания и результат
+удаляются после часового срока хранения. В `tmpfs` выделено 256 МБ; HTTP-слой
+дополнительно ограничивает каждый загружаемый файл 30 МБ.
 
 ## Что требуется на сервере
 
@@ -66,6 +67,17 @@ docker compose --project-name qmonitoring --file compose.prod.yml up \
 docker compose --project-name qmonitoring --file compose.prod.yml ps
 docker compose --project-name qmonitoring --file compose.prod.yml logs --tail=200 qmonitoring-web
 ```
+
+Если контейнер перезапускается во время фонового расчёта без Python traceback,
+проверьте причину остановки предыдущего процесса:
+
+```bash
+docker inspect $(docker compose --project-name qmonitoring --file compose.prod.yml ps -q qmonitoring-web) \
+  --format '{{.State.OOMKilled}} {{.State.ExitCode}} {{.RestartCount}}'
+```
+
+В логах задания `Composite plate job` показывают этап, процент и пиковый RSS процесса.
+Процент обозначает завершённые этапы, а не оценку времени до конца.
 
 ## Caddy и временная авторизация
 

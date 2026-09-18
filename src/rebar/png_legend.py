@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from functools import lru_cache
 from pathlib import Path
+from threading import Lock
 
 import numpy as np
 from ezdxf.colors import aci2rgb
@@ -19,6 +21,18 @@ from .legend import parse_recipe
 from .models import Band, Cell, Mosaic
 
 _LABEL = re.compile(r"s\d+d\d+(?:\+s\d+d\d+)*", re.IGNORECASE)
+_OCR_LOCK = Lock()
+
+
+@lru_cache(maxsize=1)
+def _legend_ocr():
+    # RapidOCR constructs ONNX sessions for all three modules even when a
+    # module is disabled. Keep one instance for all four directions and avoid
+    # a CPU-sized thread pool per session inside the container.
+    from rapidocr_onnxruntime import RapidOCR
+
+    return RapidOCR(use_det=False, use_cls=False, use_rec=True,
+                    intra_op_num_threads=1, inter_op_num_threads=1)
 
 
 def _runs(row: np.ndarray) -> list[tuple[int, int, tuple[int, int, int]]]:
@@ -44,7 +58,9 @@ def _read_text(ocr, crop: np.ndarray) -> tuple[str, float]:
     result, _elapsed = ocr(crop)
     if not result or len(result) != 1:
         return "", 0.0
-    return result[0][1].strip().replace(" ", ""), float(result[0][2])
+    item = result[0]
+    label, confidence = (item[0], item[1]) if len(item) == 2 else (item[1], item[2])
+    return label.strip().replace(" ", ""), float(confidence)
 
 
 def apply_png_legend(mosaic: Mosaic, png_path: str | Path) -> Mosaic:
@@ -62,7 +78,9 @@ def apply_png_legend(mosaic: Mosaic, png_path: str | Path) -> Mosaic:
     with Image.open(path) as source:
         if source.format != "PNG":
             raise ValueError("файл шкалы не является PNG")
-        image = np.asarray(source.convert("RGB"))
+        # The bars and their labels are confined to the top 80 pixels. Full
+        # LIRA screenshots are much larger and add no information to OCR.
+        image = np.asarray(source.crop((0, 0, source.width, min(80, source.height))).convert("RGB"))
     y, bars = _legend_bars(image)
     aci_order = mosaic.meta.get("scale_aci_order", [])
     bounds = mosaic.meta.get("scale_bounds_as", [])
@@ -79,9 +97,6 @@ def apply_png_legend(mosaic: Mosaic, png_path: str | Path) -> Mosaic:
         if max(abs(actual - expected) for actual, expected in zip(colour, reference)) > 55:
             raise ValueError(f"цвет полосы PNG {index + 1} не соответствует DXF")
 
-    from rapidocr_onnxruntime import RapidOCR
-
-    ocr = RapidOCR(use_text_det=False)
     bands: list[Band] = []
     for index, (start, end, colour) in enumerate(bars):
         mid = (start + end) // 2
@@ -94,10 +109,12 @@ def apply_png_legend(mosaic: Mosaic, png_path: str | Path) -> Mosaic:
         # long labels continue into the following band. Include that overhang
         # without the next band's label, which sits near its own right edge.
         crop = image[:top, max(0, end - 50):min(image.shape[1], end + 100)]
-        label, confidence = _read_text(ocr, crop)
+        with _OCR_LOCK:
+            label, confidence = _read_text(_legend_ocr(), crop)
         if confidence < 0.75 or not _LABEL.fullmatch(label):
             crop = image[max(0, top - 16):top, max(0, end - 80):min(image.shape[1], end + 80)]
-            label, confidence = _read_text(ocr, crop)
+            with _OCR_LOCK:
+                label, confidence = _read_text(_legend_ocr(), crop)
         if confidence < 0.75 or not _LABEL.fullmatch(label):
             raise ValueError(f"не удалось надёжно прочитать подпись полосы PNG {index + 1}: {label!r}")
         recipe = parse_recipe(label)
