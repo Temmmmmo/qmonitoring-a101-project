@@ -193,6 +193,24 @@ vm.runInContext('runAnalysis("/api/engineering-examples/k09/analyze",{method:"PO
     node(script, STATIC / 'composite.js')
 
 
+def test_empty_server_response_reports_http_status_instead_of_json_parse_error():
+    script = r"""
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const nodes=new Map();const make=()=>({innerHTML:'',textContent:'',value:'0',disabled:false,hidden:false,dataset:{},style:{},
+ addEventListener(){},querySelectorAll(){return[];},setAttribute(){}});
+const q=id=>{if(!nodes.has(id))nodes.set(id,make());return nodes.get(id);};
+const context={document:{querySelector:q,body:{classList:{add(){},remove(){}}}},window:{location:{search:'',hash:''},engineeringExampleReady:Promise.resolve(null)},
+ fetch:async()=>({ok:false,status:502,text:async()=>''}),URLSearchParams,Intl,console,setTimeout,clearTimeout,setInterval,clearInterval};
+vm.createContext(context);vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),context);
+vm.runInContext('runAnalysis("/api/analyze-composite-plate",{method:"POST"})',context).then(()=>{
+ assert(q('#error').textContent.includes('HTTP 502'));
+ assert(!q('#error-technical').textContent.includes('Unexpected end of JSON input'));
+ assert.equal(q('#error-details').hidden,false);
+}).catch(error=>{console.error(error);process.exitCode=1;});
+"""
+    node(script, STATIC / 'composite.js')
+
+
 @pytest.mark.parametrize("file", ["engineering-example.js", "home.js", "composite.js"])
 def test_javascript_syntax(file):
     executable = shutil.which("node")

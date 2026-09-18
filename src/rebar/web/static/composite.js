@@ -428,10 +428,16 @@ async function runAnalysis(url, options) {
   q("#progress").textContent = "Запускаем расчёт четырёх направлений. Оптимизация и проверка физических стержней могут занять несколько минут.";
   try {
     const response = await fetch(url, options);
-    const raw = await response.text();
-    let payload;
-    try { payload = raw ? JSON.parse(raw) : null; } catch { payload = null; }
-    if (payload === null) {
+    let payload = null;
+    try {
+      if (typeof response.text === "function") {
+        const raw = await response.text();
+        payload = raw ? JSON.parse(raw) : null;
+      } else if (typeof response.json === "function") {
+        payload = await response.json();
+      }
+    } catch { payload = null; }
+    if (payload == null) {
       const failure = new Error(`Пустой или повреждённый ответ сервера; HTTP ${response.status}`);
       failure.httpStatus = response.status;
       failure.emptyResponse = true;

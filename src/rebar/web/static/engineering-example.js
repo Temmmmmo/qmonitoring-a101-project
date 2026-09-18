@@ -9,9 +9,15 @@ window.engineeringExampleReady = (async () => {
     ? new Intl.NumberFormat("ru-RU", {maximumFractionDigits: 2}).format(value) + suffix : "не указан";
   try {
     const response = await fetch("/api/engineering-examples", {cache: "no-store"});
-    const raw = await response.text();
-    let payload;
-    try { payload = raw ? JSON.parse(raw) : null; } catch { payload = null; }
+    let payload = null;
+    try {
+      if (typeof response.text === "function") {
+        const raw = await response.text();
+        payload = raw ? JSON.parse(raw) : null;
+      } else if (typeof response.json === "function") {
+        payload = await response.json();
+      }
+    } catch { payload = null; }
     if (!payload) throw new Error(`Сервер не вернул каталог примеров (HTTP ${response.status}). Повторите загрузку страницы.`);
     if (!response.ok) throw new Error(typeof payload.detail === "string" ? payload.detail : "Каталог примеров недоступен.");
     if (!Array.isArray(payload.examples)) throw new Error("Неверный формат каталога примеров.");
