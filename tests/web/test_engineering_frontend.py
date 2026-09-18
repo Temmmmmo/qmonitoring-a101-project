@@ -128,6 +128,7 @@ q('#search-mode').value='positions';q('#search-mode').callbacks.change();
 assert.equal(q('[name="maximum_positions"]').disabled,false);
 assert.equal(q('[name="maximum_candidates"]').disabled,false);
 q('#search-mode').value='zone-merge';q('#search-mode').callbacks.change();
+assert(q('#search-mode-note').textContent.includes('объединения близких зон'));
 const specs=[['bottom','X'],['bottom','Y'],['top','X'],['top','Y']];
 const directions=specs.map(([layer,axis],i)=>({direction:{layer,axis},candidates:[0,1,2].map(j=>({
  direction:{layer,axis},metrics:{zone_count:j+1},zone_drafts:Array.from({length:j+1},(_,k)=>({source_zone_id:`${i}-${j}-${k}`,components:[]})),
@@ -200,6 +201,10 @@ context.payload.front=front;context.payload.schema_version='composite-plate-anal
 context.payload.zone_tradeoff.knee={status:'candidate',index:1};
 context.payload.engineering_preference={status:'available',recommended_index:2,top_indexes:[2,1,0],
  model_id:'lo-po-v1',training_case_ids:['plate-a'],validation:{independent_cases:1,mean_regret:.1,knee_regret:.2}};
+context.payload.zone_tradeoff.post_recombination={enabled:true,
+ method:'bounded-longitudinal-bridge-after-finite-recombination',time_limit_s_per_direction:3,
+ max_pair_evaluations_per_direction:256,max_merges_per_seed:8,maximum_bar_length_mm:11700,
+ direction_statuses:['completed','completed','completed','completed'],direction_runtime_s:[.1,.2,.3,.4]};
 context.fetch=async()=>({ok:true,status:200,json:async()=>context.payload});
 vm.runInContext('runAnalysis("/api/composite-demo",{method:"POST"})',context).then(()=>{
  assert.equal(q('#error').hidden,true);
@@ -213,7 +218,8 @@ vm.runInContext('runAnalysis("/api/composite-demo",{method:"POST"})',context).th
  q('#download-selected').callbacks.click();
  assert.equal(context.window.downloaded.value.selected_point.zone_count,8);
  assert.equal(context.window.downloaded.value.directions[0].zone_drafts[0].source_zone_id,'0-1-0');
- delete context.payload.engineering_preference;context.payload.selected_index=1;
+ delete context.payload.engineering_preference;delete context.payload.zone_tradeoff.post_recombination;
+ context.payload.selected_index=1;
  return vm.runInContext('runAnalysis("/api/composite-demo",{method:"POST"})',context);
 }).then(()=>{
  assert.equal(q('#error').hidden,true);assert.equal(q('#candidate').value,'1');

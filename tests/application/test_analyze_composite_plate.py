@@ -65,19 +65,27 @@ def test_full_dxf_plate_keeps_all_components_and_unions_positions(composite_plat
 
 
 def test_separate_zone_merge_search_keeps_four_directions_and_selects_real_front_point(composite_plate_sources):
+    progress = []
     report = analyze_composite_plate(composite_plate_sources, settings(), search_mode="zone-merge",
-        maximum_zones_per_direction=64, solver_time_limit_s=3, cutting_profile="continuous")
+        maximum_zones_per_direction=64, solver_time_limit_s=3, cutting_profile="continuous",
+        progress_callback=lambda percent, stage: progress.append((percent, stage)))
     assert report["search_mode"] == "zone-merge"
     assert report["complexity_axis"] == "zone_count"
-    assert report["zone_tradeoff"]["scope"] == "four_directions_sampled_spatial_merge_plus_finite_recombination"
+    assert report["zone_tradeoff"]["scope"] == "four_directions_sampled_spatial_merge_plus_finite_recombination_plus_post_milp_longitudinal_bridge"
     assert report["zone_tradeoff"]["local_improvement"]["enabled"] is True
     assert len(report["zone_tradeoff"]["hierarchy_methods"]) == 4
     assert report["front"] and report["selected_index"] == report["zone_tradeoff"]["knee"]["index"]
     assert report["engineering_preference"]["status"] == "unavailable"  # This fixture has only one tradeoff point.
-    assert report["zone_tradeoff"]["search_algorithm"] == "composite-bottom-up-plus-finite-recombine/v1"
+    assert report["zone_tradeoff"]["search_algorithm"] == "composite-bottom-up-plus-finite-recombine-plus-longitudinal-bridge/v1"
     assert report["zone_tradeoff"]["direction_point_limit"] == 18
+    assert all(len(direction["candidates"]) <= 18 for direction in report["directions"])
     assert report["zone_tradeoff"]["recombination"]["enabled"] is True
-    assert all(direction["telemetry"]["algorithm"] == "composite-bottom-up-plus-finite-recombine/v1"
+    assert report["zone_tradeoff"]["post_recombination"]["enabled"] is True
+    assert report["zone_tradeoff"]["post_recombination"]["max_pair_evaluations_per_direction"] == 256
+    assert len(report["zone_tradeoff"]["post_recombination"]["direction_statuses"]) == 4
+    assert all(direction["telemetry"]["algorithm"] == "composite-bottom-up-plus-finite-recombine-plus-longitudinal-bridge/v1"
+               for direction in report["directions"])
+    assert all(direction["telemetry"]["bridge"]["status"] in ("improved", "no_improvement", "empty_demand", "no_baseline_points")
                for direction in report["directions"])
     assert all(direction["telemetry"]["neighbor_polish"]["enabled"] is True
                for direction in report["directions"])
@@ -97,6 +105,9 @@ def test_separate_zone_merge_search_keeps_four_directions_and_selects_real_front
         assert report["source_graphics"]["directions"][i]["zone_drafts"] == option["zone_drafts"]
     assert selected["zone_count"] == sum(report["directions"][i]["candidates"][j]["metrics"]["zone_count"]
                                          for i, j in enumerate(selected["direction_candidate_indexes"]))
+    assert [percent for percent, _ in progress] == sorted(percent for percent, _ in progress)
+    assert [percent for percent, stage in progress if stage.startswith("Проверяем продольные объединения")] == [34, 44, 54, 64]
+    assert [percent for percent, stage in progress if stage.startswith("Найдены варианты")] == [35, 45, 55, 65]
     json.dumps(report, allow_nan=False)
 
 
@@ -109,6 +120,8 @@ def test_old_positions_mode_never_calls_recombine(composite_plate_sources, monke
     application = importlib.import_module("rebar.application.analyze_composite_plate")
     monkeypatch.setattr(application, "solve_composite_recombine", lambda *args, **kwargs: (_ for _ in ()).throw(
         AssertionError("recombine must be opt-in")))
+    monkeypatch.setattr(application, "bridge_composite_recombined", lambda *args, **kwargs: (_ for _ in ()).throw(
+        AssertionError("bridge must be zone-only")))
     report = application.analyze_composite_plate(composite_plate_sources, settings(), search_mode="positions",
         maximum_candidates=32, cutting_profile="continuous", solver_time_limit_s=2)
     assert report["front"] and report["search_mode"] == "positions"
@@ -130,6 +143,7 @@ def test_model_view_selection_aligns_stock_blocker_and_four_direction_source_pac
                                         "algorithm": "composite-bottom-up-partitions/v1"})
 
     monkeypatch.setattr(application, "solve_composite_recombine", multiple_valid_points)
+    monkeypatch.setattr(application, "bridge_composite_recombined", lambda problem, baseline, **kwargs: baseline)
     monkeypatch.setattr(application, "check_stock_cutting", lambda schedule: {
         "status": "pass" if (sum(row.total_mass_kg for row in schedule) < 5900) == selected_pass else "fail"})
     monkeypatch.setattr(application, "build_engineering_preference", lambda report, bundle: {
@@ -162,6 +176,32 @@ def test_missing_model_falls_back_to_geometric_knee(composite_plate_sources, mon
     assert report["selection"] == "normalized_chord_distance"
     assert report["selected_index"] == report["zone_tradeoff"]["knee"]["index"]
     assert report["source_graphics_candidate_index"] == report["selected_index"]
+
+
+def test_bridge_fallback_preserves_checked_direction_front_and_export(composite_plate_sources, monkeypatch):
+    application = importlib.import_module("rebar.application.analyze_composite_plate")
+    from rebar.optimization.algorithms.composite_bridge import bridge_composite_recombined
+
+    captured = []
+
+    def force_overlength_fallback(problem, baseline, **kwargs):
+        result = bridge_composite_recombined(problem, baseline, **{**kwargs, "maximum_bar_length_mm": 1})
+        assert result.points == baseline.points
+        assert result.telemetry["bridge"]["status"] != "improved"
+        captured.append(result)
+        return result
+
+    monkeypatch.setattr(application, "bridge_composite_recombined", force_overlength_fallback)
+    report = application.analyze_composite_plate(composite_plate_sources, settings(), search_mode="zone-merge",
+        maximum_zones_per_direction=64, solver_time_limit_s=2, cutting_profile="continuous")
+    assert len(captured) == 4 and report["front"]
+    assert [len(direction["candidates"]) for direction in report["directions"]] == [len(search.points) for search in captured]
+    selected = report["front"][report["selected_index"]]
+    assert report["source_graphics_candidate_index"] == report["selected_index"]
+    for i, j in enumerate(selected["direction_candidate_indexes"]):
+        option = report["directions"][i]["candidates"][j]
+        assert option["coverage"]["status"] == "pass" and option["coverage"]["uncovered_cell_count"] == 0
+        assert report["source_graphics"]["directions"][i]["zone_drafts"] == option["zone_drafts"]
 
 
 def test_zone_merge_rejects_position_limit_before_input_read(composite_plate_sources):

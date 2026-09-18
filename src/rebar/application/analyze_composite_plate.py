@@ -16,6 +16,7 @@ from rebar.models import Direction
 from rebar.learning.zone_preference import build_engineering_preference
 from rebar.optimization.adapters.mosaic import build_demand_map
 from rebar.optimization.algorithms.composite_pool import solve_composite_pool
+from rebar.optimization.algorithms.composite_bridge import bridge_composite_recombined
 from rebar.optimization.algorithms.composite_recombine import solve_composite_recombine
 from rebar.optimization.algorithms.stock_length_balance import balance_stock_lengths
 from rebar.optimization.contracts.composite_coverage import STO_279_COVERAGE_POLICY, MONOTONE_COMPONENT_STO_COVERAGE_POLICY
@@ -219,14 +220,18 @@ def analyze_composite_plate(
     searches = []
     for index, (problem, config) in enumerate(zip(problems, ordered_settings)):
         if zone_search:
-            searches.append(solve_composite_recombine(problem, maximum_zones=maximum_zones_per_direction,
+            recombined = solve_composite_recombine(problem, maximum_zones=maximum_zones_per_direction,
                 time_limit_s=solver_time_limit_s, neighbor_polish=True, gap_hierarchy=True,
                 polish_max_evaluations=320, polish_max_steps=8, polish_time_limit_s=5,
                 maximum_points=16, recombine_time_limit_s=5, maximum_pool_zones=15000,
                 maximum_incidence_nnz=1000000, maximum_prep_s=5,
                 progress_callback=lambda done, total: report_progress(
-                    25 + 10 * index + int(10 * done / total),
-                    f"Разбиения {done}/{total}: {direction_labels[index]}")))
+                    25 + 10 * index + int(9 * done / total),
+                    f"Разбиения {done}/{total}: {direction_labels[index]}"))
+            report_progress(34 + 10 * index, f"Проверяем продольные объединения: {direction_labels[index]}")
+            searches.append(bridge_composite_recombined(problem, recombined,
+                time_limit_s=3, max_pair_evaluations=256, max_merges_per_seed=8,
+                maximum_bar_length_mm=11700))
         else:
             searches.append(solve_composite_pool(problem, maximum_zones=maximum_zones_per_direction,
             maximum_candidates=maximum_candidates, solver_time_limit_s=solver_time_limit_s,
@@ -397,7 +402,7 @@ def analyze_composite_plate(
     if zone_search:
         report["zone_tradeoff"] = {
             "knee": recommend_zone_knee([(p["zone_count"], p["additional_mass_kg"]) for p in front]),
-            "scope": "four_directions_sampled_spatial_merge_plus_finite_recombination",
+            "scope": "four_directions_sampled_spatial_merge_plus_finite_recombination_plus_post_milp_longitudinal_bridge",
             "direction_point_limit": 18,
             "direction_candidate_counts": [len(direction["candidates"]) for direction in by_direction],
             "search_algorithm": searches[0].telemetry["algorithm"],
@@ -407,7 +412,15 @@ def analyze_composite_plate(
                               "maximum_prep_s": 5, "solver_time_limit_s": 5,
                               "direction_statuses": [search.telemetry.get("recombine", {}).get("status", "not_reported")
                                                      for search in searches]},
-            "timed_out": any(s.telemetry["timed_out"] for s in searches),
+            "post_recombination": {"enabled": True, "method": "bounded-longitudinal-bridge-after-finite-recombination",
+                                   "time_limit_s_per_direction": 3, "max_pair_evaluations_per_direction": 256,
+                                   "max_merges_per_seed": 8, "maximum_bar_length_mm": 11700,
+                                   "direction_statuses": [search.telemetry.get("bridge", {}).get("status", "not_reported")
+                                                          for search in searches],
+                                   "direction_runtime_s": [search.telemetry.get("bridge", {}).get("elapsed_s", 0.0)
+                                                           for search in searches]},
+            "timed_out": any(s.telemetry["timed_out"] or s.telemetry.get("bridge", {}).get("timed_out", False)
+                             for s in searches),
             "mass_includes": ["all_additional_components", "40d_each_end", "selected_cut_lengths"],
             "hierarchy_methods": ["alternating-x", "alternating-y", "longest-axis-median",
                                   "longest-axis-largest-balanced-centroid-gap"],
