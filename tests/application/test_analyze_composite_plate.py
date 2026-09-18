@@ -69,12 +69,15 @@ def test_separate_zone_merge_search_keeps_four_directions_and_selects_real_front
         maximum_zones_per_direction=64, solver_time_limit_s=3, cutting_profile="continuous")
     assert report["search_mode"] == "zone-merge"
     assert report["complexity_axis"] == "zone_count"
-    assert report["zone_tradeoff"]["scope"] == "four_directions_sampled_spatial_merge_partitions"
+    assert report["zone_tradeoff"]["scope"] == "four_directions_sampled_spatial_merge_plus_finite_recombination"
     assert report["zone_tradeoff"]["local_improvement"]["enabled"] is True
     assert len(report["zone_tradeoff"]["hierarchy_methods"]) == 4
     assert report["front"] and report["selected_index"] == report["zone_tradeoff"]["knee"]["index"]
     assert report["engineering_preference"]["status"] == "unavailable"  # This fixture has only one tradeoff point.
-    assert all(direction["telemetry"]["algorithm"] == "composite-bottom-up-partitions/v1"
+    assert report["zone_tradeoff"]["search_algorithm"] == "composite-bottom-up-plus-finite-recombine/v1"
+    assert report["zone_tradeoff"]["direction_point_limit"] == 18
+    assert report["zone_tradeoff"]["recombination"]["enabled"] is True
+    assert all(direction["telemetry"]["algorithm"] == "composite-bottom-up-plus-finite-recombine/v1"
                for direction in report["directions"])
     assert all(direction["telemetry"]["neighbor_polish"]["enabled"] is True
                for direction in report["directions"])
@@ -102,6 +105,15 @@ def test_unknown_zone_search_mode_is_rejected_before_input_read(composite_plate_
         analyze_composite_plate(composite_plate_sources, settings(), search_mode="typo")
 
 
+def test_old_positions_mode_never_calls_recombine(composite_plate_sources, monkeypatch):
+    application = importlib.import_module("rebar.application.analyze_composite_plate")
+    monkeypatch.setattr(application, "solve_composite_recombine", lambda *args, **kwargs: (_ for _ in ()).throw(
+        AssertionError("recombine must be opt-in")))
+    report = application.analyze_composite_plate(composite_plate_sources, settings(), search_mode="positions",
+        maximum_candidates=32, cutting_profile="continuous", solver_time_limit_s=2)
+    assert report["front"] and report["search_mode"] == "positions"
+
+
 @pytest.mark.parametrize("selected_pass", [True, False])
 def test_model_view_selection_aligns_stock_blocker_and_four_direction_source_packet(
         composite_plate_sources, monkeypatch, selected_pass):
@@ -117,7 +129,7 @@ def test_model_view_selection_aligns_stock_blocker_and_four_direction_source_pac
         return replace(pool, telemetry={**pool.telemetry, "timed_out": False,
                                         "algorithm": "composite-bottom-up-partitions/v1"})
 
-    monkeypatch.setattr(application, "solve_composite_merge", multiple_valid_points)
+    monkeypatch.setattr(application, "solve_composite_recombine", multiple_valid_points)
     monkeypatch.setattr(application, "check_stock_cutting", lambda schedule: {
         "status": "pass" if (sum(row.total_mass_kg for row in schedule) < 5900) == selected_pass else "fail"})
     monkeypatch.setattr(application, "build_engineering_preference", lambda report, bundle: {

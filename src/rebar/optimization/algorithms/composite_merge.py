@@ -54,6 +54,7 @@ def solve_composite_merge(
     neighbor_polish: bool = False, polish_time_limit_s: float = 5,
     polish_max_evaluations: int = 320, polish_max_steps: int = 8,
     gap_hierarchy: bool = False,
+    _proposal_observer=None,
 ) -> CompositeSearchResult:
     """Фронт трёх медианных и опциональной gap-иерархии плюс соседние слияния.
 
@@ -72,6 +73,8 @@ def solve_composite_merge(
         raise ValueError("neighbor_polish должен быть bool")
     if not isinstance(gap_hierarchy, bool):
         raise ValueError("gap_hierarchy должен быть bool")
+    if _proposal_observer is not None and not callable(_proposal_observer):
+        raise ValueError("_proposal_observer должен быть callable")
     if problem.boundary_mode != "strict" or problem.constraints.allow_overlaps is not True:
         raise ValueError("новый поиск сохраняет весь спрос и требует явный профиль пересечений зон")
     demand, constraints = problem.demand, problem.constraints
@@ -142,6 +145,8 @@ def solve_composite_merge(
                     or b[2] < box[2] - 1e-6 or b[3] < box[3] - 1e-6 for b in check.component_service_bboxes_mm):
                     continue
                 telemetry["candidate_count"] += 1
+                if _proposal_observer is not None:
+                    _proposal_observer(zone, check)
                 if best is None or check.additional_mass_kg < best.mass:
                     best = _Plan(check.additional_mass_kg, 1, zone)
             except ValueError:
