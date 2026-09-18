@@ -35,22 +35,48 @@ def _legend_ocr():
                     intra_op_num_threads=1, inter_op_num_threads=1)
 
 
-def _runs(row: np.ndarray) -> list[tuple[int, int, tuple[int, int, int]]]:
+def _raw_runs(row: np.ndarray) -> list[tuple[int, int, tuple[int, int, int]]]:
     changes = np.flatnonzero(np.any(row[1:] != row[:-1], axis=1)) + 1
     edges = np.r_[0, changes, len(row)]
-    result = []
-    for start, end in zip(edges[:-1], edges[1:]):
-        rgb = tuple(int(value) for value in row[start])
-        if end - start >= 25 and max(rgb) - min(rgb) > 20 and min(rgb) < 240:
-            result.append((int(start), int(end), rgb))
-    return result
+    return [(int(start), int(end), tuple(int(value) for value in row[start]))
+            for start, end in zip(edges[:-1], edges[1:])]
 
 
-def _legend_bars(image: np.ndarray) -> tuple[int, list[tuple[int, int, tuple[int, int, int]]]]:
+def _runs(row: np.ndarray) -> list[tuple[int, int, tuple[int, int, int]]]:
+    return [(start, end, rgb) for start, end, rgb in _raw_runs(row)
+            if end - start >= 25 and max(rgb) - min(rgb) > 20 and min(rgb) < 240]
+
+
+def _legend_bars(image: np.ndarray, aci_order: list[int]) -> tuple[int, list[tuple[int, int, tuple[int, int, int]]]]:
     candidates = ((y, _runs(image[y])) for y in range(4, min(80, len(image))))
-    y, bars = max(candidates, key=lambda item: sum(end - start for start, end, _ in item[1]))
-    if len(bars) < 2:
+    y, chromatic = max(candidates, key=lambda item: sum(end - start for start, end, _ in item[1]))
+    if len(chromatic) < 2:
         raise ValueError("в верхней части PNG не найдена цветовая шкала ЛИРА")
+    # ACI 9 is a real gray LIRA band. Its RGB is identical to the gray canvas,
+    # so only an interior, framed segment of normal bar width can establish it.
+    # DXF's ordered palette must independently confirm its colour and position.
+    row = image[y]
+    raw = _raw_runs(row)
+    bars = [chromatic[0]]
+    for right in chromatic[1:]:
+        left = bars[-1]
+        interior = [(start, end, rgb) for start, end, rgb in raw
+                    if left[1] < start and end < right[0] and end - start >= 25
+                    and max(rgb) - min(rgb) <= 20 and max(rgb) < 235]
+        if len(interior) == 1 and len(bars) < len(aci_order):
+            start, end, rgb = interior[0]
+            width = end - start
+            left_width, right_width = left[1] - left[0], right[1] - right[0]
+            left_gap, right_gap = row[left[1]:start], row[end:right[0]]
+            if (abs(width - left_width) <= max(5, left_width * 0.2)
+                    and abs(width - right_width) <= max(5, right_width * 0.2)
+                    and 1 <= len(left_gap) <= 5 and 1 <= len(right_gap) <= 5
+                    and np.any(np.max(left_gap, axis=1) < 30)
+                    and np.any(np.max(right_gap, axis=1) < 30)
+                    and max(abs(actual - expected) for actual, expected
+                            in zip(rgb, aci2rgb(aci_order[len(bars)]))) <= 55):
+                bars.append((start, end, rgb))
+        bars.append(right)
     return y, bars
 
 
@@ -81,9 +107,9 @@ def apply_png_legend(mosaic: Mosaic, png_path: str | Path) -> Mosaic:
         # The bars and their labels are confined to the top 80 pixels. Full
         # LIRA screenshots are much larger and add no information to OCR.
         image = np.asarray(source.crop((0, 0, source.width, min(80, source.height))).convert("RGB"))
-    y, bars = _legend_bars(image)
     aci_order = mosaic.meta.get("scale_aci_order", [])
     bounds = mosaic.meta.get("scale_bounds_as", [])
+    y, bars = _legend_bars(image, aci_order)
     if len(bounds) != len(aci_order) + 1 or len(bars) > len(aci_order):
         raise ValueError("число полос PNG не согласуется со шкалой DXF")
     occupied = {cell.aci for cell in mosaic.cells}

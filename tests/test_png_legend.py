@@ -2,11 +2,95 @@
 
 from pathlib import Path
 
+import numpy as np
 import pytest
+from PIL import Image
 
 from rebar.application.analyze_direction import _validate_png_recipe_bounds, load_direction_mosaic
 from rebar.legend import parse_recipe
-from rebar.png_legend import _legend_ocr
+from rebar.models import Axis, Cell, Direction, Layer, Mosaic
+from rebar.png_legend import _legend_bars, _legend_ocr, apply_png_legend
+
+
+def _synthetic_gray_legend(*, framed=True, interior=True):
+    image = np.full((80, 370, 3), 192, dtype=np.uint8)
+    image[16, 29:337] = 0  # horizontal top border, not a gray canvas edge
+    image[17:36, 30:130] = (159, 127, 255)  # DXF ACI 181
+    image[17:36, 236:336] = (191, 0, 255)  # DXF ACI 200
+    if interior:
+        image[17:36, 133:233] = (192, 192, 192)  # DXF ACI 9
+        if framed:
+            image[17:36, (130, 132, 233, 235)] = 0
+    return image
+
+
+def test_framed_interior_gray_band_is_distinct_from_gray_canvas():
+    y, bars = _legend_bars(_synthetic_gray_legend(), [181, 9, 200])
+    assert y == 17
+    assert [(start, end, rgb) for start, end, rgb in bars] == [
+        (30, 130, (159, 127, 255)), (133, 233, (192, 192, 192)),
+        (236, 336, (191, 0, 255)),
+    ]
+
+
+@pytest.mark.parametrize("framed,interior", ((False, True), (True, False)))
+def test_missing_or_unframed_gray_gap_cannot_be_invented(framed, interior):
+    _, bars = _legend_bars(_synthetic_gray_legend(framed=framed, interior=interior), [181, 9, 200])
+    assert [rgb for _, _, rgb in bars] == [(159, 127, 255), (191, 0, 255)]
+
+
+def test_gray_segment_only_outside_legend_is_not_a_band():
+    image = _synthetic_gray_legend(interior=False)
+    image[17:36, 0:26] = (192, 192, 192)  # outside left chromatic anchor
+    _, bars = _legend_bars(image, [181, 9, 200])
+    assert len(bars) == 2
+
+
+def test_interior_gray_must_match_the_expected_dxf_aci():
+    _, bars = _legend_bars(_synthetic_gray_legend(), [181, 8, 200])
+    assert len(bars) == 2
+
+
+@pytest.mark.parametrize("framed,interior", ((False, True), (True, False)))
+def test_missing_or_misplaced_gray_is_rejected_for_occupied_dxf(tmp_path, framed, interior):
+    png = tmp_path / 'legend.png'
+    Image.fromarray(_synthetic_gray_legend(framed=framed, interior=interior)).save(png)
+    cells = [Cell([(i, 0), (i + 1, 0), (i + 1, 1), (i, 1)],
+                  (i + 0.5, 0.5), aci)
+             for i, aci in enumerate((181, 9, 200))]
+    mosaic = Mosaic(Direction(Layer.BOTTOM, Axis.X), cells, [], (0, 0, 3, 1),
+                    meta={'scale_aci_order': [181, 9, 200],
+                          'scale_bounds_as': [0, 6.7, 13.4, 20.1]})
+    with pytest.raises(ValueError, match='не содержит используемые цвета'):
+        apply_png_legend(mosaic, png)
+
+
+@pytest.mark.parametrize("gray_label", ("s300d16+s300d16", "invalid"))
+def test_gray_band_receives_own_ocr_recipe_or_is_rejected(tmp_path, monkeypatch, gray_label):
+    png = tmp_path / 'legend.png'
+    Image.fromarray(_synthetic_gray_legend()).save(png)
+    labels = iter(("s300d16", gray_label, "s300d16+s150d16")
+                  if gray_label != 'invalid' else ("s300d16",))
+
+    def ocr(_crop):
+        label = next(labels, gray_label)
+        return [(label, 0.99)], 0.001
+
+    monkeypatch.setattr('rebar.png_legend._legend_ocr', lambda: ocr)
+    cells = [Cell([(i, 0), (i + 1, 0), (i + 1, 1), (i, 1)],
+                  (i + 0.5, 0.5), aci)
+             for i, aci in enumerate((181, 9, 200))]
+    mosaic = Mosaic(Direction(Layer.BOTTOM, Axis.X), cells, [], (0, 0, 3, 1),
+                    meta={'scale_aci_order': [181, 9, 200],
+                          'scale_bounds_as': [0, 6.7, 13.4, 20.1]})
+    if gray_label == 'invalid':
+        with pytest.raises(ValueError, match='подпись полосы PNG 2'):
+            apply_png_legend(mosaic, png)
+    else:
+        assigned = _validate_png_recipe_bounds(apply_png_legend(mosaic, png))
+        assert [cell.band.label for cell in assigned.cells] == [
+            's300d16', 's300d16+s300d16', 's300d16+s150d16']
+        assert [band.aci for band in assigned.legend] == [181, 9, 200]
 
 
 def _foundation() -> Path:
@@ -17,11 +101,20 @@ def _foundation() -> Path:
     return matches[0].parent
 
 
-def test_png_ocr_reuses_one_recognition_engine_without_detection():
-    pytest.importorskip("rapidocr_onnxruntime")
+def test_png_ocr_reuses_one_recognition_engine_without_detection(monkeypatch):
+    rapidocr = pytest.importorskip("rapidocr_onnxruntime")
     ocr = _legend_ocr()
     assert ocr is _legend_ocr()
-    assert not ocr.use_det and not ocr.use_cls and ocr.use_rec
+    options = {}
+
+    def record(**kwargs):
+        options.update(kwargs)
+        return object()
+
+    monkeypatch.setattr(rapidocr, "RapidOCR", record)
+    _legend_ocr.__wrapped__()
+    assert options["use_det"] is False and options["use_cls"] is False
+    assert options["use_rec"] is True
 
 
 @pytest.mark.parametrize(
