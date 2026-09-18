@@ -93,3 +93,28 @@ def test_png_recipe_that_disagrees_with_dxf_area_is_rejected():
     mosaic.legend[1].recipe = parse_recipe("s300d18+s300d18")
     with pytest.raises(ValueError, match="интервал DXF"):
         _validate_png_recipe_bounds(mosaic)
+
+
+def test_third_floor_long_png_labels_are_read():
+    pytest.importorskip("rapidocr_onnxruntime")
+    root = Path(__file__).resolve().parents[1] / "Для верификации изополей 2"
+    folders = list(root.rglob("Плита над 3 этажом/Изополя"))
+    if not folders:
+        pytest.skip("локальные материалы плиты над 3 этажом отсутствуют")
+    folder = folders[0]
+    png = next(path for path in folder.glob("*.png") if "оси_X_у_верх" in path.name)
+    mosaic = load_direction_mosaic(folder / "Верхняя по Х.dxf", png_path=png)
+    assert mosaic.legend[1].label == "s300d10+s300d10"
+    assert len(mosaic.legend) == 7
+
+
+def test_ninth_floor_unlabelled_last_band_is_rejected():
+    pytest.importorskip("rapidocr_onnxruntime")
+    root = Path(__file__).resolve().parents[1] / "Для верификации изополей 2"
+    folders = list(root.rglob("Плита над 9 этажом/Изополя"))
+    if not folders:
+        pytest.skip("локальные материалы плиты над 9 этажом отсутствуют")
+    folder = folders[0]
+    png = next(path for path in folder.glob("*.png") if "оси_X_у_верх" in path.name)
+    with pytest.raises(ValueError, match="подпись полосы PNG 8"):
+        load_direction_mosaic(folder / "Верхняя по Х.dxf", png_path=png)

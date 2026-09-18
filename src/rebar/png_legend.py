@@ -90,8 +90,14 @@ def apply_png_legend(mosaic: Mosaic, png_path: str | Path) -> Mosaic:
             top -= 1
         if top < 8:
             raise ValueError("над цветовой шкалой PNG недостаточно места для подписей")
-        crop = image[max(0, top - 16):top, max(0, end - 80):min(image.shape[1], end + 80)]
+        # LIRA anchors each recipe near the right edge of its colour band;
+        # long labels continue into the following band. Include that overhang
+        # without the next band's label, which sits near its own right edge.
+        crop = image[:top, max(0, end - 50):min(image.shape[1], end + 100)]
         label, confidence = _read_text(ocr, crop)
+        if confidence < 0.75 or not _LABEL.fullmatch(label):
+            crop = image[max(0, top - 16):top, max(0, end - 80):min(image.shape[1], end + 80)]
+            label, confidence = _read_text(ocr, crop)
         if confidence < 0.75 or not _LABEL.fullmatch(label):
             raise ValueError(f"не удалось надёжно прочитать подпись полосы PNG {index + 1}: {label!r}")
         recipe = parse_recipe(label)
