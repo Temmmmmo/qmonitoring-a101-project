@@ -220,7 +220,7 @@ def analyze_composite_plate(
     for index, (problem, config) in enumerate(zip(problems, ordered_settings)):
         if zone_search:
             searches.append(solve_composite_merge(problem, maximum_zones=maximum_zones_per_direction,
-                time_limit_s=solver_time_limit_s, neighbor_polish=True,
+                time_limit_s=solver_time_limit_s, neighbor_polish=True, gap_hierarchy=True,
                 polish_max_evaluations=320, polish_max_steps=8, polish_time_limit_s=5,
                 progress_callback=lambda done, total: report_progress(
                     25 + 10 * index + int(10 * done / total),
@@ -382,6 +382,8 @@ def analyze_composite_plate(
             "direction_point_limit": 16,
             "timed_out": any(s.telemetry["timed_out"] for s in searches),
             "mass_includes": ["all_additional_components", "40d_each_end", "selected_cut_lengths"],
+            "hierarchy_methods": ["alternating-x", "alternating-y", "longest-axis-median",
+                                  "longest-axis-largest-balanced-centroid-gap"],
             "local_improvement": {"enabled": True, "method": "neighbor-merge",
                                   "max_evaluations_per_direction": 320,
                                   "max_steps_per_seed": 8, "extra_time_limit_s_per_direction": 5},

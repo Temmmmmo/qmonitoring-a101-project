@@ -67,12 +67,15 @@ def test_separate_zone_merge_search_keeps_four_directions_and_selects_real_front
     assert report["complexity_axis"] == "zone_count"
     assert report["zone_tradeoff"]["scope"] == "four_directions_sampled_spatial_merge_partitions"
     assert report["zone_tradeoff"]["local_improvement"]["enabled"] is True
+    assert len(report["zone_tradeoff"]["hierarchy_methods"]) == 4
     assert report["front"] and report["selected_index"] == report["zone_tradeoff"]["knee"]["index"]
     assert report["engineering_preference"]["status"] == "unavailable"  # This fixture has only one tradeoff point.
     assert all(direction["telemetry"]["algorithm"] == "composite-bottom-up-partitions/v1"
                for direction in report["directions"])
     assert all(direction["telemetry"]["neighbor_polish"]["enabled"] is True
                for direction in report["directions"])
+    assert all(direction["telemetry"]["gap_hierarchy_enabled"] is True
+               and direction["telemetry"]["hierarchy_count"] == 4 for direction in report["directions"])
     assert all(direction["source_cell_count"] == 96 for direction in report["directions"])
     assert all(report["front"][i]["zone_count"] < report["front"][i + 1]["zone_count"]
                and report["front"][i]["additional_mass_kg"] > report["front"][i + 1]["additional_mass_kg"]

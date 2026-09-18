@@ -209,3 +209,66 @@ def test_polishing_reuses_pair_after_unique_evaluation_budget_is_exhausted():
     assert all(row["evaluated_pairs_at_accept"] == 10 for row in stats["candidate_trajectory"][:2])
     assert stats["validated_trajectory_count"] >= 2
     assert all(point.coverage.status == "pass" for point in result.points)
+
+
+@pytest.mark.parametrize("axis", (Axis.X, Axis.Y))
+def test_opt_in_largest_gap_hierarchy_improves_separated_clusters(axis):
+    base = _problem(axis)
+
+    def move(point, shift):
+        x, y = point
+        return (x + shift, y) if axis is Axis.X else (x, y + shift)
+
+    levels = (2, 1, 1, 1, 1, 1, 2, 1, 0)
+    cells = []
+    for cell, level in zip(base.demand.cells, levels):
+        along = cell.centroid[0] if axis is Axis.X else cell.centroid[1]
+        shift = 2400 if along >= 1200 else 0
+        cells.append(replace(cell, poly=tuple(move(vertex, shift) for vertex in cell.poly),
+                             centroid=move(cell.centroid, shift), level_index=level, aci=level))
+    bbox = (0, 0, 4200, 1800) if axis is Axis.X else (0, 0, 1800, 4200)
+    problem = replace(base, demand=replace(base.demand, cells=tuple(cells), bbox=bbox))
+    baseline_progress, gap_progress = [], []
+    baseline = solve_composite_merge(problem, maximum_zones=9, maximum_points=32,
+        progress_callback=lambda done, total: baseline_progress.append((done, total)))
+    gap = solve_composite_merge(problem, maximum_zones=9, maximum_points=32,
+        gap_hierarchy=True, progress_callback=lambda done, total: gap_progress.append((done, total)))
+    assert baseline_progress == [(1, 3), (2, 3), (3, 3)]
+    assert gap_progress == [(1, 4), (2, 4), (3, 4), (4, 4)]
+    assert baseline.telemetry["hierarchy_count"] == 3
+    assert gap.telemetry["hierarchy_count"] == 4
+    assert "largest_centroid_gap_hierarchy" in gap.telemetry["scope"]
+    baseline_by_count = {len(point.zones): point.coverage.additional_mass_kg for point in baseline.points}
+    gap_by_count = {len(point.zones): point.coverage.additional_mass_kg for point in gap.points}
+    assert gap_by_count[2] < baseline_by_count[2] - 10  # Same two-zone budget, a real split improvement.
+    assert gap.points[-1].coverage.additional_mass_kg <= baseline.points[-1].coverage.additional_mass_kg
+    assert all(evaluate_composite_coverage(problem.demand, point.zones, policy_id=problem.policy_id,
+               constraints=problem.constraints) == point.coverage for point in gap.points)
+
+
+def test_equal_centroids_and_tiny_budget_never_return_partial_coverage(monkeypatch):
+    base = _problem()
+    cells = tuple(replace(cell, centroid=(900, 900)) for cell in base.demand.cells)
+    problem = replace(base, demand=replace(base.demand, cells=cells))
+    complete = solve_composite_merge(problem, maximum_zones=9, gap_hierarchy=True)
+    assert complete.points and all(point.coverage.status == "pass" for point in complete.points)
+    ticks = iter((0.0, 100.0, 200.0, 300.0, 400.0))
+    monkeypatch.setattr("rebar.optimization.algorithms.composite_merge.perf_counter", lambda: next(ticks, 500.0))
+    timed = solve_composite_merge(problem, maximum_zones=9, time_limit_s=0.01,
+                                   gap_hierarchy=True)
+    assert timed.telemetry["timed_out"]
+    assert timed.points
+    assert all(evaluate_composite_coverage(problem.demand, point.zones, policy_id=problem.policy_id,
+               constraints=problem.constraints) == point.coverage
+               and point.coverage.status == "pass" and point.coverage.uncovered_cell_count == 0
+               for point in timed.points)
+
+
+def test_gap_hierarchy_is_explicit_and_default_preserves_old_front():
+    problem = _problem()
+    default = solve_composite_merge(problem, maximum_zones=9)
+    disabled = solve_composite_merge(problem, maximum_zones=9, gap_hierarchy=False)
+    assert default.points == disabled.points
+    assert "largest_centroid_gap" not in default.telemetry["scope"]
+    with pytest.raises(ValueError, match="gap_hierarchy должен быть bool"):
+        solve_composite_merge(problem, gap_hierarchy="yes")

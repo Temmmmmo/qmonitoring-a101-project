@@ -4,8 +4,8 @@
 альтернативы «объединить» и «оставить раздельно» для разных чисел зон. Поэтому
 одно раннее жадное слияние не фиксирует всю дальнейшую траекторию. Полный спрос,
 общая детализация и независимый checker неизменны. Это конечное семейство
-иерархических разбиений; optional neighbor polishing расширяет этот конечный
-набор. Глобальный оптимум всех прямоугольных покрытий не доказан.
+иерархических разбиений; явные gap-иерархия и соседнее укрупнение могут
+расширить этот конечный набор. Глобальный оптимум всех покрытий не доказан.
 """
 from __future__ import annotations
 
@@ -53,8 +53,9 @@ def solve_composite_merge(
     maximum_points: int = 16, progress_callback=None,
     neighbor_polish: bool = False, polish_time_limit_s: float = 5,
     polish_max_evaluations: int = 320, polish_max_steps: int = 8,
+    gap_hierarchy: bool = False,
 ) -> CompositeSearchResult:
-    """Конечный фронт трёх иерархий X/Y/longest и опциональных соседних слияний.
+    """Фронт трёх медианных и опциональной gap-иерархии плюс соседние слияния.
 
     Время ограничивает генерацию деревьев, а не обязательный финальный checker.
     При прерывании ветви она может дать только целый проверяемый прямоугольник:
@@ -69,6 +70,8 @@ def solve_composite_merge(
         raise ValueError("нужны положительные лимиты длины и времени (не более 300 секунд)")
     if not isinstance(neighbor_polish, bool):
         raise ValueError("neighbor_polish должен быть bool")
+    if not isinstance(gap_hierarchy, bool):
+        raise ValueError("gap_hierarchy должен быть bool")
     if problem.boundary_mode != "strict" or problem.constraints.allow_overlaps is not True:
         raise ValueError("новый поиск сохраняет весь спрос и требует явный профиль пересечений зон")
     demand, constraints = problem.demand, problem.constraints
@@ -80,9 +83,15 @@ def solve_composite_merge(
     for level in levels:
         validate_recipe_placement(level.recipe, placements[level.index])
     cells = tuple(sorted((c for c in demand.cells if demand.level(c.level_index).requires_extra), key=lambda c: c.id))
+    hierarchy_count = 4 if gap_hierarchy else 3
+    scope = "three_spatial_merge_hierarchies"
+    if gap_hierarchy:
+        scope += "_plus_largest_centroid_gap_hierarchy"
+    if neighbor_polish:
+        scope += "_plus_bounded_neighbor_unions"
     telemetry = {"algorithm": "composite-bottom-up-partitions/v1", "complexity_axis": "zone_count",
-                 "scope": ("three_spatial_merge_hierarchies_plus_bounded_neighbor_unions_not_global_optimum"
-                           if neighbor_polish else "three_spatial_merge_hierarchies_not_global_optimum"),
+                 "scope": scope + "_not_global_optimum", "gap_hierarchy_enabled": gap_hierarchy,
+                 "hierarchy_count": hierarchy_count,
                  "source_demand_preserved": True,
                  "engineering_optimality_proven": False, "maximum_zones": maximum_zones,
                  "initial_cell_count": len(cells), "candidate_count": 0, "host_rejected_candidates": 0,
@@ -158,7 +167,14 @@ def solve_composite_merge(
         ordered = sorted(group, key=lambda c: (c.centroid[axis], c.centroid[1 - axis], c.id))
         # Equal centroids occur in duplicated/overlapping elements. Splitting by
         # position, with a stable ID tie-break, still permits independent leaves.
-        middle = len(ordered) // 2
+        if mode == 3:
+            lower = max(1, len(ordered) // 5)
+            upper = min(len(ordered) - 1, 4 * len(ordered) // 5)
+            middle = max(range(lower, upper + 1), key=lambda k: (
+                ordered[k].centroid[axis] - ordered[k - 1].centroid[axis],
+                -abs(k - len(ordered) / 2)))
+        else:
+            middle = len(ordered) // 2
         first, second = tuple(ordered[:middle]), tuple(ordered[middle:])
         left, right = tree(first, mode, depth + 1, deadline), tree(second, mode, depth + 1, deadline)
         for n, a in left.items():
@@ -169,9 +185,9 @@ def solve_composite_merge(
         return _prune(options)
 
     archive = {}
-    for mode in range(3):
+    for mode in range(hierarchy_count):
         # Reserve time for distinct hierarchies instead of spending it on one path.
-        deadline = started + time_limit_s * (mode + 1) / 3
+        deadline = started + time_limit_s * (mode + 1) / hierarchy_count
         options = tree(cells, mode, 0, deadline)
         for count, plan in options.items():
             if count not in archive or plan.mass < archive[count].mass:
@@ -179,7 +195,7 @@ def solve_composite_merge(
         telemetry["trajectories"].append({"mode": mode, "front": [
             {"zone_count": n, "mass_kg": p.mass} for n, p in sorted(options.items())]})
         if progress_callback:
-            progress_callback(mode + 1, 3)
+            progress_callback(mode + 1, hierarchy_count)
     front = list(_prune(archive).values())
     telemetry["generated_front_count"] = len(front)
     if len(front) > maximum_points:

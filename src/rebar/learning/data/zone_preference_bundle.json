@@ -1,6 +1,6 @@
 {
   "schema_version": "zone-preference-bundle/v1",
-  "model_id": "ridge-mass-bars-alpha-0.01/v1+d7c7e9a36bed",
+  "model_id": "ridge-mass-bars-alpha-0.01/v1+bef6d63ed7e2",
   "full_model": {
     "schema_version": "zone-preference-ridge/v1",
     "feature_names": [
@@ -9,9 +9,9 @@
       "bars_over_front_min_minus_one"
     ],
     "coefficients": [
-      0.5887678950584007,
-      0.5459109818584112,
-      0.22079865915550953
+      0.24947284937651715,
+      0.5590964880196884,
+      0.448234298568167
     ],
     "ridge_alpha": 0.01,
     "training_case_ids": [
@@ -20,9 +20,9 @@
       "plate-zero-k09"
     ],
     "training_report_sha256": [
-      "1f593159098a8ef22d33ea36a604ec485cd1209e5ab2c18ad944e4697cdd39bf",
-      "60c2db355e2979b27bbe399199660ee53d5043c280c8f721c60f55a4ad83f93f",
-      "b6f0346d2f3c08dfd67c8b8c57fa442e93887b7eae78b02eff90a3c115ac699a"
+      "41370d8accff6640570b5630661a417108bd7c2e7c46c0570a83f5ee0dfb56d2",
+      "532882900e91ba2ae8915e005833582fccfe38f77a7018e21d159e47ecf5c606",
+      "74a12a83d22f652aa821fb7e3659a502307e111fd3589346ff76199298a28b2d"
     ],
     "training_case_count": 3,
     "training_report_count": 3,
@@ -37,9 +37,9 @@
         "bars_over_front_min_minus_one"
       ],
       "coefficients": [
-        0.6167395917398383,
-        0.5075106890674013,
-        0.022890000829267065
+        0.1678917721990739,
+        0.5581325379787,
+        0.5203573700604098
       ],
       "ridge_alpha": 0.01,
       "training_case_ids": [
@@ -47,8 +47,8 @@
         "plate-zero-k09"
       ],
       "training_report_sha256": [
-        "1f593159098a8ef22d33ea36a604ec485cd1209e5ab2c18ad944e4697cdd39bf",
-        "b6f0346d2f3c08dfd67c8b8c57fa442e93887b7eae78b02eff90a3c115ac699a"
+        "532882900e91ba2ae8915e005833582fccfe38f77a7018e21d159e47ecf5c606",
+        "74a12a83d22f652aa821fb7e3659a502307e111fd3589346ff76199298a28b2d"
       ],
       "training_case_count": 2,
       "training_report_count": 2,
@@ -62,9 +62,9 @@
         "bars_over_front_min_minus_one"
       ],
       "coefficients": [
-        0.5851280992661865,
-        0.6882111100903467,
-        0.435894927576691
+        0.36633947903964154,
+        0.6256717169007114,
+        0.3142044343981802
       ],
       "ridge_alpha": 0.01,
       "training_case_ids": [
@@ -72,8 +72,8 @@
         "plate-zero-k09"
       ],
       "training_report_sha256": [
-        "1f593159098a8ef22d33ea36a604ec485cd1209e5ab2c18ad944e4697cdd39bf",
-        "60c2db355e2979b27bbe399199660ee53d5043c280c8f721c60f55a4ad83f93f"
+        "41370d8accff6640570b5630661a417108bd7c2e7c46c0570a83f5ee0dfb56d2",
+        "74a12a83d22f652aa821fb7e3659a502307e111fd3589346ff76199298a28b2d"
       ],
       "training_case_count": 2,
       "training_report_count": 2,
@@ -87,9 +87,9 @@
         "bars_over_front_min_minus_one"
       ],
       "coefficients": [
-        0.5339487180240875,
-        0.4840066118767122,
-        0.2329518610087749
+        0.2431373222783488,
+        0.4918911322036919,
+        0.3945457436401849
       ],
       "ridge_alpha": 0.01,
       "training_case_ids": [
@@ -97,8 +97,8 @@
         "k09-typical-3-14"
       ],
       "training_report_sha256": [
-        "60c2db355e2979b27bbe399199660ee53d5043c280c8f721c60f55a4ad83f93f",
-        "b6f0346d2f3c08dfd67c8b8c57fa442e93887b7eae78b02eff90a3c115ac699a"
+        "41370d8accff6640570b5630661a417108bd7c2e7c46c0570a83f5ee0dfb56d2",
+        "532882900e91ba2ae8915e005833582fccfe38f77a7018e21d159e47ecf5c606"
       ],
       "training_case_count": 2,
       "training_report_count": 2,
@@ -113,10 +113,10 @@
   "manifest_sha256": "5d5b7cf5311939f8e4c6efbba803d9856ede07e9ce008a7f1844e2707c791e00",
   "validation": {
     "independent_cases": 3,
-    "mean_regret": 0.07579410633796803,
-    "knee_regret": 0.15551500503389917,
-    "top1_rate": 0.0,
-    "top3_rate": 0.3333333333333333
+    "mean_regret": 0.015079832783937624,
+    "knee_regret": 0.27153457606402975,
+    "top1_rate": 0.6666666666666666,
+    "top3_rate": 0.6666666666666666
   },
   "warning": "Малая выборка и слабая цель по массе/стержням. Не инженерная Точка 3; выбор требует проверки."
 }
