@@ -14,7 +14,7 @@ from qm_revit_probe import element_id, element_name, text_type
 from qm_revit_source_preview import DIRECTIONS, build_source_primitives, _finite_tree, _polygon, _bbox, _integer, _text
 from qm_trial_input import number
 
-VERSION = "0.1.1"
+VERSION = "0.1.3"
 REQUEST_SCHEMA = "qmonitoring-workflow-request/v1"
 REPORT_SCHEMA = "qmonitoring-workflow-view-families/v1"
 DISCLAIMER = "ИСХОДНЫЕ ПАРАМЕТРИЧЕСКИЕ ЗОНЫ / НЕ ФИЗИЧЕСКАЯ ПАРТИЯ / НЕ REBAR"
@@ -22,6 +22,24 @@ ALGORITHMS = ("genetic-pareto", "bsp", "greedy-priority")
 LENGTH_FIELDS = ("length_mm", "width_mm", "diameter_mm", "step_mm")
 ZONE_FIELDS = LENGTH_FIELDS + ("bar_count", "source_id")
 MAX_COMPONENTS = 4000
+KNOWN_ZONE_PROFILE = "eu-zone-one-bar-v1"
+KNOWN_ZONE_FAMILY = u"ЭУ_Зона доп.армирования"
+KNOWN_ZONE_TYPE = u"Один стержень с зоной"
+KNOWN_ANNOTATION_FAMILY = u"ТипАн_Фоновое армирование"
+KNOWN_ZONE_BINDINGS = {"length_mm": u"мод_Габарит А", "width_mm": u"мод_Габарит Б",
+    "diameter_mm": u"мод_Диаметр стержней", "source_id": u"Комментарии"}
+KNOWN_ANNOTATION_BINDINGS = {"annotation": u"Марка (шаг)"}
+# Decoration/interoperability parameters that look writable and correctly typed but
+# drive annotation graphics or model coordination. Writing an engineering value into
+# one silently re-flexes the family (this is how 0.1.1 lost мод_Габарит Б) or corrupts
+# the customer's IFC/identity data, so they are never offered and never accepted.
+FORBIDDEN_BINDING_TOKENS = (u"ifc", u"кружка", u"до стержня", u"до стрелки", u"uniqueid", u"guid")
+FORBIDDEN_BINDING_NAMES = (u"id", u"uniqueid", u"ifcguid")
+
+
+def forbidden_parameter(name):
+    lowered = text_type(name).strip().lower()
+    return lowered in FORBIDDEN_BINDING_NAMES or any(token in lowered for token in FORBIDDEN_BINDING_TOKENS)
 
 
 def settings(background_diameter_mm=10, background_step_mm=300,
@@ -247,9 +265,23 @@ def parameter_catalog(instance, DB):
     return sorted(result, key=lambda row: (row["kind"], row["name"], row["id"]))
 
 
-def validate_binding(binding, catalog, role, placement):
+def known_semantic_profile(symbol, catalog, role):
+    """Return reviewed writable names only; never infer a near match."""
+    names = set(row["name"] for row in catalog)
+    expected = KNOWN_ZONE_BINDINGS if role == "zone" else KNOWN_ANNOTATION_BINDINGS
+    if role == "zone" and (symbol.get("family") != KNOWN_ZONE_FAMILY or symbol.get("type") != KNOWN_ZONE_TYPE):
+        return None
+    if role == "annotation" and symbol.get("family") != KNOWN_ANNOTATION_FAMILY:
+        return None
+    if all(name in names for name in expected.values()):
+        return {"id": KNOWN_ZONE_PROFILE, "binding": dict((field, next(row["id"] for row in catalog if row["name"] == name)) for field, name in expected.items())}
+    return None
+
+
+def validate_binding(binding, catalog, role, placement, profile_id=None):
     required = ZONE_FIELDS if role == "zone" else ("annotation",)
-    if not isinstance(binding, dict) or set(binding) != set(required):
+    optional = ("step_mm", "bar_count") if role == "zone" and profile_id == KNOWN_ZONE_PROFILE else ()
+    if not isinstance(binding, dict) or not set(binding).issubset(set(required)) or any(field not in binding for field in required if field not in optional):
         raise ValueError("Every required family field needs an explicit binding")
     by_id, used = {}, set()
     for parameter in catalog:
@@ -257,6 +289,8 @@ def validate_binding(binding, catalog, role, placement):
             raise ValueError("Ambiguous instance parameter identity")
         by_id[parameter["id"]] = parameter
     for field in required:
+        if field not in binding:
+            continue
         target = binding[field]
         if field == "length_mm" and target == "curve-length" and placement == "CurveBasedDetail":
             continue
@@ -265,6 +299,8 @@ def validate_binding(binding, catalog, role, placement):
         expected = "length_mm" if field in LENGTH_FIELDS else ("integer" if field == "bar_count" else "text")
         if by_id[target]["kind"] != expected:
             raise ValueError("Wrong parameter units/storage for "+field)
+        if forbidden_parameter(by_id[target]["name"]):
+            raise ValueError("Forbidden semantic parameter binding: {0} -> {1}".format(field, by_id[target]["name"]))
         used.add(target)
     return copy.deepcopy(binding)
 
@@ -273,28 +309,36 @@ def bind_values(instance, DB, row, binding, write):
     parameters = {}
     for parameter in instance.Parameters:
         parameters[element_id(parameter.Id)] = parameter
+    # Fixed field order, never dict order: a family may re-flex an already written
+    # dimension while a later one is applied, so both the write sequence and the
+    # verdict have to be reproducible run to run.
+    targets = []
+    for field in ZONE_FIELDS+("annotation",):
+        if field in binding and binding[field] != "curve-length":
+            targets.append((field, parameters[binding[field]], row[field]))
+    if write:
+        # Every value is written before any readback. A per-field set-then-check
+        # reports whichever parameter happened to be verified before its neighbour
+        # disturbed it; the whole-instance state is what actually has to hold.
+        for field, parameter, expected in targets:
+            if field in LENGTH_FIELDS:
+                actual = expected/304.8
+            elif field == "bar_count":
+                actual = int(expected)
+            else:
+                actual = text_type(expected).replace("\n", "\r")
+            if parameter.Set(actual) is False:
+                raise ValueError("Family parameter rejected value: {0} -> {1}".format(field, text_type(parameter.Definition.Name)))
     values = {}
-    for field, target in binding.items():
-        if target == "curve-length":
-            continue
-        parameter = parameters[target]
-        expected = row[field]
-        if field in LENGTH_FIELDS:
-            actual = expected/304.8
-        elif field == "bar_count":
-            actual = int(expected)
-        else:
-            actual = text_type(expected).replace("\n", "\r")
-        if write and parameter.Set(actual) is False:
-            raise ValueError("Family parameter rejected value: "+field)
+    for field, parameter, expected in targets:
         if field in LENGTH_FIELDS:
             observed = parameter.AsDouble()*304.8
             if abs(observed-expected) > 0.01:
-                raise ValueError("Family length readback differs: "+field)
+                raise ValueError("Family length readback differs: {0}; expected={1:g}; observed={2:g}; parameter={3}; id={4}".format(field, expected, observed, text_type(parameter.Definition.Name), element_id(parameter.Id)))
         elif field == "bar_count":
             observed = parameter.AsInteger()
             if observed != expected:
-                raise ValueError("Family count readback differs")
+                raise ValueError("Family count readback differs: expected={0}; observed={1}; parameter={2}; id={3}".format(expected, observed, text_type(parameter.Definition.Name), element_id(parameter.Id)))
         else:
             observed = text_type(parameter.AsString() or "").replace("\r\n", "\n").replace("\r", "\n")
             if observed != expected:

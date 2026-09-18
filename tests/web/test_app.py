@@ -356,6 +356,50 @@ def test_analyze_rejects_wrong_extensions_and_conflicting_mapping():
     assert "либо .shk, либо" in conflict.json()["detail"]
 
 
+def test_analyze_accepts_png_scale(monkeypatch, direction_mosaic):
+    captured = {}
+
+    def fake_analyze(path, **kwargs):
+        captured["png_path"] = kwargs["png_path"]
+        assert kwargs["png_path"].read_bytes() == b"png contents"
+        assert kwargs["shk_path"] is None
+        return _analysis(direction_mosaic)
+
+    monkeypatch.setattr(web_app, "analyze_direction", fake_analyze)
+    response = client.post(
+        "/api/analyze",
+        files={
+            "dxf": ("Нижняя по Х.dxf", b"dxf", "application/dxf"),
+            "shk": ("scale.png", b"png contents", "image/png"),
+        },
+        data={"algorithms": "bbox", "min_width_cells": "1"},
+    )
+    assert response.status_code == 200
+    assert captured["png_path"].suffix == ".png"
+
+
+def test_plate_accepts_direction_specific_png_scales(monkeypatch, direction_mosaic):
+    captured = {}
+
+    def fake_analyze(sources, **kwargs):
+        captured["sources"] = sources
+        return _plate_analysis(direction_mosaic, sources)
+
+    monkeypatch.setattr(web_app, "analyze_plate", fake_analyze)
+    directions = ("bottom_x", "bottom_y", "top_x", "top_y")
+    names = ("Нижняя по Х", "Нижняя по У", "Верхняя по Х", "Верхняя по У")
+    files = {}
+    for direction, name in zip(directions, names):
+        files[f"dxf_{direction}"] = (f"{name}.dxf", b"dxf", "application/dxf")
+        files[f"png_{direction}"] = (f"{name}.png", b"png", "image/png")
+    response = client.post("/api/analyze-plate", files=files, data={
+        "mapping_id": "png", "algorithms": "bbox", "min_width_cells": "1",
+    })
+    assert response.status_code == 200
+    assert len({source.png_path for source in captured["sources"]}) == 4
+    assert all(source.shk_path is None and source.mapping_id == "auto" for source in captured["sources"])
+
+
 def test_analyze_plate_returns_aggregate_metrics_and_four_svgs(
     monkeypatch,
     direction_mosaic,

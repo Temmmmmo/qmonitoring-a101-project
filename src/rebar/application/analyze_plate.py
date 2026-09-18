@@ -36,6 +36,7 @@ class PlateDirectionSource:
     dxf_path: str | Path
     shk_path: str | Path | None = None
     mapping_id: str = "auto"
+    png_path: str | Path | None = None
 
 
 @dataclass(frozen=True)
@@ -101,6 +102,7 @@ def analyze_plate(
         analyze_direction(
             source.dxf_path,
             shk_path=source.shk_path,
+            png_path=source.png_path,
             mapping_id=source.mapping_id,
             algorithm_names=selected_algorithms,
             max_details=max_details_per_direction,

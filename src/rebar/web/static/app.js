@@ -11,8 +11,10 @@ const mappingSelect = document.querySelector("#mapping-select");
 const plateMappingSelect = document.querySelector("#plate-mapping-select");
 const plateShkInput = document.querySelector("#plate-shk-input");
 const plateShkField = document.querySelector("#plate-shk-field");
+const platePngFields = document.querySelector("#plate-png-fields");
+const platePngInputs = [...platePngFields.querySelectorAll('input[type="file"]')];
 const plateReferenceSelect = document.querySelector("#plate-reference-select");
-const plateInputs = [...document.querySelectorAll(".plate-file-row input[type='file']")];
+const plateInputs = [...document.querySelectorAll('.plate-file-row input[name^="dxf_"]')];
 const cuttingProfileSelect = document.querySelector("#cutting-profile");
 const algorithmList = document.querySelector("#algorithm-list");
 const submitButton = document.querySelector("#submit-button");
@@ -108,6 +110,7 @@ function updateSourceMode() {
   updatePlateMappingMode();
   plateReferenceSelect.disabled = !plateMode;
   plateInputs.forEach((input) => { input.disabled = !plateMode; });
+  platePngInputs.forEach((input) => { input.disabled = !plateMode || plateMappingSelect.value !== "png"; });
   scopeLabel.textContent = plateMode ? "Плита · 4 направления" : "Одно направление";
   panelCode.textContent = plateMode ? "DXF · 04" : "DXF · 01";
   if (results.hidden && loading.hidden) {
@@ -125,6 +128,7 @@ function renderOptions(payload) {
     .map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(
       item.id === "auto" ? "Загрузить общий .shk" : item.title,
     )}</option>`)
+    .concat('<option value="png">Загрузить четыре PNG со шкалами</option>')
     .join("");
   plateMappingSelect.value = options.mappings.find((item) => item.id !== "auto")?.id
     ?? "auto";
@@ -197,13 +201,13 @@ demoSelect.addEventListener("change", () => {
   if (results.hidden && loading.hidden) setWorkspaceState("Система готова", "ready");
 });
 shkInput.addEventListener("change", () => {
-  document.querySelector("#shk-label").textContent = shkInput.files[0]?.name ?? "Добавить .shk";
+  document.querySelector("#shk-label").textContent = shkInput.files[0]?.name ?? "Выбрать .shk или PNG";
   if (shkInput.files[0]) mappingSelect.value = "auto";
 });
 mappingSelect.addEventListener("change", () => {
   if (mappingSelect.value !== "auto" && shkInput.files.length) {
     shkInput.value = "";
-    document.querySelector("#shk-label").textContent = "Добавить .shk";
+    document.querySelector("#shk-label").textContent = "Выбрать .shk или PNG";
   }
 });
 
@@ -212,6 +216,8 @@ function updatePlateMappingMode() {
   const plateMode = sourceMode() === "plate";
   plateShkField.hidden = !usesShk;
   plateShkInput.disabled = !plateMode || !usesShk;
+  platePngFields.hidden = plateMappingSelect.value !== "png";
+  platePngInputs.forEach((input) => { input.disabled = !plateMode || plateMappingSelect.value !== "png"; });
   if (!usesShk && plateShkInput.files.length) {
     plateShkInput.value = "";
     document.querySelector("#plate-shk-label").textContent = "Выбрать .shk";
@@ -645,6 +651,10 @@ form.addEventListener("submit", async (event) => {
     showError("Выберите общий файл .shk для четырёх направлений.");
     return;
   }
+  if (plateMode && plateMappingSelect.value === "png" && !platePngInputs.every((input) => input.files[0])) {
+    showError("Для плиты выберите четыре PNG со шкалами: низ/верх вдоль X и Y.");
+    return;
+  }
   const selectedAlgorithms = [...form.querySelectorAll('input[name="algorithm"]:checked')]
     .map((input) => input.value);
   if (!selectedAlgorithms.length) {
@@ -658,6 +668,7 @@ form.addEventListener("submit", async (event) => {
   } else if (plateMode) {
     plateInputs.forEach((input) => body.append(input.name, input.files[0]));
     if (plateShkInput.files[0]) body.append("shk", plateShkInput.files[0]);
+    if (plateMappingSelect.value === "png") platePngInputs.forEach((input) => body.append(input.name, input.files[0]));
     body.append("mapping_id", plateMappingSelect.value);
     body.append("case_id", document.querySelector("#plate-case-id").value);
     body.append("reference_id", plateReferenceSelect.value);

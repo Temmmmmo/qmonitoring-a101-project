@@ -31,6 +31,53 @@ def test_source_components_never_use_demand_or_trimmed_party(module):
     assert "НЕ ФИЗИЧЕСКАЯ ПАРТИЯ" in row["annotation"]
 
 
+def test_known_zone_profile_never_binds_decoration_offset_or_ifc_count(module):
+    catalog = [{"id": 1, "name": "мод_Габарит А", "kind": "length_mm"}, {"id": 2, "name": "мод_Габарит Б", "kind": "length_mm"},
+        {"id": 3, "name": "мод_Диаметр стержней", "kind": "length_mm"}, {"id": 4, "name": "Комментарии", "kind": "text"},
+        {"id": 5, "name": "мод_Диаметр кружка", "kind": "length_mm"}, {"id": 6, "name": "мод_До стержня", "kind": "length_mm"},
+        {"id": 7, "name": "Экспорт в IFC", "kind": "integer"}]
+    profile = module.known_semantic_profile({"family": "ЭУ_Зона доп.армирования", "type": "Один стержень с зоной"}, catalog, "zone")
+    assert profile["binding"] == {"length_mm": 1, "width_mm": 2, "diameter_mm": 3, "source_id": 4}
+    module.validate_binding(profile["binding"], catalog, "zone", "ViewBased", profile["id"])
+
+
+def test_the_0_1_1_binding_that_lost_gabarit_b_is_now_rejected(module):
+    """Exactly the binding from qmonitoring-workflow-20260917-162400-766000.json."""
+    catalog = [{"id": 6816475, "name": "мод_Габарит А", "kind": "length_mm"},
+        {"id": 6816476, "name": "мод_Габарит Б", "kind": "length_mm"},
+        {"id": 6816477, "name": "мод_До стержня", "kind": "length_mm"},
+        {"id": 6816485, "name": "мод_Диаметр кружка", "kind": "length_mm"},
+        {"id": -1019012, "name": "Экспорт в IFC", "kind": "integer"},
+        {"id": 11581882, "name": "Id", "kind": "text"}]
+    binding = {"length_mm": 6816475, "width_mm": 6816476, "step_mm": 6816477,
+        "diameter_mm": 6816485, "bar_count": -1019012, "source_id": 11581882}
+    with pytest.raises(ValueError, match="Forbidden"):
+        module.validate_binding(binding, catalog, "zone", "ViewBased")
+    for name in ("Экспорт в IFC", "мод_Диаметр кружка", "мод_До стержня", "мод_До стрелки", "Id", "IfcGUID", "UniqueId"):
+        assert module.forbidden_parameter(name), name
+    for name in ("мод_Габарит А", "мод_Габарит Б", "мод_Диаметр стержней", "Комментарии", "Марка (шаг)"):
+        assert not module.forbidden_parameter(name), name
+
+
+def test_all_values_are_written_before_any_readback(module, native):
+    """A family that re-flexes width while diameter is applied must still bind."""
+    written = []
+
+    class Flexing(Parameter):
+        def Set(self, value):
+            written.append(self.Id.Value)
+            if self.Id.Value == 3:  # writing diameter disturbs the already written width
+                other[0].value = 0.0
+            return Parameter.Set(self, value)
+    other = [Flexing(2, "length_mm")]
+    instance = NS(Parameters=[other[0], Flexing(3, "length_mm"), Flexing(6, "text")])
+    row = {"width_mm": 700, "diameter_mm": 10, "source_id": "bottom-X/genetic-3/0"}
+    binding = {"width_mm": 2, "diameter_mm": 3, "source_id": 6}
+    with pytest.raises(ValueError, match="width_mm; expected=700; observed=0"):
+        module.bind_values(instance, native.DB, row, binding, True)
+    assert written == [2, 3, 6], "fixed ZONE_FIELDS order, never dict order"
+
+
 @pytest.mark.parametrize("field,value", [("anchorage_diameters", 39), ("minimum_zone_fe_count", 1),
     ("minimum_zone_fe_count", True), ("background_step_mm", 0), ("background_diameter_mm", float("nan")),
     ("algorithm", "invented"), ("mass_preference", 2)])
@@ -187,6 +234,40 @@ def test_rollback_parameter_inspection_and_complete_family_readback(native):
     assert result["structural_elements_created"] == 0 and not result["placement_eligible"]
 
 
+def test_write_probe_reports_a_reflexing_family_and_leaves_nothing_behind(native, module):
+    row = module.source_components(packet(), "top-Y")[0]
+    binding = native.selections["zone"]["binding"]
+    probe = native.n.probe_binding(native.doc, native.DB, native.view, 10, "zone", binding, row, confirmed=True)
+    assert probe["status"] == "holds" and probe["rollback_confirmed"] is True
+    assert probe["values"]["width_mm"] == row["width_mm"]
+    assert native.doc.instances == {}, "probe must not survive its own rollback"
+
+    original = native.n._create
+
+    def reflex(document, DB, view, symbol, record, target):
+        instance = original(document, DB, view, symbol, record, target)
+        if symbol.role == "zone":
+            width = instance.Parameters[0]
+            width.Set = lambda value, p=width: setattr(p, "value", 0.0) or True
+        return instance
+    native.n._create = reflex
+    try:
+        probe = native.n.probe_binding(native.doc, native.DB, native.view, 10, "zone", binding, row, confirmed=True)
+    finally:
+        native.n._create = original
+    assert probe["status"] == "rejected" and probe["rollback_confirmed"] is True
+    assert "width_mm" in probe["message"] and "expected=200" in probe["message"]
+    assert native.doc.instances == {}
+
+
+def test_write_probe_needs_consent(native, module):
+    row = module.source_components(packet(), "top-Y")[0]
+    with pytest.raises(ValueError, match="consent"):
+        native.n.probe_binding(native.doc, native.DB, native.view, 10, "zone",
+            native.selections["zone"]["binding"], row)
+    assert native.doc.instances == {}
+
+
 @pytest.mark.parametrize("tamper", [
     lambda doc: doc.instances.clear(),
     lambda doc: setattr(doc.instances[100].Parameters[0], "value", 999),
@@ -231,15 +312,33 @@ def test_native_preflight_rejects_central_template_and_nonplan(native, monkeypat
         native.n.preflight(native.doc, native.DB, native.view)
 
 
+BUTTON = "QMonitoring.tab/Workflow.panel/SourceWorkflow.pushbutton/script.py"
+
+
 def test_python2_grammar_and_no_structural_mutations(module):
     from lib2to3.refactor import RefactoringTool
     root = Path(module.__file__).parent
-    for name in ("qm_workflow_81.py", "qm_workflow_81_native.py", "qm_workflow_81_transport.py"):
+    for name in ("qm_workflow_81.py", "qm_workflow_81_native.py", "qm_workflow_81_transport.py", "../"+BUTTON):
         source = (root/name).read_text()
         RefactoringTool([]).refactor_string(source, name)
         assert "DB.Structure.Rebar" not in source
         assert "CheckoutElements(" not in source
         assert "SynchronizeWithCentral(" not in source
+
+
+def test_pushbutton_imports_resolve(module):
+    """script.py needs pyrevit to import, so its qm_* imports are checked statically."""
+    import ast
+    source = (Path(module.__file__).parent/".."/BUTTON).read_text()
+    checked = 0
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, ast.ImportFrom) or not (node.module or "").startswith("qm_"):
+            continue
+        imported = importlib.import_module(node.module)
+        for alias in node.names:
+            assert hasattr(imported, alias.name), "{0}.{1} does not exist".format(node.module, alias.name)
+            checked += 1
+    assert checked > 10, "expected the button's qm_* imports to be discovered"
 
 
 def test_workflow_code_only_archive_is_deterministic_complete_and_separate(module, tmp_path, monkeypatch):

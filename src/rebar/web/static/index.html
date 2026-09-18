@@ -127,8 +127,8 @@
               </label>
               <label class="field file-field">
                 <span>Файл шкалы <i>необязательно</i></span>
-                <input id="shk-input" name="shk" type="file" accept=".shk">
-                <span id="shk-label" class="file-field-label">Выбрать .shk</span>
+                <input id="shk-input" name="shk" type="file" accept=".shk,.png">
+                <span id="shk-label" class="file-field-label">Выбрать .shk или PNG со шкалой</span>
               </label>
             </div>
           </div>
@@ -162,8 +162,14 @@
               <label class="field">
                 <span>Источник армирования <i>для комплекта</i></span>
                 <select id="plate-mapping-select" name="plate_mapping_id"></select>
-                <small>Выберите встроенную таблицу или загрузите один общий .shk.</small>
+                <small>Выберите таблицу, общий .shk или четыре PNG со шкалами.</small>
               </label>
+              <div id="plate-png-fields" class="plate-files" hidden>
+                <label class="plate-file-row"><input name="png_bottom_x" type="file" accept=".png"><span class="direction-token">PNG · низ X</span><span><strong>Выбрать PNG шкалы</strong></span></label>
+                <label class="plate-file-row"><input name="png_bottom_y" type="file" accept=".png"><span class="direction-token">PNG · низ Y</span><span><strong>Выбрать PNG шкалы</strong></span></label>
+                <label class="plate-file-row"><input name="png_top_x" type="file" accept=".png"><span class="direction-token">PNG · верх X</span><span><strong>Выбрать PNG шкалы</strong></span></label>
+                <label class="plate-file-row"><input name="png_top_y" type="file" accept=".png"><span class="direction-token">PNG · верх Y</span><span><strong>Выбрать PNG шкалы</strong></span></label>
+              </div>
               <label id="plate-shk-field" class="field file-field" hidden>
                 <span>Общий файл шкалы <i>для 4 DXF</i></span>
                 <input id="plate-shk-input" name="plate_shk" type="file" accept=".shk">

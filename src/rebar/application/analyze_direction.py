@@ -9,6 +9,7 @@ from typing import Any
 
 from rebar.dxf_ingest import read_mosaic
 from rebar.models import Mosaic
+from rebar.png_legend import apply_png_legend
 from rebar.optimization.mappings.legacy_s1 import LEGACY_S1_D18
 from rebar.optimization import (
     K09_ABOVE_3_D10,
@@ -104,13 +105,19 @@ def _algorithm_names(names: tuple[str, ...]) -> tuple[str, ...]:
 
 
 def load_direction_mosaic(
-    dxf_path: str | Path, *, shk_path: str | Path | None = None, mapping_id: str = "auto",
+    dxf_path: str | Path, *, shk_path: str | Path | None = None,
+    png_path: str | Path | None = None, mapping_id: str = "auto",
 ) -> Mosaic:
     """Одна входная граница для старого GA и составного полного комплекта."""
     selected_mapping = _mapping(mapping_id)
-    if selected_mapping is not None and shk_path is not None:
-        raise ValueError("нельзя одновременно передать .shk и ручную таблицу армирования")
-    mosaic = read_mosaic(str(dxf_path), shk_path=str(shk_path) if shk_path is not None else None)
+    if sum(value is not None for value in (selected_mapping, shk_path, png_path)) > 1:
+        raise ValueError("нельзя одновременно выбрать .shk, .png и таблицу армирования")
+    mosaic = read_mosaic(
+        str(dxf_path), shk_path=str(shk_path) if shk_path is not None else None,
+        auto_shk=png_path is None and selected_mapping is None,
+    )
+    if png_path is not None:
+        return apply_png_legend(mosaic, png_path)
     return apply_rebar_mapping(mosaic, selected_mapping) if selected_mapping is not None else mosaic
 
 
@@ -189,6 +196,7 @@ def analyze_direction(
     dxf_path: str | Path,
     *,
     shk_path: str | Path | None = None,
+    png_path: str | Path | None = None,
     mapping_id: str = "auto",
     algorithm_names: tuple[str, ...] = DEFAULT_ALGORITHMS,
     max_details: int | None = None,
@@ -203,7 +211,7 @@ def analyze_direction(
 
     selected_algorithms = _algorithm_names(algorithm_names)
     allowed_cut_lengths = _cutting_lengths(cutting_profile)
-    mosaic = load_direction_mosaic(dxf_path, shk_path=shk_path, mapping_id=mapping_id)
+    mosaic = load_direction_mosaic(dxf_path, shk_path=shk_path, png_path=png_path, mapping_id=mapping_id)
 
     problem = apply_single_cell_rule(
         build_layout_problem(

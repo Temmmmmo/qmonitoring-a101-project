@@ -24,6 +24,11 @@ from qm_trial_worksharing import classify_document
 from qm_revit_source_preview import (SCHEMA as SOURCE_SCHEMA, build_source_primitives,
     draw_source_views, readback_source_views, source_graphic_types, _finite_tree, _normal_text)
 
+try:
+    from System.Collections.Generic import List
+except ImportError:
+    List = list
+
 VERSION = "0.2.4"
 REPAIRED_BAR_SCHEMA = "graphic-bar-plan-repaired/v1"
 GRAPHIC_BAR_SCHEMA = "graphic-bar-plan-draft/v1"
@@ -1143,4 +1148,103 @@ def create_plan_preview(document, DB, floor, primitives, loop_list_factory, conf
                 value.Dispose()
             except Exception as exc:
                 report["issues"].append({"stage": "dispose", "message": text_type(exc)})
+    return report
+
+
+def create_source_views(document, DB, json_path, offset_xy_mm=(0, 0), confirmed=False, progress=None):
+    """Create four isolated drafting views with colored isofields and source zones.
+
+    Each direction gets its own ViewDrafting. No host writes, no structural Rebar,
+    no active-workset change, no Save/Sync.
+    """
+    report = {"schema_version": "revit-source-views-report/v1", "version": VERSION, "units": "mm",
+        "created_utc": datetime.datetime.utcnow().isoformat()+"Z", "status": "blocked_preflight",
+        "mode": "four-source-drafting-views", "placement_eligible": False, "engineering_approval": False,
+        "disclaimer": DISCLAIMER, "structural_elements_created": 0, "checkout_requested": False,
+        "save_requested": False, "synchronization_requested": False, "issues": [], "commit_failures": [],
+        "created_annotation_ids": [], "attempted_source_views": [],
+        "transaction": {"status": "not_started"},
+        "not_checked": ["engineering-coverage-acceptance", "structural-placement", "live-DXF-binding"]}
+    group, tx, committed = None, None, False
+    try:
+        if confirmed is not True:
+            raise ValueError("Explicit consent required")
+        if (document.IsFamilyDocument or document.IsReadOnly or document.IsModifiable
+                or text_type(document.Application.VersionNumber) != "2024"):
+            raise ValueError("Open a writable Revit 2024 project without an active transaction")
+        packet, digest = load_preview_input(json_path)
+        primitives = build_source_primitives(packet, offset_xy_mm[0], offset_xy_mm[1])
+        report["packet_sha256"] = digest
+        report["offset_xy_mm"] = list(offset_xy_mm)
+        report["source_cell_count"] = primitives["summary"]["source_cell_count"]
+        report["source_zone_count"] = primitives["summary"]["source_zone_count"]
+        family, text = _types(document, DB)
+        region_type, pattern = source_graphic_types(document, DB)
+        active_workset = (int(document.GetWorksetTable().GetActiveWorksetId().IntegerValue)
+                          if document.IsWorkshared else None)
+        group = DB.TransactionGroup(document, "QMonitoring SOURCE VIEWS - 4 directions")
+        group.IsFailureHandlingForcedModal = True
+        if group.Start() != DB.TransactionStatus.Started:
+            raise ValueError("Transaction group failed to start")
+        tx = DB.Transaction(document, "QMonitoring source isofields + zones")
+        if tx.Start() != DB.TransactionStatus.Started:
+            raise ValueError("Transaction failed to start")
+        options = tx.GetFailureHandlingOptions().SetClearAfterRollback(True)
+        recorder = failure_recorder(DB, report["commit_failures"])
+        options = options.SetForcedModalHandling(True).SetFailuresPreprocessor(recorder)
+        tx.SetFailureHandlingOptions(options)
+        def _loop_list_factory():
+            return List[DB.CurveLoop]()
+        def _source_progress(stage, value, total):
+            if progress is not None:
+                progress(value, total)
+        draw_source_views(document, DB, primitives, family.Id, text.Id, region_type, pattern,
+            _loop_list_factory, report, _source_progress)
+        document.Regenerate()
+        after_workset = (int(document.GetWorksetTable().GetActiveWorksetId().IntegerValue)
+                         if document.IsWorkshared else None)
+        if active_workset != after_workset:
+            raise ValueError("Active workset changed; rolling back")
+        report["active_workset_unchanged"] = True
+        returned = tx.Commit()
+        actual = tx.GetStatus()
+        report["transaction"] = {"status": "committed" if returned == actual == DB.TransactionStatus.Committed
+            else "unconfirmed", "returned": text_type(returned), "final": text_type(actual)}
+        if returned != DB.TransactionStatus.Committed or actual != returned:
+            raise ValueError("Commit not confirmed")
+        report["readback"] = readback_source_views(document, DB, primitives, report, _matching_endpoints)
+        returned = group.Assimilate()
+        if returned != DB.TransactionStatus.Committed or group.GetStatus() != returned:
+            raise ValueError("Group completion not confirmed")
+        committed = True
+        report["status"] = "source_views_created"
+        report["created_source_views"] = copy.deepcopy(report["attempted_source_views"])
+    except Exception as exc:
+        report["issues"].append({"stage": "source-views", "message": text_type(exc), "traceback": traceback.format_exc()})
+        if group is not None and not committed:
+            ended, rollback = (False, {"status": "unconfirmed_inner_pending"})
+            if tx is not None:
+                ended, inner = rollback_scope(tx, DB, allow_committed=True)
+                tx = None
+                report["inner_transaction_cleanup"] = inner
+            if ended:
+                ended, rollback = rollback_scope(group, DB)
+            else:
+                report["transaction"] = rollback
+            group = None
+            if ended:
+                report["transaction"] = rollback
+                report["status"] = "failed_rolled_back"
+            else:
+                report["status"] = "rollback_unconfirmed"
+            if ended:
+                report["rolled_back_annotation_ids"] = report["created_annotation_ids"]
+                report["created_annotation_ids"] = []
+    finally:
+        for value in (tx, group):
+            if value is not None:
+                try:
+                    value.Dispose()
+                except Exception:
+                    pass
     return report

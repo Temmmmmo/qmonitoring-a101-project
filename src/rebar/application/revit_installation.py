@@ -98,7 +98,7 @@ TOOLS = (
         "verification": "Прежний физический режим 0.1.1 проверен в Revit: 902/902 линии, допуск 0,01 мм. Исходный и pruned-режимы 0.2.3 проверены offline, в том числе реальный JSON 975 стержней; их первый запуск в настоящем Revit ещё требуется. Покрытие/40d/раскрой с fail остаются fail. Это графика, не инженерная приёмка.",
     },
     {
-        "id": "source-workflow-81", "title": "Доп. поля · выбранные семейства на плане", "runtime_version": "0.1.1",
+        "id": "source-workflow-81", "title": "Доп. поля · выбранные семейства на плане", "runtime_version": "0.1.3",
         "button": "SourceWorkflow", "command": "Source Workflow", "extension": "QMonitoringWorkflow",
         "panel": "Workflow", "mode": "view_family", "description": "Один DXF → подтверждённая HTTPS-передача → новый расчёт → выбранные загруженные семейства элементов узлов и аннотаций на текущем виде. Не Rebar.",
         "report_schema": "qmonitoring-workflow-8-1-report/v1",

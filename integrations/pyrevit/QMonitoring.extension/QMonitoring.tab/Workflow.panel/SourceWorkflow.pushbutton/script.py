@@ -12,8 +12,9 @@ from pyrevit import DB, forms, revit
 from qm_revit_plan_preview import load_preview_input
 from qm_revit_probe import element_id, text_type, write_report_json
 from qm_workflow_81 import (VERSION, DISCLAIMER, DIRECTIONS, ALGORITHMS, LENGTH_FIELDS,
-    ZONE_FIELDS, make_request, settings, source_components, symbol_catalog, prefix_candidates, analysis_caption)
-from qm_workflow_81_native import preflight, inspect_parameters, place_source_families
+    ZONE_FIELDS, make_request, settings, source_components, symbol_catalog, prefix_candidates,
+    analysis_caption, known_semantic_profile, forbidden_parameter)
+from qm_workflow_81_native import preflight, inspect_parameters, place_source_families, probe_binding
 from qm_workflow_81_transport import (read_source, calculation_request, server_endpoint,
     post_calculation, decode_analysis, MAX_RESPONSE_BYTES)
 
@@ -35,7 +36,31 @@ def select(values, title):
     return answer
 
 
-def select_family(doc, view, role):
+def confirm_probe(doc, view, selection, role, row):
+    """One temporary instance really takes the values, then is rolled back.
+
+    A family that silently re-flexes a dimension is caught here on one element
+    instead of after the whole batch is built and discarded.
+    """
+    probe = probe_binding(doc, DB, view, selection["symbol_id"], role, selection["binding"], row,
+        confirmed=True, profile_id=selection.get("profile_id"))
+    selection["probe"] = probe
+    if probe["status"] != "holds":
+        raise ValueError("Семейство не удержало значения на пробном экземпляре (он отменён, модель не изменена):\n{0}\n\n"
+            "Это та же ошибка, что остановила бы всю партию. Выбери другое семейство/тип или другой параметр "
+            "экземпляра — либо сними в семействе формулу/связь, которая перебивает этот габарит.".format(probe["message"]))
+    shown = []
+    for field in sorted(probe["values"]):
+        value = text_type(probe["values"][field]).replace("\n", " ⏎ ")
+        shown.append("{0} = {1}".format(field, value[:120]+"…" if len(value) > 120 else value))
+    if forms.alert("Пробный экземпляр {0} принял и удержал после Regenerate:\n{1}\n\n"
+            "Пробный экземпляр отменён, модель не изменена. Продолжить с этой привязкой?".format(
+                role, "\n".join(shown)), yes=True, no=True) is not True:
+        raise ValueError("Привязка не подтверждена после пробы")
+    return selection
+
+
+def select_family(doc, view, role, probe_row):
     catalog = symbol_catalog(doc, DB, role)
     if not catalog:
         raise ValueError("Нет подходящего загруженного семейства: {0}. Загрузите через Revit семейство "
@@ -58,6 +83,10 @@ def select_family(doc, view, role):
                 chosen["family"], chosen["type"]), yes=True, no=True):
         raise ValueError("Чтение семейства отменено")
     inspection = inspect_parameters(doc, DB, view, chosen["id"], role, confirmed=True)
+    profile = known_semantic_profile(chosen, inspection["parameters"], role)
+    if profile is not None and forms.alert("Найден проверенный профиль {0}. Запишу только габариты A/B, диаметр стержней и Комментарии; шаг/количество останутся в полной аннотации и отчёте. Геометрия семейства не подтверждена. Использовать?".format(profile["id"]), yes=True, no=True):
+        return confirm_probe(doc, view, {"symbol_id": chosen["id"], "prefix": prefix, "inspection": inspection,
+            "binding": profile["binding"], "profile_id": profile["id"]}, role, probe_row)
     fields = ZONE_FIELDS if role == "zone" else ("annotation",)
     binding, used = {}, set()
     for field in fields:
@@ -65,15 +94,24 @@ def select_family(doc, view, role):
             binding[field] = "curve-length"
             continue
         expected = "length_mm" if field in LENGTH_FIELDS else ("integer" if field == "bar_count" else "text")
-        options = {}
+        options, blocked = {}, []
         for parameter in inspection["parameters"]:
-            if parameter["kind"] == expected and parameter["id"] not in used:
-                options["{0} | id={1} | {2}".format(parameter["name"], parameter["id"], expected)] = parameter["id"]
+            if parameter["kind"] != expected or parameter["id"] in used:
+                continue
+            if forbidden_parameter(parameter["name"]):
+                blocked.append(parameter["name"])
+                continue
+            options["{0} | id={1} | {2}".format(parameter["name"], parameter["id"], expected)] = parameter["id"]
         if not options:
-            raise ValueError("У семейства нет отдельного доступного параметра экземпляра для "+field)
+            raise ValueError("У семейства нет отдельного доступного параметра экземпляра для {0}.\n"
+                "Служебные/декоративные параметры не предлагаются: {1}.\n"
+                "Запись в них ломает геометрию семейства или данные IFC. Возьми семейство с проверенным "
+                "профилем либо добавь в семейство отдельный параметр экземпляра под {0}.".format(
+                    field, ", ".join(blocked) or "нет"))
         binding[field] = options[select(sorted(options), "Явная привязка: "+field)]
         used.add(binding[field])
-    return {"symbol_id": chosen["id"], "prefix": prefix, "inspection": inspection, "binding": binding}
+    return confirm_probe(doc, view, {"symbol_id": chosen["id"], "prefix": prefix,
+        "inspection": inspection, "binding": binding}, role, probe_row)
 
 
 def collect_settings():
@@ -166,13 +204,37 @@ def main():
     destination = None
     try:
         view = doc.ActiveView
-        preflight(doc, DB, view)
+        action = select(["Сформировать Доп. Поля — НОВЫЙ расчёт DXF",
+                          "Разместить готовые ИСХОДНЫЕ зоны семействами на текущем плане",
+                          "Создать 4 видов: изополя + зоны (по одному виду на направление)",
+                          "Настроить и сохранить запрос НОВОГО расчёта"], "Workflow 8.1")
+        if action.startswith("Создать 4 видов"):
+            from qm_revit_plan_preview import create_source_views
+            preflight(doc, DB, view)
+            source = forms.pick_file(file_ext="json", title="JSON с изополями и зонами (source-isofields-zones/v1)")
+            if not source:
+                return
+            offset = forms.ask_for_string(default="0; 0", prompt="Смещение XY, мм")
+            ox, oy = [float(x.strip().replace(",", ".")) for x in offset.split(";")]
+            destination = forms.save_file(file_ext="json",
+                default_name="qmonitoring-source-views-{}.json".format(datetime.datetime.now().strftime("%Y%m%d-%H%M%S-%f")),
+                title="Имя отчёта")
+            if not destination:
+                return
+            if os.path.exists(destination):
+                raise ValueError("Существующие отчёты не перезаписываются")
+            report = create_source_views(doc, DB, source, (ox, oy), confirmed=True)
+            write_report_json(destination, report)
+            forms.alert("Создано 4 вида: {} \n{} \nОтчёт: {}".format(
+                ", ".join(r["name"] for r in report.get("created_source_views", report.get("attempted_source_views", []))),
+                DISCLAIMER, destination))
+            return
         direction = select(list(DIRECTIONS), "Направление: НИЗ bottom / ВЕРХ top, глобальные X/Y")
-        action = select(["Сформировать Доп. Поля — НОВЫЙ расчёт DXF", "Разместить готовые ИСХОДНЫЕ зоны семействами",
-                         "Настроить и сохранить запрос НОВОГО расчёта"], "Workflow 8.1")
         if action.startswith("Сформировать"):
+            preflight(doc, DB, view)
             packet, digest = calculate(direction)
         else:
+            preflight(doc, DB, view)
             source = forms.pick_file(file_ext="json", title="Исходные изополя/зоны или qmonitoring-workflow-analysis/v1")
             if not source:
                 return
@@ -205,7 +267,8 @@ def main():
         if len(offset) != 2:
             raise ValueError("Нужны два числа X; Y")
         rows = source_components(packet, direction, offset)
-        selections = {"zone": select_family(doc, view, "zone"), "annotation": select_family(doc, view, "annotation")}
+        selections = {"zone": select_family(doc, view, "zone", rows[0]),
+                      "annotation": select_family(doc, view, "annotation", rows[0])}
         message = ("{0}\n\nНаправление {1}; {2} исходных компонентов, {3} НОВЫХ экземпляров на ТЕКУЩЕМ плане.\n"
             "Семейство зоны: точка вставки в ЦЕНТРЕ осевого прямоугольника, локальная X вдоль стержней.\n"
             "Осевая ширина — расстояние между крайними осями, НЕ AreaBoundary.\n"

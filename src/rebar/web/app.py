@@ -332,7 +332,7 @@ def _source_payload(
         "cell_count": len(mosaic.cells),
         "bbox": list(mosaic.bbox),
         "level_count": len(analysis.problem.demand.levels),
-        "legend_source": "mapping" if mapping else "shk",
+        "legend_source": mosaic.meta.get("legend_source") or ("mapping" if mapping else "shk"),
         "mapping_id": mapping.get("id"),
         "a101_profile_id": mapping.get("a101_profile_id"),
         "zone_count_bounds": {
@@ -624,8 +624,8 @@ def options() -> dict:
         "mappings": [
             {
                 "id": "auto",
-                "title": "Автоматически / .shk",
-                "description": "Использовать загруженный или однозначно найденный .shk.",
+                "title": "Автоматически / .shk / PNG",
+                "description": "Использовать загруженный PNG со шкалой или совместимый .shk.",
             },
             *[
                 {
@@ -707,6 +707,7 @@ async def _execute_analysis(
     genetic_operator_policy: str,
     genetic_ucb_exploration: float,
     complexity_axis: ComplexityAxis = ComplexityAxis.POSITION_COUNT,
+    png_path: Path | None = None,
 ) -> dict:
     """Выполнить общий application-сценарий для upload и встроенного DXF."""
 
@@ -731,6 +732,7 @@ async def _execute_analysis(
             analyze_direction,
             dxf_path,
             shk_path=shk_path,
+            png_path=png_path,
             mapping_id=mapping_id,
             algorithm_names=algorithm_names,
             max_details=max_details,
@@ -813,7 +815,7 @@ async def _execute_plate_analysis(
 @app.post("/api/analyze")
 async def analyze(
     dxf: Annotated[UploadFile, File(description="Один DXF одного направления")],
-    shk: Annotated[UploadFile | None, File(description="Необязательная шкала .shk")] = None,
+    shk: Annotated[UploadFile | None, File(description="Необязательная шкала .shk или .png")] = None,
     mapping_id: Annotated[str, Form()] = "auto",
     algorithms: Annotated[str, Form()] = ",".join(DEFAULT_ALGORITHMS),
     max_details: Annotated[int | None, Form(ge=1)] = None,
@@ -834,12 +836,12 @@ async def analyze(
     shk_name: str | None = None
     if shk is not None:
         shk_name = _safe_name(shk, "scale.shk")
-        if Path(shk_name).suffix.casefold() != ".shk":
-            raise HTTPException(status_code=400, detail="Файл шкалы должен иметь расширение .shk.")
+        if Path(shk_name).suffix.casefold() not in {".shk", ".png"}:
+            raise HTTPException(status_code=400, detail="Файл шкалы должен иметь расширение .shk или .png.")
     if shk is not None and mapping_id.strip().casefold() != "auto":
         raise HTTPException(
             status_code=400,
-            detail="Выберите либо .shk, либо ручную таблицу армирования — не оба варианта.",
+            detail="Выберите либо .shk, либо .png, либо ручную таблицу армирования — не несколько вариантов.",
         )
 
     with TemporaryDirectory(prefix="rebar-web-") as temp_dir:
@@ -847,9 +849,14 @@ async def analyze(
         dxf_path = temp_path / dxf_name
         await _save_upload(dxf, dxf_path)
         shk_path: Path | None = None
+        png_path: Path | None = None
         if shk is not None and shk_name is not None:
-            shk_path = temp_path / shk_name
-            await _save_upload(shk, shk_path)
+            scale_path = temp_path / shk_name
+            await _save_upload(shk, scale_path)
+            if scale_path.suffix.casefold() == ".png":
+                png_path = scale_path
+            else:
+                shk_path = scale_path
 
         return await _execute_analysis(
             dxf_path,
@@ -857,6 +864,7 @@ async def analyze(
             source_kind="upload",
             source_id=None,
             shk_path=shk_path,
+            png_path=png_path,
             mapping_id=mapping_id,
             algorithms=algorithms,
             max_details=max_details,
@@ -882,6 +890,10 @@ async def analyze_plate_upload(
         UploadFile | None,
         File(description="Необязательный общий .shk для четырёх направлений"),
     ] = None,
+    png_bottom_x: Annotated[UploadFile | None, File()] = None,
+    png_bottom_y: Annotated[UploadFile | None, File()] = None,
+    png_top_x: Annotated[UploadFile | None, File()] = None,
+    png_top_y: Annotated[UploadFile | None, File()] = None,
     mapping_id: Annotated[str, Form()] = "plate-zero-d12-v1",
     algorithms: Annotated[str, Form()] = ",".join(DEFAULT_ALGORITHMS),
     max_details: Annotated[int | None, Form(ge=1)] = None,
@@ -907,6 +919,14 @@ async def analyze_plate_upload(
     if any(Path(name).suffix.casefold() != ".dxf" for name in safe_names):
         raise HTTPException(status_code=400, detail="Все четыре файла должны иметь расширение .dxf.")
     normalized_mapping_id = mapping_id.strip().casefold()
+    png_uploads = (png_bottom_x, png_bottom_y, png_top_x, png_top_y)
+    if normalized_mapping_id == "png":
+        if shk is not None or any(upload is None for upload in png_uploads):
+            raise HTTPException(status_code=400, detail="Для PNG-шкалы загрузите четыре PNG, по одному на направление, без .shk.")
+        if any(Path(_safe_name(upload, "scale.png")).suffix.casefold() != ".png" for upload in png_uploads):
+            raise HTTPException(status_code=400, detail="Все четыре файла шкалы должны иметь расширение .png.")
+    elif any(upload is not None for upload in png_uploads):
+        raise HTTPException(status_code=400, detail="Для PNG-шкал выберите источник PNG для четырёх направлений.")
     shk_name: str | None = None
     if shk is not None:
         shk_name = _safe_name(shk, "plate-scale.shk")
@@ -947,6 +967,14 @@ async def analyze_plate_upload(
             shk_path = temp_path / f"shared-{shk_name}"
             await _save_upload(shk, shk_path)
 
+        png_paths: list[Path | None] = [None] * 4
+        if normalized_mapping_id == "png":
+            for index, upload in enumerate(png_uploads):
+                assert upload is not None
+                destination = temp_path / f"scale-{index + 1}-{_safe_name(upload, 'scale.png')}"
+                await _save_upload(upload, destination)
+                png_paths[index] = destination
+
         filename_by_path = {
             str(path): filename for path, filename in zip(saved_paths, safe_names)
         }
@@ -954,9 +982,10 @@ async def analyze_plate_upload(
             PlateDirectionSource(
                 path,
                 shk_path=shk_path,
-                mapping_id=normalized_mapping_id,
+                mapping_id="auto" if normalized_mapping_id == "png" else normalized_mapping_id,
+                png_path=png_paths[index],
             )
-            for path in saved_paths
+            for index, path in enumerate(saved_paths)
         )
         return await _execute_plate_analysis(
             sources,

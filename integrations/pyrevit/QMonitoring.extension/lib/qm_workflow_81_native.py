@@ -140,6 +140,49 @@ def inspect_parameters(document, DB, view, symbol_id, role, confirmed=False):
         _dispose(group, tx)
 
 
+def probe_binding(document, DB, view, symbol_id, role, binding, row, confirmed=False, profile_id=None):
+    """Temp instance -> real write of the chosen binding -> Regenerate -> confirmed rollback.
+
+    Answers "will this family actually hold these values" on ONE instance, before a
+    whole batch is created and thrown away. A rejected probe is reported, not raised:
+    the caller shows it and lets the user pick another family or parameter.
+    """
+    if confirmed is not True:
+        raise ValueError("Explicit consent for the temporary write probe is required")
+    preflight(document, DB, view)
+    symbol, record = _symbol(document, DB, symbol_id, role)
+    active, group, tx = _workset(document), None, None
+    try:
+        group, tx = _start(document, DB, [])
+        instance = _create(document, DB, view, symbol, record, row)
+        validate_binding(binding, parameter_catalog(instance, DB), role, record["placement"], profile_id)
+        observed, message = {}, None
+        try:
+            bind_values(instance, DB, row, binding, True)
+            # Regenerate before readback: constraint-driven parameters keep the value
+            # that was Set until the family is re-solved, so an immediate read can lie.
+            document.Regenerate()
+            observed = bind_values(instance, DB, row, binding, False)
+        except Exception as exc:
+            message = text_type(exc)
+        result = {"symbol": record, "role": role, "values": observed, "source_id": row.get("source_id"),
+            "status": "holds" if message is None else "rejected", "message": message}
+        if _workset(document) != active:
+            raise ValueError("Active workset changed")
+        okay, state = _rollback(group, tx, DB)
+        if not okay:
+            raise ValueError("Probe rollback NOT confirmed: "+text_type(state))
+        result["rollback_confirmed"] = True
+        return result
+    except Exception:
+        okay, state = _rollback(group, tx, DB)
+        if not okay:
+            raise ValueError("Probe rollback NOT confirmed; do not Save/Sync: "+text_type(state))
+        raise
+    finally:
+        _dispose(group, tx)
+
+
 def _read_geometry(instance, view, record, row):
     if element_id(instance.OwnerViewId) != element_id(view.Id):
         raise ValueError("Created family is not owned by the target view")
@@ -189,6 +232,7 @@ def place_source_families(document, DB, view, packet, direction, selections,
         report["source_component_count"] = len(rows)
         report["view"] = {"id": element_id(view.Id), "unique_id": text_type(view.UniqueId)}
         report["bindings"] = copy.deepcopy(selections)
+        report["family_profiles"] = dict((role, {"profile_id": selections[role].get("profile_id", "generic-explicit"), "field_storage": ({"step_mm": "annotation-only", "bar_count": "annotation-only", "source_id": "zone-comments"} if selections[role].get("profile_id") else "all-fields-bound")}) for role in selections)
         symbols, records = {}, {}
         if set(selections) != set(("zone", "annotation")):
             raise ValueError("Select both detail and annotation families")
@@ -197,7 +241,7 @@ def place_source_families(document, DB, view, packet, direction, selections,
             symbols[role], records[role] = _symbol(document, DB, selection["symbol_id"], role)
             if records[role] != selection["inspection"]["symbol"] or selection["inspection"].get("rollback_confirmed") is not True:
                 raise ValueError("Family identity changed since the rollback inspection")
-            validate_binding(selection["binding"], selection["inspection"]["parameters"], role, records[role]["placement"])
+            validate_binding(selection["binding"], selection["inspection"]["parameters"], role, records[role]["placement"], selection.get("profile_id"))
         active_workset = _workset(document)
         group, tx = _start(document, DB, report["commit_failures"])
         for index, row in enumerate(rows):
@@ -207,7 +251,7 @@ def place_source_families(document, DB, view, packet, direction, selections,
                 instance = _create(document, DB, view, symbols[role], records[role], row)
                 current_catalog = parameter_catalog(instance, DB)
                 binding = selections[role]["binding"]
-                validate_binding(binding, current_catalog, role, records[role]["placement"])
+                validate_binding(binding, current_catalog, role, records[role]["placement"], selections[role].get("profile_id"))
                 bind_values(instance, DB, row, binding, True)
                 attempted.append({"element_id": element_id(instance.Id), "role": role, "source_id": row["source_id"]})
         document.Regenerate()
@@ -236,7 +280,7 @@ def place_source_families(document, DB, view, packet, direction, selections,
                 raise ValueError("Created source family disappeared after Commit")
             _read_geometry(instance, view, records[role], row)
             binding = selections[role]["binding"]
-            validate_binding(binding, parameter_catalog(instance, DB), role, records[role]["placement"])
+            validate_binding(binding, parameter_catalog(instance, DB), role, records[role]["placement"], selections[role].get("profile_id"))
             bind_values(instance, DB, row, binding, False)
         if _workset(document) != active_workset:
             raise ValueError("Active workset changed after Commit")

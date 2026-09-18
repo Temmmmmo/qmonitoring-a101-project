@@ -129,11 +129,11 @@
       <p id="demo-notice" class="notice" hidden></p>
       <p id="result-summary" class="result-summary"></p>
       <label class="candidate-control">Вариант раскладки<select id="candidate"></select></label>
-      <p id="physical-metrics-caption" class="notice">Ниже — метрики выбранного решения. Для физической выдачи они относятся к партии после обработки;
-        исходные зоны на схеме существуют до физической обрезки и не подменяют эти значения.</p>
+      <p id="physical-metrics-caption" class="notice">Метрики относятся к выбранному решению;
+        исходные зоны на схеме существуют до физической обрезки и не подменяют итоговую партию.</p>
       <div id="metrics" class="metrics"></div>
       <p id="mvp-scope" class="notice" hidden></p>
-      <section id="source-zone-checks" class="checks-section" aria-labelledby="source-checks-title"><h3 id="source-checks-title">Исходные зоны до физической обработки</h3>
+      <section id="source-zone-checks" class="checks-section" aria-labelledby="source-checks-title"><h3 id="source-checks-title">Проверки</h3>
         <p id="source-zone-check-status" class="gate-status">Проверка 40d исходного пакета не выполнена.</p></section>
       <details id="physical-checks" class="result-details"><summary>Дополнительно: проверки физической раскладки <span id="physical-check-warning"></span></summary>
       <section class="checks-section" aria-labelledby="checks-title"><h3 id="checks-title">Статус инженерных проверок физической раскладки</h3>
@@ -157,7 +157,7 @@
         <div class="zoom-controls"><button id="zoom-out" type="button" aria-label="Уменьшить схему">−</button><span id="zoom-level">100%</span><button id="zoom-in" type="button" aria-label="Увеличить схему">+</button><button id="zoom-reset" type="button">Целиком</button></div></div>
       <section class="handoff" aria-labelledby="handoff-title"><p class="section-eyebrow">3 · Передать в Revit</p>
         <h3 id="handoff-title">Перенести зоны в Revit</h3>
-        <p id="handoff-note">«Изополя и зоны» — основной пакет для SourceWorkflow в текущем плане; Plan Preview остаётся отдельной проверкой на новых чертёжных видах. В Revit передаются размеры наборов после анкеровки/подбора длины; пятно потребности показано отдельно.</p>
+        <p id="handoff-note">Скачайте JSON и откройте в Revit через SourceWorkflow. Созданы зоны и аннотации на плане или 4 отдельных вида.</p>
         <div class="actions"><button id="download-source" type="button" disabled>Изополя и зоны · JSON</button>
           <a href="/revit" class="handoff-link">Установка и открытие в Revit →</a></div>
         <details class="result-details"><summary>Дополнительно: физические стержни Rebar</summary>

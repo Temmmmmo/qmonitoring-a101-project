@@ -50,3 +50,20 @@ Thumbs.db
 /out/
 /artifacts/
 *.json.out
+
+# added automatically by ya tool
+.aisuite/setup_log.jsonl
+.aisuite/setup_state.json
+.aisuite/setup.lock
+.opencode
+opencode.json
+opencode.jsonc
+.claude/skills/agentic-search
+.claude/skills/aisuite
+.claude/skills/docs
+.claude/skills/tracker-mcp
+.claude/skills/wiki
+.claude/settings.local.json
+.claude/aisuite_generated_artifacts.json
+.codex
+.agents/

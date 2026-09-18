@@ -201,7 +201,7 @@ def _find_matching_shk(dxf_path: Path, aci_count: int, axis: Axis) -> Path | Non
     return None
 
 
-def read_mosaic(dxf_path: str, shk_path: str | None = None) -> Mosaic:
+def read_mosaic(dxf_path: str, shk_path: str | None = None, *, auto_shk: bool = True) -> Mosaic:
     """Прочитать DXF и, при наличии совместимого `.shk`, заполнить легенду."""
     source = Path(dxf_path)
     doc = ezdxf.readfile(source)
@@ -221,8 +221,10 @@ def read_mosaic(dxf_path: str, shk_path: str | None = None) -> Mosaic:
     selected_shk: Path | None
     if shk_path is not None:
         selected_shk = Path(shk_path)
-    else:
+    elif auto_shk:
         selected_shk = _find_matching_shk(source, len(aci_order), direction.axis)
+    else:
+        selected_shk = None
 
     legend = build_legend(str(selected_shk), aci_order) if selected_shk else []
     band_by_aci = {band.aci: band for band in legend if band.aci is not None}
