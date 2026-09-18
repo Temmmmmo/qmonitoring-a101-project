@@ -11,6 +11,7 @@ from rebar.optimization.contracts.problem import LayoutConstraints, LayoutProble
 from rebar.optimization.services.composite_coverage import evaluate_composite_coverage
 from rebar.optimization.services.composite_detailing import build_composite_zone
 from rebar.optimization.services.composite_windows import covering_composite_window
+from rebar.optimization.services.composite_mesh_domain import composite_mesh_domain, zone_inside_mesh
 from rebar.optimization.services.finite_cover import solve_finite_cover_front
 
 from test_composite_coverage import demand_sample, zone_sample
@@ -21,6 +22,31 @@ def problem_sample(axis=Axis.X, required_level=2):
     demand = demand_sample(axis, required_level=required_level)
     placements = tuple((i, zone_sample(demand, level=i).placement) for i in (1, 2, 3))
     return CompositeSearchProblem(demand, placements, LayoutConstraints(), COMPOSITE_COVERAGE_POLICY)
+
+
+def test_mesh_domain_excludes_white_gap_and_accepts_colored_cells():
+    problem = problem_sample()
+    second = problem.demand.cells[1]
+    shifted = replace(second, poly=tuple((x, y + 400) for x, y in second.poly),
+                      centroid=(second.centroid[0], second.centroid[1] + 400))
+    demand = replace(problem.demand, cells=(problem.demand.cells[0], shifted))
+    domain = composite_mesh_domain(demand)
+    assert zone_inside_mesh(domain, (0, 0, 3900, 400))
+    assert zone_inside_mesh(domain, (0, 800, 3900, 1200))
+    assert not zone_inside_mesh(domain, (0, 0, 3900, 1200))
+
+
+def test_strict_composite_search_rejects_rectangles_crossing_white_gap():
+    pytest.importorskip("scipy")
+    problem = problem_sample()
+    second = problem.demand.cells[1]
+    shifted = replace(second, poly=tuple((x, y + 400) for x, y in second.poly),
+                      centroid=(second.centroid[0], second.centroid[1] + 400))
+    problem = replace(problem, demand=replace(problem.demand, cells=(problem.demand.cells[0], shifted)))
+    result = solve_composite_pool(problem, maximum_candidates=32, partition_depth=2,
+                                  forbid_unmeshed_zones=True)
+    assert not result.points
+    assert result.telemetry["unmeshed_zone_rejected_candidates"] > 0
 
 
 @pytest.mark.parametrize("axis", [Axis.X, Axis.Y])

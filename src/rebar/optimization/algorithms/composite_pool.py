@@ -18,6 +18,7 @@ from ..services.composite_detailing import build_composite_zone, validate_recipe
 from ..services.composite_host import evaluate_composite_host, evaluate_host_demand_feasibility
 from ..services.composite_host_fit import admissible_host_window, fit_composite_zone_to_host
 from ..services.composite_interior import partition_interior_demand
+from ..services.composite_mesh_domain import composite_mesh_domain, zone_inside_mesh
 from ..services.composite_windows import covering_composite_window
 from ..services.finite_cover import solve_finite_cover_front
 from ..services.geometry import bboxes_overlap, polygon_in_bbox
@@ -60,12 +61,15 @@ def solve_composite_pool(
     complexity_axis: ComplexityAxis = ComplexityAxis.ZONE_COUNT,
     maximum_positions: int | None = None, steel_class: str = "",
     retain_position_alternatives: bool = False,
+    forbid_unmeshed_zones: bool = False,
 ) -> CompositeSearchResult:
     """Построить mass/zone-count фронт и выбрать ближайшую к идеалу точку (равные веса).
 
     Весь пул и выбранные раскладки проходят независимый research-валидатор. КЭ
     учитывается в матрице только при полном покрытии одним кандидатом; объединение
     нескольких достаточных фрагментов пока не расширяет пространство поиска.
+    Опциональный запрет белых областей проверяет прямоугольники по union исходных
+    КЭ до построения зоны и повторно после выбора MILP.
     """
     for value, low, high, name in ((maximum_zones, 1, 128, "maximum_zones"),
                                   (maximum_candidates, 1, 1024, "maximum_candidates"),
@@ -93,6 +97,9 @@ def solve_composite_pool(
     if not isinstance(steel_class, str) or not isinstance(retain_position_alternatives, bool):
         raise ValueError("невалидный класс стали или режим сохранения кандидатов")
     demand, constraints = problem.demand, problem.constraints
+    if not isinstance(forbid_unmeshed_zones, bool):
+        raise ValueError("forbid_unmeshed_zones должен быть bool")
+    mesh_domain = composite_mesh_domain(demand) if forbid_unmeshed_zones else None
     if problem.boundary_mode not in ("strict", "interior-exceptions") or (
             problem.boundary_mode == "interior-exceptions" and problem.host_envelope is None):
         raise ValueError("неизвестный boundary_mode или отсутствует host для внутренних исключений")
@@ -118,6 +125,8 @@ def solve_composite_pool(
                  "solver_executed": False, "maximum_physical_bars": maximum_physical_bars,
                  "maximum_mass_kg": maximum_mass_kg, "maximum_bar_length_mm": maximum_bar_length_mm,
                  "bar_length_rejected_candidates": 0}
+    telemetry["forbid_unmeshed_zones"] = forbid_unmeshed_zones
+    telemetry["unmeshed_zone_rejected_candidates"] = 0
     telemetry["host_shifted_components"] = 0
     telemetry.update(complexity_axis=complexity_axis.value, maximum_positions=maximum_positions,
                      retain_position_alternatives=retain_position_alternatives)
@@ -155,6 +164,9 @@ def solve_composite_pool(
                 telemetry["candidate_errors"].append({"level_index": level.index, "bbox_mm": _bbox(served), "error": str(error)})
                 continue
             signature = box, level.index
+            if mesh_domain is not None and not zone_inside_mesh(mesh_domain, box):
+                telemetry["unmeshed_zone_rejected_candidates"] += 1
+                continue
             if signature in known:
                 continue
             known.add(signature)
@@ -216,6 +228,9 @@ def solve_composite_pool(
     points = []
     for proposal in proposals:
         chosen = tuple(zones[i] for i in proposal)
+        if mesh_domain is not None and any(not zone_inside_mesh(mesh_domain, zone.demand_bbox) for zone in chosen):
+            telemetry["rejected_proposals"] += 1
+            continue
         check = evaluate_composite_coverage(demand, chosen, policy_id=problem.policy_id, constraints=constraints)
         host_failed = problem.host_envelope is not None and "fail" in evaluate_composite_host(
             demand, chosen, problem.host_envelope, constraints=constraints)["checks"].values()

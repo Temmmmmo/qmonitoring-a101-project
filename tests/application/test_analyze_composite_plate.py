@@ -5,6 +5,9 @@ import pytest
 
 from rebar.application.analyze_composite_plate import CompositeDirectionSettings, analyze_composite_plate
 from rebar.optimization.contracts.plate import PLATE_DIRECTIONS
+from rebar.optimization.services.composite_mesh_domain import composite_mesh_domain, zone_inside_mesh
+from rebar.optimization.adapters.mosaic import build_demand_map
+from rebar.application.analyze_direction import load_direction_mosaic
 
 
 def settings():
@@ -20,6 +23,7 @@ def test_full_dxf_plate_keeps_all_components_and_unions_positions(composite_plat
     assert report["source_demand_preserved"] and not report["placement_eligible"]
     assert [source.dxf_path.read_bytes() for source in sources] == before
     assert report["averaging"] == "not_applied"
+    assert report["zone_boundary_policy"] == "rectangles_inside_union_of_source_kleenka_cells"
     assert "stock-cutting-manufacturing-assumptions" in report["blocking_check_ids"]
     assert all("Исходный спрос; раскладка отсутствует" in d["input_svg"] for d in report["directions"])
     for point in report["front"]:
@@ -32,6 +36,10 @@ def test_full_dxf_plate_keeps_all_components_and_unions_positions(composite_plat
         assert all(len(z["components"]) == 2 for c in options for z in c["zone_drafts"])
         assert all(z["components"][0]["placement"]["pattern"]["offsets_mm"] == [100, 200] for c in options for z in c["zone_drafts"])
         assert all("<svg" in c["svg"] for c in options)
+        for source, option in zip(sources, options):
+            mesh = composite_mesh_domain(build_demand_map(load_direction_mosaic(source.dxf_path,
+                shk_path=source.shk_path, mapping_id=source.mapping_id)))
+            assert all(zone_inside_mesh(mesh, zone["demand_bbox_mm"]) for zone in option["zone_drafts"])
     json.dumps(report, allow_nan=False)
 
 

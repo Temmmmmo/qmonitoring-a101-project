@@ -282,6 +282,7 @@ function renderDirection() {
       (direction.telemetry?.host_demand_feasibility?.requires_engineering_decision
         ? `Несовместимы с текущей анкеровкой у края: ${direction.telemetry.host_demand_feasibility.cell_count} КЭ, выделены красным. Спрос не удалён.`
         : "Полного решения в заданном конечном поиске не найдено; показан исходный спрос, лимиты не ослаблены. " +
+          (direction.telemetry?.unmeshed_zone_rejected_candidates ? `${direction.telemetry.unmeshed_zone_rejected_candidates} прямоугольников отклонены: они заходят в белые области без КЭ. ` : "") +
           (direction.telemetry?.host_rejected_candidates ? `${direction.telemetry.host_rejected_candidates} кандидатов отклонены проверкой границ/проёмов/конфликтов.` : ""));
   if (candidate && isTrimmedResult()) {
     q("#direction-status").textContent = `${directions[activeDirection].title}: геометрическое наличие — ` +
