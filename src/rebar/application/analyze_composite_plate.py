@@ -7,15 +7,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 import hashlib
+import json
 import math
 from pathlib import Path
 from typing import Callable
 
 from rebar.models import Direction
+from rebar.learning.zone_preference import build_engineering_preference
 from rebar.optimization.adapters.mosaic import build_demand_map
 from rebar.optimization.algorithms.composite_pool import solve_composite_pool
+from rebar.optimization.algorithms.composite_merge import solve_composite_merge
 from rebar.optimization.algorithms.stock_length_balance import balance_stock_lengths
-from rebar.optimization.contracts.composite_coverage import STO_279_COVERAGE_POLICY
+from rebar.optimization.contracts.composite_coverage import STO_279_COVERAGE_POLICY, MONOTONE_COMPONENT_STO_COVERAGE_POLICY
 from rebar.optimization.contracts.composite_search import CompositeSearchProblem
 from rebar.optimization.contracts.front import ComplexityAxis
 from rebar.optimization.contracts.plate import PLATE_DIRECTIONS, _canonical_direction_items
@@ -29,6 +32,7 @@ from rebar.optimization.services.composite_host_fit import fit_composite_zone_to
 from rebar.optimization.services.composite_mesh_domain import composite_mesh_domain, clipped_zone_footprint
 from rebar.optimization.services.cutting import PLATE_11700_BATCH_PROFILE
 from rebar.optimization.services.position_combinations import combine_keyed_candidates
+from rebar.optimization.services.zone_tradeoff import combine_zone_candidates, recommend_zone_knee
 from rebar.optimization.services.stock_cutting import check_stock_cutting
 from rebar.reporting.serialization import to_jsonable
 from rebar.reporting.composite_svg import render_composite_svg
@@ -144,16 +148,27 @@ def analyze_composite_plate(
     host_reference: dict | None = None, coordinate_policy: str | None = None,
     maximum_cutting_overhead_pct: float = 5,
     progress_callback: Callable[[int, str], None] | None = None,
+    search_mode: str = "positions",
 ) -> dict:
     """Один сценарий для API/CLI; класс и фазы задаёт вызывающая сторона, не алгоритм."""
     if len(sources) != 4:
         raise ValueError("нужны ровно четыре DXF, а не частичная выдача")
+    if search_mode not in ("positions", "zone-merge"):
+        raise ValueError("неизвестный режим поиска")
+    zone_search = search_mode == "zone-merge"
+    axis_key = "zone_count" if zone_search else "position_count"
+
+    def select(front):
+        return (recommend_zone_knee([(p["zone_count"], p["additional_mass_kg"]) for p in front])["index"]
+                if zone_search else _select(front))
     ordered_settings = _canonical_direction_items(settings, lambda s: s.direction, item_name="Профиль укладки")
     if min_width_cells not in (2, 3) or isinstance(min_width_cells, bool):
         raise ValueError("минимальная ширина — 2 или 3 КЭ")
     if maximum_positions is not None and (isinstance(maximum_positions, bool)
             or not isinstance(maximum_positions, int) or not 1 <= maximum_positions <= 512):
         raise ValueError("лимит позиций всей плиты должен быть 1..512")
+    if zone_search and maximum_positions is not None:
+        raise ValueError("эксперимент разбиений оптимизирует число зон; лимит позиций доступен в прежнем поиске")
     if (host_reference is None) != (coordinate_policy is None):
         raise ValueError("host и явная политика координат передаются вместе")
     if host_reference is not None and coordinate_policy not in (HOST_COORDINATE_POLICY, HOST_TRANSLATION_POLICY):
@@ -197,12 +212,21 @@ def analyze_composite_plate(
     except (KeyError, TypeError, IndexError, AttributeError) as error:
         raise ValueError("неполный или неверно структурированный снимок host") from error
     problems = tuple(CompositeSearchProblem(demand, _placements(demand, config), constraints,
-                     STO_279_COVERAGE_POLICY, host) for demand, config in zip(demands, ordered_settings))
+                     MONOTONE_COMPONENT_STO_COVERAGE_POLICY if zone_search else STO_279_COVERAGE_POLICY, host)
+                     for demand, config in zip(demands, ordered_settings))
     mesh_domains = tuple(composite_mesh_domain(demand) for demand in demands)
     report_progress(25, "Проверены сетка КЭ и границы плиты")
     searches = []
     for index, (problem, config) in enumerate(zip(problems, ordered_settings)):
-        searches.append(solve_composite_pool(problem, maximum_zones=maximum_zones_per_direction,
+        if zone_search:
+            searches.append(solve_composite_merge(problem, maximum_zones=maximum_zones_per_direction,
+                time_limit_s=solver_time_limit_s, neighbor_polish=True,
+                polish_max_evaluations=320, polish_max_steps=8, polish_time_limit_s=5,
+                progress_callback=lambda done, total: report_progress(
+                    25 + 10 * index + int(10 * done / total),
+                    f"Разбиения {done}/{total}: {direction_labels[index]}")))
+        else:
+            searches.append(solve_composite_pool(problem, maximum_zones=maximum_zones_per_direction,
             maximum_candidates=maximum_candidates, solver_time_limit_s=solver_time_limit_s,
             maximum_bar_length_mm=11700, complexity_axis=ComplexityAxis.POSITION_COUNT,
             maximum_positions=maximum_positions, steel_class=config.steel_class, retain_position_alternatives=True))
@@ -229,8 +253,13 @@ def analyze_composite_plate(
         return frozenset(straight_bar_key(p["diameter_mm"], p["length_mm"], p["steel_class"])
                          for p in candidate(choice)["bar_schedule"])
 
-    combinations = combine_keyed_candidates(tuple(choice_groups), keys_of=keys,
-                                            mass_of=lambda choice: candidate(choice)["metrics"]["additional_mass_kg"])
+    if zone_search:
+        combinations = combine_zone_candidates(tuple(choice_groups),
+            count_of=lambda choice: candidate(choice)["metrics"]["zone_count"],
+            mass_of=lambda choice: candidate(choice)["metrics"]["additional_mass_kg"])
+    else:
+        combinations = combine_keyed_candidates(tuple(choice_groups), keys_of=keys,
+            mass_of=lambda choice: candidate(choice)["metrics"]["additional_mass_kg"])
     report_progress(88, "Объединены варианты четырёх направлений")
     combined = []
     for choices in combinations:
@@ -243,7 +272,7 @@ def analyze_composite_plate(
                          "physical_bar_count": sum(row.physical_bar_count for row in schedule),
                          "additional_mass_kg": math.fsum(row.total_mass_kg for row in schedule),
                          "bar_schedule": schedule})
-    combined.sort(key=lambda p: (p["position_count"], p["additional_mass_kg"], p["direction_candidate_indexes"]))
+    combined.sort(key=lambda p: (p[axis_key], p["additional_mass_kg"], p["direction_candidate_indexes"]))
     front, best_mass = [], math.inf
     for point in combined:
         if point["additional_mass_kg"] < best_mass - 1e-6:
@@ -253,7 +282,7 @@ def analyze_composite_plate(
         point["stock_cutting"] = check_stock_cutting(point["bar_schedule"])
         point["bar_schedule"] = to_jsonable(point["bar_schedule"])
     report_progress(92, "Проверен раскрой партии")
-    selected = _select(front)
+    selected = select(front)
     diagnostic_front, balance_attempts = [], []
     if cutting_profile == PLATE_11700_BATCH_PROFILE and front:
         balanced = [point for point in front if point["stock_cutting"]["status"] == "pass"]
@@ -311,13 +340,15 @@ def analyze_composite_plate(
         if balanced:
             diagnostic_front = front
             front, best_mass = [], math.inf
-            for point in sorted(balanced, key=lambda p: (p["position_count"], p["additional_mass_kg"])):
+            for point in sorted(balanced, key=lambda p: (p[axis_key], p["additional_mass_kg"])):
                 if point["additional_mass_kg"] < best_mass - 1e-6:
                     front.append(point)
                     best_mass = point["additional_mass_kg"]
-            selected = _select(front)
+            selected = select(front)
     report_progress(97, "Расчёт готов, формируем отчёт")
     blocks = [*REMAINING_CHECKS, "stock-cutting-manufacturing-assumptions"]
+    if zone_search:
+        blocks.append("monotone-component-substitution-engineering-approval")
     if any(spec.step == 100 for demand in demands for level in demand.levels for spec in level.recipe.additions):
         blocks.append("coplanar-background-contact-and-depths")
     if host is not None:
@@ -336,15 +367,38 @@ def analyze_composite_plate(
         "maximum_cutting_overhead_pct": maximum_cutting_overhead_pct,
         "host_envelope": to_jsonable(host), "host_coordinate_policy": coordinate_policy,
         "front_scope": "zero-waste-candidates" if diagnostic_front else "coverage-candidates-with-cutting-status",
-        "selection": "equal_weight_normalized_mass_and_specification_positions",
+        "search_mode": search_mode, "complexity_axis": axis_key,
+        "selection": "normalized_chord_distance" if zone_search else "equal_weight_normalized_mass_and_specification_positions",
         "blocking_check_ids": blocks,
         "warning": "Расчёт всех четырёх направлений без удаления краёв. Конечный набор кандидатов, "
                    "не глобальный оптимум. Фазы заданы пользователем, высоты не назначены. "
                    "Ведомость и пакет зон — черновик, не команда размещения в Revit. "
                    "Профиль batch согласует длины выбранных наборов с раскроем; количество стержней неизменно. "
                    "Прочие профили только проверяют раскрой. Удлинённые стержни проходят повторную геометрическую проверку."}
+    if zone_search:
+        report["zone_tradeoff"] = {
+            "knee": recommend_zone_knee([(p["zone_count"], p["additional_mass_kg"]) for p in front]),
+            "scope": "four_directions_sampled_spatial_merge_partitions",
+            "direction_point_limit": 16,
+            "timed_out": any(s.telemetry["timed_out"] for s in searches),
+            "mass_includes": ["all_additional_components", "40d_each_end", "selected_cut_lengths"],
+            "local_improvement": {"enabled": True, "method": "neighbor-merge",
+                                  "max_evaluations_per_direction": 320,
+                                  "max_steps_per_seed": 8, "extra_time_limit_s_per_direction": 5},
+        }
+        report["warning"] = ("Эксперимент разбиений: число зон и масса всех четырёх направлений. "
+            "Точка 3 — рекомендация по перегибу найденной кривой, не доказанный оптимум. "
+            "Разрешена замена каждой добавки не более слабой; её инженерное согласование не выполнено. "
+            + report["warning"])
     if front:
         report["source_graphics"] = build_source_graphics_from_demands(demands, report, case_id=case_id)
         report["source_graphics_candidate_index"] = selected
         report["source_graphics_mode"] = "direction-candidates"
+    if zone_search:
+        bundle_path = Path(__file__).resolve().parents[1] / "learning" / "data" / "zone_preference_bundle.json"
+        try:
+            bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            bundle = None
+        report["engineering_preference"] = build_engineering_preference(report, bundle)
     return report

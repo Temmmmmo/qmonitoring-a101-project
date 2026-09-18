@@ -140,6 +140,7 @@ app.include_router(revit_workflow_router)
 
 
 @app.get("/composite")
+@app.get("/partitions")
 async def composite_workspace():
     return FileResponse(STATIC_DIR / "composite.html")
 
@@ -191,6 +192,7 @@ async def analyze_composite_plate_upload(
     maximum_cutting_overhead_pct: Annotated[float, Form(ge=0, le=100)] = 5,
     case_id: Annotated[str, Form(max_length=200)] = "",
     async_job: Annotated[bool, Form()] = False,
+    search_mode: Annotated[str, Form()] = "positions",
 ) -> dict:
     """Полный составной комплект, отдельная шкала для каждой оси; Excel не требуется."""
     dxfs = (dxf_bottom_x, dxf_bottom_y, dxf_top_x, dxf_top_y)
@@ -198,6 +200,8 @@ async def analyze_composite_plate_upload(
     uploads = (*dxfs, *scales, *((host_reference,) if host_reference is not None else ()))
     temporary = None
     try:
+        if search_mode not in ("positions", "zone-merge"):
+            raise ValueError("неизвестный режим поиска")
         data = load_review_input(placement_settings.encode("utf-8"))
         if set(data) != {"directions"} or not isinstance(data["directions"], list) or len(data["directions"]) != 4:
             raise ValueError("нужны явные параметры четырёх направлений")
@@ -241,6 +245,7 @@ async def analyze_composite_plate_upload(
                 maximum_candidates=maximum_candidates, solver_time_limit_s=solver_time_limit_s,
                 min_width_cells=min_width_cells, cutting_profile=cutting_profile, case_id=case_id,
                 maximum_cutting_overhead_pct=maximum_cutting_overhead_pct,
+                search_mode=search_mode,
                 host_reference=reference, coordinate_policy=HOST_COORDINATE_POLICY if reference is not None else None,
                 progress_callback=progress_callback)
 
@@ -306,7 +311,7 @@ async def prevent_stale_web_assets(request: Request, call_next):
     path = request.url.path
     is_versioned_revit_download = (path.startswith("/api/revit/tools/")
         and path.endswith("/download") and response.status_code == 200)
-    if not is_versioned_revit_download and (path in ("/", "/composite", "/revit")
+    if not is_versioned_revit_download and (path in ("/", "/composite", "/partitions", "/revit")
             or path.startswith(("/api/", "/static/"))):
         response.headers["Cache-Control"] = "no-store, max-age=0"
         response.headers["Pragma"] = "no-cache"

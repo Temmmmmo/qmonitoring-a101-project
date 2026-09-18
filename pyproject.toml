@@ -16,6 +16,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "rebar.web" = ["static/*"]
+"rebar.learning" = ["data/*.json"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

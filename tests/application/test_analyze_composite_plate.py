@@ -60,6 +60,46 @@ def test_full_dxf_plate_keeps_all_components_and_unions_positions(composite_plat
     json.dumps(report, allow_nan=False)
 
 
+def test_separate_zone_merge_search_keeps_four_directions_and_selects_real_front_point(composite_plate_sources):
+    report = analyze_composite_plate(composite_plate_sources, settings(), search_mode="zone-merge",
+        maximum_zones_per_direction=64, solver_time_limit_s=3, cutting_profile="continuous")
+    assert report["search_mode"] == "zone-merge"
+    assert report["complexity_axis"] == "zone_count"
+    assert report["zone_tradeoff"]["scope"] == "four_directions_sampled_spatial_merge_partitions"
+    assert report["zone_tradeoff"]["local_improvement"]["enabled"] is True
+    assert report["front"] and report["selected_index"] == report["zone_tradeoff"]["knee"]["index"]
+    assert report["engineering_preference"]["status"] == "unavailable"  # This fixture has only one tradeoff point.
+    assert all(direction["telemetry"]["algorithm"] == "composite-bottom-up-partitions/v1"
+               for direction in report["directions"])
+    assert all(direction["telemetry"]["neighbor_polish"]["enabled"] is True
+               for direction in report["directions"])
+    assert all(direction["source_cell_count"] == 96 for direction in report["directions"])
+    assert all(report["front"][i]["zone_count"] < report["front"][i + 1]["zone_count"]
+               and report["front"][i]["additional_mass_kg"] > report["front"][i + 1]["additional_mass_kg"]
+               for i in range(len(report["front"]) - 1))
+    selected = report["front"][report["selected_index"]]
+    assert report["source_graphics_candidate_index"] == report["selected_index"]
+    assert report["source_graphics_mode"] == "direction-candidates"
+    for i, j in enumerate(selected["direction_candidate_indexes"]):
+        option = report["directions"][i]["candidates"][j]
+        assert option["coverage"]["status"] == "pass"
+        assert option["coverage"]["uncovered_cell_count"] == 0
+        assert report["source_graphics"]["directions"][i]["zone_drafts"] == option["zone_drafts"]
+    assert selected["zone_count"] == sum(report["directions"][i]["candidates"][j]["metrics"]["zone_count"]
+                                         for i, j in enumerate(selected["direction_candidate_indexes"]))
+    json.dumps(report, allow_nan=False)
+
+
+def test_unknown_zone_search_mode_is_rejected_before_input_read(composite_plate_sources):
+    with pytest.raises(ValueError, match="неизвестный режим"):
+        analyze_composite_plate(composite_plate_sources, settings(), search_mode="typo")
+
+
+def test_zone_merge_rejects_position_limit_before_input_read(composite_plate_sources):
+    with pytest.raises(ValueError, match="эксперимент разбиений оптимизирует число зон"):
+        analyze_composite_plate(composite_plate_sources, settings(), search_mode="zone-merge", maximum_positions=20)
+
+
 @pytest.mark.parametrize("bad", ["three", "duplicate", "settings", "mesh", "host", "width", "position_limit"])
 def test_bad_full_plate_never_becomes_a_partial_success(composite_plate_sources, bad):
     sources, profile = composite_plate_sources, settings()

@@ -13,6 +13,7 @@ const fmt = (value, digits = 2) => value === null || value === undefined ? "—"
 const statuses = { pass: "Пройдено в расчётной модели", fail: "Не выполнено", not_checked: "Не проверено" };
 const shortStatuses = {pass: "Да · расчётно", fail: "Не выполнено", not_checked: "Не проверено"};
 const explanations = {
+  "monotone-component-substitution-engineering-approval": "Эксперимент зон: замена каждой добавки не более слабой требует инженерного согласования.",
   "boundary-trim-engineering-review": "Обрезка у края требует решения анкеровки; это не разрешение размещения",
   "external_boundary": "Есть стержни, тело которых не помещается во внешний контур",
   "slab_material_boundary": "Есть стержни, тело которых не помещается в материал плиты с учётом отверстий",
@@ -310,8 +311,122 @@ function renderDirection() {
   }
   q("#direction-tabs").querySelectorAll("button").forEach((button, i) => button.setAttribute("aria-pressed", i === activeDirection));
 }
+function renderZoneTradeoff() {
+  const enabled = result?.complexity_axis === "zone_count" && !layoutVariants.length;
+  q("#zone-tradeoff").hidden = !enabled;
+  q("#engineering-preference").hidden = true;
+  if (!enabled) return;
+  const front = result.front || [];
+  renderEngineeringPreference(front);
+  const knee = result.zone_tradeoff?.knee;
+  const chosen = Number(q("#candidate").value);
+  const hasKnee = knee?.status === "candidate" && Number.isInteger(knee.index) &&
+    knee.index >= 0 && knee.index < front.length;
+  q("#select-zone-knee").hidden = !hasKnee;
+  q("#zone-tradeoff-scope").textContent = "Масса дополнительного армирования после 40d и выбранного раскроя. " +
+    "Количество зон, физических стержней и позиций — разные показатели. Показан фронт найденных разбиений, не глобальный оптимум. " +
+    (result.zone_tradeoff?.timed_out ? "Лимит времени достигнут: показаны только полностью проверенные варианты. " : "") +
+    (result.diagnostic_front_before_cutting?.length ? "Кривая ограничена вариантами с успешным подбором безотходного раскроя." : "");
+  q("#zone-knee-note").textContent = hasKnee
+    ? `Кандидат на Точку 3: вариант ${knee.index + 1}, ${fmt(front[knee.index].zone_count, 0)} зон, ` +
+      `${fmt(front[knee.index].additional_mass_kg)} кг. До него экономия ${fmt(knee.coarser?.kg_per_extra_zone)} кг на добавленную зону; ` +
+      `при следующем дроблении — ${fmt(knee.finer?.kg_per_extra_zone)} кг/зону. Это геометрическая подсказка, не подтверждённый инженерный выбор.`
+    : front.length ? "Выраженное колено не найдено: вариантов недостаточно или кривая не имеет отчётливого перегиба. Минимум массы служит резервным выбором."
+      : "Полного разбиения в заданных ограничениях не найдено. Исходный спрос не сокращён.";
+  if (!front.length) { q("#zone-tradeoff-chart").innerHTML = ""; return; }
+  const counts = front.map(p => p.zone_count), masses = front.map(p => p.additional_mass_kg);
+  const n0 = Math.min(...counts), n1 = Math.max(...counts), m0 = Math.min(...masses), m1 = Math.max(...masses);
+  const chartWidth = Math.max(720, Math.min(2800, front.length * 10));
+  const plotEnd = chartWidth - 60;
+  const x = n => n0 === n1 ? (90 + plotEnd) / 2 : 90 + (plotEnd - 90) * (n - n0) / (n1 - n0);
+  const y = m => m0 === m1 ? 147 : 245 - 195 * (m - m0) / (m1 - m0);
+  const labels = front.map((p, i) => `Вариант ${i + 1}: ${fmt(p.zone_count, 0)} зон, ${fmt(p.additional_mass_kg)} кг${i === chosen ? ", выбран" : ""}${hasKnee && i === knee.index ? ", кандидат на Точку 3" : ""}`);
+  q("#zone-tradeoff-chart").innerHTML = `<svg viewBox="0 0 ${chartWidth} 310" style="min-width:${chartWidth}px" role="group" aria-label="График массы и числа зон найденных разбиений">
+    <text x="90" y="24">Масса добавки, кг</text><path class="tradeoff-axis" d="M90 40V245H${plotEnd}"/>
+    <text x="80" y="54" text-anchor="end">${fmt(m1, 0)}</text><text x="80" y="248" text-anchor="end">${fmt(m0, 0)}</text>
+    <text x="90" y="268" text-anchor="middle">${fmt(n0, 0)}</text><text x="${plotEnd}" y="268" text-anchor="middle">${fmt(n1, 0)}</text>
+    <text x="${(90 + plotEnd) / 2}" y="298" text-anchor="middle">Количество параметрических зон · вся плита</text>
+    ${front.length > 1 ? `<polyline class="tradeoff-line" points="${front.map(p => `${x(p.zone_count)},${y(p.additional_mass_kg)}`).join(" ")}"/>` : ""}
+    ${front.map((p, i) => `<circle cx="${x(p.zone_count)}" cy="${y(p.additional_mass_kg)}" r="${i === chosen ? 8 : 5}"
+      class="tradeoff-point ${i === chosen ? "selected" : ""} ${hasKnee && i === knee.index ? "knee" : ""}"
+      data-candidate="${i}" role="button" tabindex="0" aria-pressed="${i === chosen}" aria-label="${esc(labels[i])}"><title>${esc(labels[i])}</title></circle>`).join("")}
+    </svg>`;
+}
+function renderEngineeringPreference(front) {
+  const preference = result?.engineering_preference;
+  const validIndex = index => Number.isInteger(index) && index >= 0 && index < front.length;
+  if (preference?.status !== "available" || !validIndex(preference.recommended_index) ||
+      !Array.isArray(preference.top_indexes) || !preference.top_indexes.length ||
+      !preference.top_indexes.every(validIndex)) return;
+  const top = [...new Set(preference.top_indexes)].slice(0, 3);
+  const model = String(preference.model_id || "не указан");
+  const training = Array.isArray(preference.training_case_ids) ? preference.training_case_ids.map(String) : [];
+  const validation = preference.validation || {};
+  q("#engineering-preference").hidden = false;
+  q("#engineering-preference-note").textContent =
+    `Модель ${model} ранжирует уже проверенные варианты по массе и числу физических стержней. ` +
+    `Обучающие плиты: ${training.length ? training.join(", ") : "не указаны"}. Число зон не было инженерной меткой предпочтения; ` +
+    `это отдельная подсказка, не геометрическое колено и не доказанный инженерный оптимум.`;
+  q("#engineering-preference-top").innerHTML = top.map((index, rank) =>
+    `<button type="button" data-preference-index="${index}" aria-pressed="${index === Number(q("#candidate").value)}">` +
+    `${rank + 1}. Вариант ${index + 1} · ${fmt(front[index].zone_count, 0)} зон · ${fmt(front[index].additional_mass_kg)} кг</button>`).join("");
+  const independent = Number.isInteger(validation.independent_cases) ? validation.independent_cases : null;
+  const regret = Number.isFinite(validation.mean_regret) ? fmt(validation.mean_regret, 3) : "—";
+  const kneeRegret = Number.isFinite(validation.knee_regret) ? fmt(validation.knee_regret, 3) : "—";
+  q("#engineering-preference-validation").textContent =
+    `Независимых плит при проверке: ${fmt(independent, 0)}. Средняя ошибка выбора: ${regret}; ` +
+    `для геометрического колена: ${kneeRegret}. Это экспериментальная оценка на малой выборке.`;
+}
+function chooseTradeoffPoint(index) {
+  if (!Number.isInteger(index) || index < 0 || index >= (result?.front.length || 0) || layoutVariants.length) return;
+  q("#candidate").value = String(index);
+  renderPoint();
+}
+q("#zone-tradeoff-chart").addEventListener("click", event => {
+  const point = event.target.closest("[data-candidate]");
+  if (point) chooseTradeoffPoint(Number(point.dataset.candidate));
+});
+q("#zone-tradeoff-chart").addEventListener("keydown", event => {
+  const point = event.target.closest("[data-candidate]");
+  if (point && (event.key === "Enter" || event.key === " ")) {
+    event.preventDefault(); chooseTradeoffPoint(Number(point.dataset.candidate));
+  }
+});
+q("#select-zone-knee").addEventListener("click", () => chooseTradeoffPoint(result?.zone_tradeoff?.knee?.index));
+q("#select-engineering-preference").addEventListener("click", () => chooseTradeoffPoint(result?.engineering_preference?.recommended_index));
+q("#engineering-preference-top").addEventListener("click", event => {
+  const button = event.target.closest("[data-preference-index]");
+  if (button) chooseTradeoffPoint(Number(button.dataset.preferenceIndex));
+});
+function updateSearchMode() {
+  const merge = q("#search-mode").value === "zone-merge";
+  q("#pool-budget").hidden = merge;
+  q('[name="maximum_candidates"]').disabled = merge;
+  q('[name="maximum_positions"]').disabled = merge;
+  q("#search-mode-note").textContent = merge
+    ? "Отдельный эксперимент: мелкие зоны объединяются по нескольким иерархиям; сохраняются варианты разной массы и числа зон. Каждая добавка может заменяться не более слабой. Исходный спрос сохраняется. Лимит позиций здесь не поддержан и отключён."
+    : "Прежний поиск в конечном пуле прямоугольников; цель — масса и позиции спецификации. Лимит позиций доступен только здесь.";
+}
+q("#search-mode").addEventListener("change", updateSearchMode);
+if (window.location.pathname === "/partitions") {
+  document.title = "QMonitoring · Разбиения и Точка 3";
+  q('.start-eyebrow').textContent = '1 · Исследовательский режим';
+  q('.engineering-start h1').textContent = 'Разбиения и Точка 3';
+  q('.start-description').textContent = 'Отдельный эксперимент по числу зон и массе добавочной арматуры. ' +
+    'После расчёта выберите точку на графике и проверьте её четыре направления и JSON.';
+  q('nav a[href="/partitions"]').setAttribute('aria-current', 'page');
+  q("#search-mode").value = "zone-merge";
+  q('[name="cutting_profile"]').value = "plate-11700";
+  q('[name="maximum_zones"]').value = "128";
+  q('[name="solver_time_limit_s"]').value = "20";
+  updateSearchMode();
+} else {
+  q('nav a[href="/composite"]').setAttribute('aria-current', 'page');
+}
+updateSearchMode();
 function renderPoint() {
   const point = selectedPoint();
+  renderZoneTradeoff();
   q("#full-result-warning").textContent = result.warning;
   if (isTrimmedResult()) {
     const trim = trimDisplayChecks();
@@ -337,7 +452,8 @@ function renderPoint() {
   q("#schedule-title").textContent = physical ? "Общая ведомость физических стержней после обработки" : "Расчётная ведомость стержней параметрического кандидата";
   q("#metrics").innerHTML = point ? [[point.additional_mass_kg, "Масса добавки", "кг", "Установленная партия", 2],
     [point.physical_bar_count, "Физические стержни", "шт.", "Количество отдельных стержней", 0],
-    [point.position_count, "Позиции спецификации", "поз.", `${fmt(point.zone_count, 0)} параметрических зон`, 0]]
+    [point.zone_count, "Параметрические зоны", "зон", "Количество участков раскладки", 0],
+    [point.position_count, "Позиции спецификации", "поз.", "Типоразмеры стержней", 0]]
     .map(([n, label, unit, note, digits]) => `<div><span>${label}</span><strong>${fmt(n, digits)} <small>${unit}</small></strong><p>${note}</p></div>`).join("") : "";
   renderComparison(point);
   q("#schedule").innerHTML = point ? point.bar_schedule.map((p) => `<tr><td>${esc(p.mark)}</td><td>${esc(p.steel_class || "не задан")}</td>
@@ -457,7 +573,8 @@ async function runAnalysis(url, options) {
   let startedAt = Date.now();
   const reopeningJob = url.startsWith("/api/analyze-composite-plate/jobs/");
   const hasStages = reopeningJob || url === "/api/analyze-composite-plate" && options?.body?.get?.("async_job") === "true";
-  if (!reopeningJob) window.history?.replaceState(null, "", "/composite");
+  const workspacePath = window.location.pathname === "/partitions" ? "/partitions" : "/composite";
+  if (!reopeningJob) window.history?.replaceState(null, "", workspacePath);
   q("#progress-track").hidden = !hasStages;
   q("#progress-bar").value = 0;
   q("#progress-percent").textContent = "0%";
@@ -487,7 +604,7 @@ async function runAnalysis(url, options) {
     let payload = await readAnalysisResponse(response);
     if (response.status === 202 && payload.job_id) {
       const jobId = payload.job_id;
-      window.history?.replaceState(null, "", `/composite?job=${encodeURIComponent(jobId)}`);
+      window.history?.replaceState(null, "", `${workspacePath}?job=${encodeURIComponent(jobId)}`);
       window.refreshCompositeHistory?.();
       showStage(payload);
       do {
@@ -528,7 +645,7 @@ async function runAnalysis(url, options) {
     q("#full-result-warning").textContent = result.warning;
     const choices = layoutVariants.length ? layoutVariants.map((variant) => ({...variant.metrics, label: variant.label})) : result.front;
     q("#candidate").innerHTML = choices.map((point, i) => `<option value="${i}">Вариант ${i + 1}${point.label ? " · " + esc(point.label) : ""}: ${fmt(point.additional_mass_kg)} кг / ` +
-      `${point.position_count} позиций / ${point.physical_bar_count} стержней</option>`).join("");
+      `${fmt(point.zone_count, 0)} зон / ${fmt(point.position_count, 0)} позиций / ${fmt(point.physical_bar_count, 0)} стержней</option>`).join("");
     if (result.selected_index !== null) q("#candidate").value = String(layoutVariants.length ? 0 : result.selected_index);
     q("#candidate").disabled = !choices.length;
     q(".candidate-control").hidden = choices.length <= 1;

@@ -108,6 +108,86 @@ def test_composite_keeps_all_controls_but_checks_are_visible_and_metrics_unambig
     assert "фактическая плита Revit не проверена" in js
     assert "не сертифицирована для выбранного варианта" in js
     assert "required" in page.ids["boundary-trim-host"][1]
+    assert 'href="/partitions"' in html
+    assert page.ids["zone-tradeoff-chart"][0] == "div"
+    assert page.ids["engineering-preference"][0] == "section"
+
+
+def test_zone_tradeoff_chart_selects_matching_four_direction_candidate_and_export():
+    script = r"""
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const nodes=new Map();const make=()=>({innerHTML:'',textContent:'',value:'0',disabled:false,hidden:false,dataset:{},style:{},
+ callbacks:{},addEventListener(name,fn){this.callbacks[name]=fn;},querySelectorAll(){return[];},setAttribute(){},scrollIntoView(){}});
+const q=id=>{if(!nodes.has(id))nodes.set(id,make());return nodes.get(id);};
+const context={document:{querySelector:q,body:{classList:{add(){},remove(){}}}},window:{location:{search:'',hash:'',pathname:'/partitions'},engineeringExampleReady:Promise.resolve(null)},
+ URLSearchParams,Intl,console,setTimeout,clearTimeout,setInterval,clearInterval};
+vm.createContext(context);vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),context);
+assert.equal(q('[name="maximum_positions"]').disabled,true);
+assert.equal(q('[name="maximum_candidates"]').disabled,true);
+q('#search-mode').value='positions';q('#search-mode').callbacks.change();
+assert.equal(q('[name="maximum_positions"]').disabled,false);
+assert.equal(q('[name="maximum_candidates"]').disabled,false);
+q('#search-mode').value='zone-merge';q('#search-mode').callbacks.change();
+const specs=[['bottom','X'],['bottom','Y'],['top','X'],['top','Y']];
+const directions=specs.map(([layer,axis],i)=>({direction:{layer,axis},candidates:[0,1,2].map(j=>({
+ direction:{layer,axis},metrics:{zone_count:j+1},zone_drafts:Array.from({length:j+1},(_,k)=>({source_zone_id:`${i}-${j}-${k}`,components:[]})),
+ svg:`<svg>${i}-${j}</svg>`,coverage:{uncovered_cell_count:0},installation_notes:[]}))}));
+const front=[{zone_count:4,additional_mass_kg:130},{zone_count:8,additional_mass_kg:110},{zone_count:12,additional_mass_kg:105}]
+ .map((p,j)=>({...p,position_count:5,physical_bar_count:20,bar_schedule:[],direction_candidate_indexes:[j,j,j,j],stock_cutting:{status:'pass',groups:[]}}));
+context.payload={complexity_axis:'zone_count',front,selected_index:0,directions,blocking_check_ids:[],
+ source_graphics_mode:'direction-candidates',source_graphics:{schema_version:'source-isofields-zones/v1',directions:specs.map(([layer,axis])=>({direction:{layer,axis},cells:[],legend:[]}))},
+ zone_tradeoff:{knee:{status:'candidate',index:1,coarser:{kg_per_extra_zone:5},finer:{kg_per_extra_zone:1}}}};
+q('#candidate').value='0';vm.runInContext('result=payload;renderPoint();download=(value,filename)=>{window.downloaded={value,filename};}',context);
+assert.equal(q('#engineering-preference').hidden,true);
+assert(q('#zone-tradeoff-chart').innerHTML.includes('data-candidate="1"'));
+assert(q('#zone-tradeoff-chart').innerHTML.includes('aria-pressed="true"'));
+assert(q('#zone-knee-note').textContent.includes('геометрическая подсказка'));
+q('#zone-tradeoff-chart').callbacks.click({target:{closest:()=>({dataset:{candidate:'1'}})}});
+assert.equal(q('#candidate').value,'1');assert.equal(q('#drawing').innerHTML,'<svg>0-1</svg>');
+assert(q('#metrics').innerHTML.includes('Параметрические зоны'));
+assert(q('#metrics').innerHTML.includes('8 <small>зон'));
+q('#download-source').callbacks.click();
+assert.equal(context.window.downloaded.value.directions[0].zone_drafts[0].source_zone_id,'0-1-0');
+assert.equal(context.window.downloaded.value.directions[3].zone_drafts[1].source_zone_id,'3-1-1');
+q('#download-selected').callbacks.click();
+assert.equal(context.window.downloaded.value.selected_point.zone_count,8);
+assert.equal(context.window.downloaded.value.directions[0].zone_drafts[0].source_zone_id,'0-1-0');
+let prevented=false;
+q('#zone-tradeoff-chart').callbacks.keydown({key:'Enter',preventDefault(){prevented=true},target:{closest:()=>({dataset:{candidate:'2'}})}});
+assert(prevented);assert.equal(q('#candidate').value,'2');assert.equal(q('#drawing').innerHTML,'<svg>0-2</svg>');
+q('#select-zone-knee').callbacks.click();assert.equal(q('#candidate').value,'1');
+context.payload.engineering_preference={status:'available',recommended_index:2,top_indexes:[2,0,1],model_id:'lo-po-v1',
+ training_case_ids:['plate-a','plate-b'],validation:{independent_cases:2,mean_regret:0.13,knee_regret:0.21}};
+vm.runInContext('renderPoint()',context);
+assert.equal(q('#engineering-preference').hidden,false);
+assert(q('#engineering-preference-note').textContent.includes('массе и числу физических стержней'));
+assert(q('#engineering-preference-note').textContent.includes('не геометрическое колено'));
+assert(q('#engineering-preference-validation').textContent.includes('Независимых плит при проверке: 2'));
+assert(q('#engineering-preference-top').innerHTML.includes('data-preference-index="2"'));
+q('#select-engineering-preference').callbacks.click();
+assert.equal(q('#candidate').value,'2');assert.equal(q('#drawing').innerHTML,'<svg>0-2</svg>');
+q('#download-source').callbacks.click();
+assert.equal(context.window.downloaded.value.directions[3].zone_drafts[2].source_zone_id,'3-2-2');
+q('#download-selected').callbacks.click();
+assert.equal(context.window.downloaded.value.selected_point.zone_count,12);
+assert.equal(context.window.downloaded.value.directions[0].zone_drafts[2].source_zone_id,'0-2-2');
+q('#engineering-preference-top').callbacks.click({target:{closest:()=>({dataset:{preferenceIndex:'0'}})}});
+assert.equal(q('#candidate').value,'0');assert.equal(q('#drawing').innerHTML,'<svg>0-0</svg>');
+context.payload.engineering_preference={status:'available',recommended_index:99,top_indexes:[0]};
+vm.runInContext('renderPoint()',context);assert.equal(q('#engineering-preference').hidden,true);
+delete context.payload.engineering_preference;
+context.payload.front=[];context.payload.zone_tradeoff.knee={status:'empty',index:null};
+vm.runInContext('renderPoint()',context);assert.equal(q('#zone-tradeoff-chart').innerHTML,'');
+assert.equal(q('#select-zone-knee').hidden,true);
+context.payload.front=[front[0]];context.payload.zone_tradeoff.knee={status:'insufficient_tradeoff',index:0};
+q('#candidate').value='0';vm.runInContext('renderPoint()',context);
+assert(!q('#zone-tradeoff-chart').innerHTML.includes('tradeoff-line'));
+assert.equal(q('#select-zone-knee').hidden,true);
+context.payload.front=front;context.payload.zone_tradeoff.knee={status:'no_distinct_knee',index:2};
+vm.runInContext('renderPoint()',context);assert.equal(q('#select-zone-knee').hidden,true);
+assert(q('#zone-knee-note').textContent.includes('Выраженное колено не найдено'));
+"""
+    node(script, STATIC / "composite.js")
 
 
 def node(script, *args):
@@ -423,7 +503,8 @@ context.payload={front:[point],directions:Array.from({length:4},()=>({candidates
  engineering_example:{reference:{mass_kg:100,physical_bar_count:30,position_count:4,scope:'Straight and shaped'}}};
 vm.runInContext('result=payload;renderPoint()',context);
 assert(q('#metrics').innerHTML.includes('Физические стержни'));assert(q('#metrics').innerHTML.includes('Позиции спецификации'));
-assert(q('#metrics').innerHTML.includes('7 параметрических зон'));assert(q('#comparison-rows').innerHTML.includes('+10 кг'));
+assert(q('#metrics').innerHTML.includes('Параметрические зоны'));assert(q('#metrics').innerHTML.includes('7 <small>зон'));
+assert(q('#comparison-rows').innerHTML.includes('+10 кг'));
 assert(q('#comparison-scope').textContent.includes('Straight and shaped'));assert.equal(q('#engineer-comparison').hidden,false);
 assert(q('#check-summary').innerHTML.includes('Нужна независимая проверка'));assert(q('#blockers').innerHTML.includes('Порядок и высоты'));
 assert.equal(q('#drawing').dataset.view,'source');assert(q('#drawing-view-note').textContent.includes('параметрические зоны до физической обработки'));

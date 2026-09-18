@@ -1,0 +1,122 @@
+{
+  "schema_version": "zone-preference-bundle/v1",
+  "model_id": "ridge-mass-bars-alpha-0.01/v1+d7c7e9a36bed",
+  "full_model": {
+    "schema_version": "zone-preference-ridge/v1",
+    "feature_names": [
+      "intercept",
+      "mass_over_front_min_minus_one",
+      "bars_over_front_min_minus_one"
+    ],
+    "coefficients": [
+      0.5887678950584007,
+      0.5459109818584112,
+      0.22079865915550953
+    ],
+    "ridge_alpha": 0.01,
+    "training_case_ids": [
+      "k09-minus-2",
+      "k09-typical-3-14",
+      "plate-zero-k09"
+    ],
+    "training_report_sha256": [
+      "1f593159098a8ef22d33ea36a604ec485cd1209e5ab2c18ad944e4697cdd39bf",
+      "60c2db355e2979b27bbe399199660ee53d5043c280c8f721c60f55a4ad83f93f",
+      "b6f0346d2f3c08dfd67c8b8c57fa442e93887b7eae78b02eff90a3c115ac699a"
+    ],
+    "training_case_count": 3,
+    "training_report_count": 3,
+    "warning": "Слабая цель по массе/стержням; инженерные зоны и Точка 3 не размечены. Не применять автоматически."
+  },
+  "held_out_models": {
+    "k09-minus-2": {
+      "schema_version": "zone-preference-ridge/v1",
+      "feature_names": [
+        "intercept",
+        "mass_over_front_min_minus_one",
+        "bars_over_front_min_minus_one"
+      ],
+      "coefficients": [
+        0.6167395917398383,
+        0.5075106890674013,
+        0.022890000829267065
+      ],
+      "ridge_alpha": 0.01,
+      "training_case_ids": [
+        "k09-typical-3-14",
+        "plate-zero-k09"
+      ],
+      "training_report_sha256": [
+        "1f593159098a8ef22d33ea36a604ec485cd1209e5ab2c18ad944e4697cdd39bf",
+        "b6f0346d2f3c08dfd67c8b8c57fa442e93887b7eae78b02eff90a3c115ac699a"
+      ],
+      "training_case_count": 2,
+      "training_report_count": 2,
+      "warning": "Слабая цель по массе/стержням; инженерные зоны и Точка 3 не размечены. Не применять автоматически."
+    },
+    "k09-typical-3-14": {
+      "schema_version": "zone-preference-ridge/v1",
+      "feature_names": [
+        "intercept",
+        "mass_over_front_min_minus_one",
+        "bars_over_front_min_minus_one"
+      ],
+      "coefficients": [
+        0.5851280992661865,
+        0.6882111100903467,
+        0.435894927576691
+      ],
+      "ridge_alpha": 0.01,
+      "training_case_ids": [
+        "k09-minus-2",
+        "plate-zero-k09"
+      ],
+      "training_report_sha256": [
+        "1f593159098a8ef22d33ea36a604ec485cd1209e5ab2c18ad944e4697cdd39bf",
+        "60c2db355e2979b27bbe399199660ee53d5043c280c8f721c60f55a4ad83f93f"
+      ],
+      "training_case_count": 2,
+      "training_report_count": 2,
+      "warning": "Слабая цель по массе/стержням; инженерные зоны и Точка 3 не размечены. Не применять автоматически."
+    },
+    "plate-zero-k09": {
+      "schema_version": "zone-preference-ridge/v1",
+      "feature_names": [
+        "intercept",
+        "mass_over_front_min_minus_one",
+        "bars_over_front_min_minus_one"
+      ],
+      "coefficients": [
+        0.5339487180240875,
+        0.4840066118767122,
+        0.2329518610087749
+      ],
+      "ridge_alpha": 0.01,
+      "training_case_ids": [
+        "k09-minus-2",
+        "k09-typical-3-14"
+      ],
+      "training_report_sha256": [
+        "60c2db355e2979b27bbe399199660ee53d5043c280c8f721c60f55a4ad83f93f",
+        "b6f0346d2f3c08dfd67c8b8c57fa442e93887b7eae78b02eff90a3c115ac699a"
+      ],
+      "training_case_count": 2,
+      "training_report_count": 2,
+      "warning": "Слабая цель по массе/стержням; инженерные зоны и Точка 3 не размечены. Не применять автоматически."
+    }
+  },
+  "input_case_fingerprints": {
+    "a42d9b5e542449ac0519ebf7c7ef716170090d05d2a4d2eb2388a9b476ad0579": "k09-minus-2",
+    "3c864ea6739536ac686fa0754dadc3f6fd6033b27b6f3ec4110d5be5c5eb8232": "plate-zero-k09",
+    "cc76d16236848eae6770f324e80b9ac154398263da125ba0919284c7be2fb9bc": "k09-typical-3-14"
+  },
+  "manifest_sha256": "5d5b7cf5311939f8e4c6efbba803d9856ede07e9ce008a7f1844e2707c791e00",
+  "validation": {
+    "independent_cases": 3,
+    "mean_regret": 0.07579410633796803,
+    "knee_regret": 0.15551500503389917,
+    "top1_rate": 0.0,
+    "top3_rate": 0.3333333333333333
+  },
+  "warning": "Малая выборка и слабая цель по массе/стержням. Не инженерная Точка 3; выбор требует проверки."
+}

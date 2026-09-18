@@ -35,7 +35,7 @@ def options(**overrides):
 
 def test_composite_workspace_link_assets_and_no_cache():
     assert 'href="/composite"' in client.get("/").text
-    for path in ("/composite", "/static/composite.js", "/static/composite.css"):
+    for path in ("/composite", "/partitions", "/static/composite.js", "/static/composite.css"):
         response = client.get(path)
         assert response.status_code == 200
         assert response.headers["cache-control"] == "no-store, max-age=0"
@@ -47,6 +47,7 @@ def test_composite_workspace_link_assets_and_no_cache():
     assert "шкалы .shk или PNG" in page
     assert 'accept=".shk,.png"' in client.get("/static/composite.js").text
     assert 'href="/composite?demo=1"' in client.get("/").text
+    assert client.get("/partitions").text == page
 
 
 def test_composite_upload_accepts_four_png_scales(monkeypatch):
@@ -162,6 +163,32 @@ def test_real_multipart_to_four_direction_core_and_temporary_cleanup(composite_p
     assert [d["direction"] for d in report["directions"]] == [{"layer": d.layer.value, "axis": d.axis.value} for d in PLATE_DIRECTIONS]
     assert all(not path.exists() for path in seen)
     assert all(len(d["source"]["sha256"]["shk"]) == 64 for d in report["directions"])
+
+
+def test_multipart_zone_merge_uses_same_upload_contract_and_returns_real_front(composite_plate_sources):
+    response = client.post("/api/analyze-composite-plate", files=uploads(composite_plate_sources),
+                           data=options(search_mode="zone-merge", solver_time_limit_s=3))
+    assert response.status_code == 200, response.text
+    report = response.json()
+    assert report["search_mode"] == "zone-merge" and report["front"]
+    assert report["complexity_axis"] == "zone_count"
+    assert report["zone_tradeoff"]["knee"]["index"] == report["selected_index"]
+    assert len(report["directions"]) == 4
+    assert all(row["candidates"] for row in report["directions"])
+
+
+def test_multipart_unknown_search_mode_is_rejected(composite_plate_sources):
+    response = client.post("/api/analyze-composite-plate", files=uploads(composite_plate_sources),
+                           data=options(search_mode="unknown"))
+    assert response.status_code == 422
+    assert "неизвестный режим" in response.json()["detail"]
+
+
+def test_multipart_zone_merge_rejects_position_limit(composite_plate_sources):
+    response = client.post("/api/analyze-composite-plate", files=uploads(composite_plate_sources),
+                           data=options(search_mode="zone-merge", maximum_positions=20))
+    assert response.status_code == 422
+    assert "эксперимент разбиений оптимизирует число зон" in response.json()["detail"]
 
 
 @pytest.mark.parametrize("bad", ["missing_dxf", "missing_shk", "wrong_direction", "wrong_extension", "empty_file",

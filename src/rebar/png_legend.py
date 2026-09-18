@@ -108,14 +108,20 @@ def apply_png_legend(mosaic: Mosaic, png_path: str | Path) -> Mosaic:
         # LIRA anchors each recipe near the right edge of its colour band;
         # long labels continue into the following band. Include that overhang
         # without the next band's label, which sits near its own right edge.
-        crop = image[:top, max(0, end - 50):min(image.shape[1], end + 100)]
-        with _OCR_LOCK:
-            label, confidence = _read_text(_legend_ocr(), crop)
-        if confidence < 0.75 or not _LABEL.fullmatch(label):
-            crop = image[max(0, top - 16):top, max(0, end - 80):min(image.shape[1], end + 80)]
+        wide = image[:top, max(0, end - 50):min(image.shape[1], end + 100)]
+        narrow = image[max(0, top - 16):top, max(0, end - 80):min(image.shape[1], end + 80)]
+        label, confidence = "", 0.0
+        # Some screenshots rasterise a 10--15 px label so thinly that OCR
+        # drops digits. Only resize the original pixels; never infer a recipe
+        # from its colour or its neighbouring DXF band.
+        for crop, scale in ((wide, 1), (narrow, 1), (narrow, 2), (wide, 2), (narrow, 3), (wide, 3)):
+            sample = crop if scale == 1 else np.asarray(Image.fromarray(crop).resize(
+                (crop.shape[1] * scale, crop.shape[0] * scale), Image.Resampling.LANCZOS))
             with _OCR_LOCK:
-                label, confidence = _read_text(_legend_ocr(), crop)
-        if confidence < 0.75 or not _LABEL.fullmatch(label):
+                label, confidence = _read_text(_legend_ocr(), sample)
+            if confidence >= 0.75 and _LABEL.fullmatch(label):
+                break
+        else:
             raise ValueError(f"не удалось надёжно прочитать подпись полосы PNG {index + 1}: {label!r}")
         recipe = parse_recipe(label)
         bands.append(Band(

@@ -126,3 +126,37 @@ def test_ninth_floor_unlabelled_last_band_is_rejected():
     png = next(path for path in folder.glob("*.png") if "оси_X_у_верх" in path.name)
     with pytest.raises(ValueError, match="подпись полосы PNG 8"):
         load_direction_mosaic(folder / "Верхняя по Х.dxf", png_path=png)
+
+
+def _above_first_floor() -> Path:
+    root = Path(__file__).resolve().parents[1] / "Для верификации изополей 2"
+    folders = list(root.rglob("2025.05.05_плита над 1 этажом/Допка плит"))
+    if not folders:
+        pytest.skip("локальный комплект плиты над 1 этажом отсутствует")
+    return folders[0]
+
+
+@pytest.mark.parametrize(
+    ("dxf_name", "png_pattern", "expected_count"),
+    [
+        ("Х Низ.dxf", "X_у_ниж*.png", 3),
+        ("У Низ.dxf", "Y_у_ниж*.png", 3),
+        ("У Верх.dxf", "Y_у_верх*.png", 6),
+    ],
+)
+def test_above_first_floor_small_png_labels_are_read(dxf_name, png_pattern, expected_count):
+    pytest.importorskip("rapidocr_onnxruntime")
+    folder = _above_first_floor()
+    png = next(folder.glob(png_pattern))
+    mosaic = load_direction_mosaic(folder / dxf_name, png_path=png)
+    assert len(mosaic.legend) == expected_count
+    assert mosaic.legend[0].label == "s300d10"
+    assert all(cell.band is not None for cell in mosaic.cells)
+
+
+def test_above_first_floor_occupied_unlabelled_eighth_band_is_rejected():
+    pytest.importorskip("rapidocr_onnxruntime")
+    folder = _above_first_floor()
+    png = next(folder.glob("X_у_верх*.png"))
+    with pytest.raises(ValueError, match="подпись полосы PNG 8"):
+        load_direction_mosaic(folder / "Х Верх.dxf", png_path=png)

@@ -8,6 +8,7 @@ from .problem import BBox
 COMPOSITE_COVERAGE_POLICY = "a101-247-ordered-recipe-voronoi/research-v1"
 STO_279_COVERAGE_POLICY = "a101-sto-279-ordered-recipe-contact/research-v1"
 MONOTONE_SINGLE_STO_COVERAGE_POLICY = "a101-sto-279-monotone-single-addition/research-v1"
+MONOTONE_COMPONENT_STO_COVERAGE_POLICY = "a101-sto-279-monotone-ordered-components/research-v1"
 
 
 @dataclass(frozen=True)

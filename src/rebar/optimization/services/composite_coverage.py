@@ -13,6 +13,7 @@ from rebar.models import Axis, ReinforcementRecipe
 
 from ..contracts.composite_coverage import (
     COMPOSITE_COVERAGE_POLICY, MONOTONE_SINGLE_STO_COVERAGE_POLICY, STO_279_COVERAGE_POLICY,
+    MONOTONE_COMPONENT_STO_COVERAGE_POLICY,
     CompositeCellCoverage, CompositeCoverageEvaluation, CompositeCoverageZoneCheck,
 )
 from ..contracts.placement import AxisPlacement, CompositeLayoutZone
@@ -63,6 +64,18 @@ def monotone_single_recipe_covers(
             and supplied.additions[0].step <= required.additions[0].step)
 
 
+def monotone_component_recipe_covers(required: ReinforcementRecipe, supplied: ReinforcementRecipe) -> bool:
+    """Явный эксперимент зон: не слабее КАЖДОЙ упорядоченной добавки.
+
+    Не заменяет несколько компонентов одним по суммарному As. Не распространяется
+    на старый ordered-recipe профиль; инженерное разрешение замены не заявляется.
+    """
+    return (required.background == supplied.background
+            and len(supplied.additions) >= len(required.additions)
+            and all(b.diameter >= a.diameter and b.step <= a.step
+                    for a, b in zip(required.additions, supplied.additions)))
+
+
 def _same_origin(first: AxisPlacement, second: AxisPlacement) -> bool:
     if first.origin_mm is None or second.origin_mm is None or first.pattern != second.pattern:
         return False
@@ -77,7 +90,7 @@ def _check_patterns(zone: CompositeLayoutZone, policy_id: str) -> None:
         raise ValueError("профиль покрытия требует равномерный фон @300")
     for i, (spec, axes) in enumerate(zip(zone.recipe.additions, zone.placement.additions)):
         if spec.step == 100 and policy_id in {
-            STO_279_COVERAGE_POLICY, MONOTONE_SINGLE_STO_COVERAGE_POLICY,
+            STO_279_COVERAGE_POLICY, MONOTONE_SINGLE_STO_COVERAGE_POLICY, MONOTONE_COMPONENT_STO_COVERAGE_POLICY,
         }:
             delta = (spec.diameter + zone.recipe.background.diameter) / 2
             expected_contact = ((100.0, 200.0, 300 - delta), (delta, 100.0, 200.0))
@@ -194,7 +207,7 @@ def evaluate_composite_coverage(
     Пользователь обязан явно выбрать research-профиль; placement_eligible всегда false.
     """
     if policy_id not in (COMPOSITE_COVERAGE_POLICY, STO_279_COVERAGE_POLICY,
-                         MONOTONE_SINGLE_STO_COVERAGE_POLICY):
+                         MONOTONE_SINGLE_STO_COVERAGE_POLICY, MONOTONE_COMPONENT_STO_COVERAGE_POLICY):
         raise ValueError("нужен явно выбранный поддерживаемый research-профиль покрытия")
     if len(zones) > MAX_ZONES or len(zones) * len(demand.cells) > MAX_CELL_ZONE_PAIRS:
         raise ValueError("превышен лимит зон/пар КЭ-зона; неполная проверка не разрешена")
@@ -233,7 +246,9 @@ def evaluate_composite_coverage(
 
     cells = []
     diameter_substitutions: dict[tuple[str, int, int], set[int]] = {}
-    covers = monotone_single_recipe_covers if monotone_single else recipe_covers
+    monotone_components = policy_id == MONOTONE_COMPONENT_STO_COVERAGE_POLICY
+    covers = (monotone_component_recipe_covers if monotone_components else
+              monotone_single_recipe_covers if monotone_single else recipe_covers)
     for cell in demand.cells:
         required = demand.level(cell.level_index).recipe
         if not required.additions:
@@ -255,6 +270,11 @@ def evaluate_composite_coverage(
         cells.append(CompositeCellCoverage(cell.id, cell.level_index, area, covered, missing,
                                           missing <= max(1e-6, area * 1e-9), tuple(ids)))
     remaining_checks = REMAINING_CHECKS
+    if monotone_components:
+        remaining_checks = (*remaining_checks, "monotone-component-substitution-engineering-approval")
+        diagnostics.append("WARNING: experimental ordered-component substitution: every supplied diameter "
+                           "is no smaller and spacing no larger; all required additions are retained. "
+                           "Engineering approval of substitutions is absent.")
     if monotone_single:
         remaining_checks = (*remaining_checks, "monotone-diameter-substitution-engineering-approval")
         substitutions = tuple((zone_id, required_d, supplied_d, len(cell_ids))

@@ -3,12 +3,12 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>QMonitoring · Раскладка всей плиты</title>
-  <link rel="stylesheet" href="/static/composite.css?v=7">
+  <link rel="stylesheet" href="/static/composite.css?v=8">
   <link rel="stylesheet" href="/static/engineering-start.css?v=3">
 </head>
 <body>
   <header class="workspace-header"><a class="workspace-brand" href="/">QMonitoring <span>× A101</span></a>
-    <nav aria-label="Разделы"><a href="/composite" aria-current="page">Раскладка плиты</a><a href="/revit">Открыть в Revit</a></nav></header>
+    <nav aria-label="Разделы"><a href="/composite">Раскладка плиты</a><a href="/partitions">Разбиения · эксперимент</a><a href="/revit">Открыть в Revit</a></nav></header>
   <main>
     <div class="engineering-start">
       <p class="start-eyebrow">1 · Реальная плита</p>
@@ -43,7 +43,7 @@
             </form>
           </details></details>
       </article>
-      <p class="start-caption">Программа предлагает раскладку, конструктор проверяет её перед применением. Результаты проверок показаны рядом с вариантом.</p>
+      <p class="start-caption">Программа предлагает раскладку, конструктор проверяет её перед применением. Результаты проверок показаны рядом с вариантом. <a href="/partitions">Отдельный эксперимент «Разбиения и Точка 3» →</a></p>
       <details class="start-more" id="layout-help"><summary>Что такое фон, добавки и варианты?</summary>
         <p><strong>Фон</strong> — основная сетка арматуры, предусмотренная проектом. Программа рассчитывает
           <strong>добавки</strong> там, где этой сетки недостаточно; сам фон не создаёт и не заменяет.</p>
@@ -101,18 +101,23 @@
           <label>Класс стали добавок<input id="steel-class" required maxlength="100" placeholder="Укажите по проекту"></label>
           <label>Откуда взята привязка фона<input id="phase-source" required maxlength="1000" placeholder="Чертёж / профиль проекта / автор выбора"></label>
         </div>
+        <label>Алгоритм расчёта<select name="search_mode" id="search-mode">
+          <option value="positions">Прежний поиск · масса и позиции спецификации</option>
+          <option value="zone-merge">Эксперимент · разбиения и Точка 3</option>
+        </select></label>
+        <p id="search-mode-note">Отдельный эксперимент с укрупнением зон: <a href="/partitions">открыть «Разбиения и Точка 3»</a>.</p>
         <details class="result-details"><summary>Настройки поиска и раскроя · можно оставить стандартные</summary>
         <p>Они влияют на время поиска и форму вариантов, а не изменяют исходную потребность.
           Больше предложений и времени — шире поиск, но это не гарантия лучшего результата.
           Лимиты зон и позиций ограничивают сложность раскладки; слишком малые лимиты могут исключить решение.</p>
         <div class="fields">
           <label>Схема @100: с какой стороны касаться фона<select id="contact-side"><option value="left">Слева (по рисунку СТО)</option><option value="right">Справа (зеркально)</option></select></label>
-          <label>Максимум позиций всей плиты<input name="maximum_positions" type="number" min="1" max="512" placeholder="Без лимита"></label>
+          <label>Максимум позиций всей плиты · только прежний поиск<input name="maximum_positions" type="number" min="1" max="512" placeholder="Без лимита"></label>
           <label>Максимум зон на направление<input name="maximum_zones" type="number" min="1" max="128" value="64" required></label>
           <label>Минимальная ширина зоны в расчётных ячейках<select name="min_width_cells"><option value="2">2 КЭ</option><option value="3">3 КЭ</option></select></label>
           <label>Длины стержней<select name="cutting_profile"><option value="plate-11700-batch">Попробовать безотходный раскрой 11700 мм</option><option value="plate-11700">Стандартные длины: проверить раскрой</option><option value="continuous">Любая длина до 11700 мм</option></select></label>
           <label>Максимальный прирост массы ради раскроя, %<input name="maximum_cutting_overhead_pct" type="number" min="0" max="100" step="0.1" value="5" required></label>
-          <label>Предложений для поиска на направление<input name="maximum_candidates" type="number" min="1" max="1024" value="384" required></label>
+          <label id="pool-budget">Предложений прежнего поиска на направление<input name="maximum_candidates" type="number" min="1" max="1024" value="384" required></label>
           <label>Время работы решателя на направление, с<input name="solver_time_limit_s" type="number" min="1" max="30" value="10" required></label>
         </div>
         <p>Пока используется контрольная анкеровка 40d с каждого конца. Осреднение по СТО не применяется.
@@ -142,6 +147,21 @@
       <p id="demo-notice" class="notice" hidden></p>
       <p id="result-summary" class="result-summary"></p>
       <label class="candidate-control">Вариант раскладки<select id="candidate"></select></label>
+      <section id="zone-tradeoff" hidden aria-labelledby="zone-tradeoff-title">
+        <h3 id="zone-tradeoff-title">Разбиения · масса и количество зон</h3>
+        <p>Каждая точка — отдельная раскладка всех четырёх направлений. Выберите точку мышью или клавишей Enter, чтобы увидеть её зоны и скачать JSON выбранной раскладки.</p>
+        <div id="zone-tradeoff-chart"></div>
+        <p id="zone-knee-note" aria-live="polite"></p>
+        <button id="select-zone-knee" type="button">Показать кандидата на Точку 3</button>
+        <p id="zone-tradeoff-scope" class="notice"></p>
+        <section id="engineering-preference" hidden aria-labelledby="engineering-preference-title">
+          <h4 id="engineering-preference-title">Выбор по инженерным примерам</h4>
+          <p id="engineering-preference-note"></p>
+          <button id="select-engineering-preference" type="button">Выбор по инженерным примерам</button>
+          <div id="engineering-preference-top" aria-label="Три варианта по инженерным примерам"></div>
+          <p id="engineering-preference-validation"></p>
+        </section>
+      </section>
       <p id="physical-metrics-caption" class="notice">Метрики относятся к выбранному решению;
         исходные зоны на схеме существуют до физической обрезки и не подменяют итоговую партию.</p>
       <div id="metrics" class="metrics"></div>
@@ -206,6 +226,6 @@
       <button id="run-demo" type="button">Посмотреть пример на синтетических данных</button></details>
   </main>
   <script src="/static/engineering-example.js?v=5" defer></script>
-  <script src="/static/composite.js?v=19" defer></script>
+  <script src="/static/composite.js?v=20" defer></script>
   <script src="/static/composite-history.js?v=1" defer></script>
 </body></html>

@@ -13,12 +13,14 @@ from ..contracts.placement import RecipePlacement
 from .axis_patterns import pattern_coordinates
 from .bar_geometry import transverse_interval
 from .detailing import typical_transverse_cell_size_mm
+from .composite_detailing import CompositeDetailingContext
 from .geometry import GEOMETRY_TOLERANCE_MM
 
 
 def covering_composite_window(
     demand: DemandMap, bbox: BBox, level_index: int, placement: RecipePlacement,
     *, constraints: LayoutConstraints, admissible_bbox: BBox | None = None,
+    context: CompositeDetailingContext | None = None,
 ) -> BBox:
     """Сохранить исходный bbox внутри окна, включив крайние обслуживающие оси.
 
@@ -45,7 +47,10 @@ def covering_composite_window(
             selected = min(neighbours, key=lambda value: (
                 abs(value - coordinate), -value if coordinate == lower else value))
             lo, hi = min(lo, selected), max(hi, selected)
-    minimum = constraints.min_width_cells * typical_transverse_cell_size_mm(demand)
+    if context is not None and context.demand is not demand:
+        raise ValueError("контекст детализации не соответствует исходной задаче")
+    minimum = constraints.min_width_cells * (typical_transverse_cell_size_mm(demand)
+        if context is None else context.typical_transverse_size_mm)
     steps = [spec.step for spec in recipe.additions]
     if any(not isinstance(step, int) or isinstance(step, bool) or step <= 0 for step in steps):
         raise ValueError("кратность окна требует положительные целые условные шаги")
