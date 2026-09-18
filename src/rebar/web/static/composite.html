@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>QMonitoring · Раскладка всей плиты</title>
-  <link rel="stylesheet" href="/static/composite.css?v=8">
+  <link rel="stylesheet" href="/static/composite.css?v=9">
   <link rel="stylesheet" href="/static/engineering-start.css?v=3">
 </head>
 <body>
@@ -43,7 +43,7 @@
             </form>
           </details></details>
       </article>
-      <p class="start-caption">Программа предлагает раскладку, конструктор проверяет её перед применением. Результаты проверок показаны рядом с вариантом. <a href="/partitions">Отдельный эксперимент «Разбиения и Точка 3» →</a></p>
+      <p class="start-caption">Программа предлагает раскладку, конструктор проверяет её перед применением. Результаты проверок показаны рядом с вариантом. <a href="/partitions">Отдельный эксперимент с разбиениями →</a></p>
       <details class="start-more" id="layout-help"><summary>Что такое фон, добавки и варианты?</summary>
         <p><strong>Фон</strong> — основная сетка арматуры, предусмотренная проектом. Программа рассчитывает
           <strong>добавки</strong> там, где этой сетки недостаточно; сам фон не создаёт и не заменяет.</p>
@@ -103,9 +103,9 @@
         </div>
         <label>Алгоритм расчёта<select name="search_mode" id="search-mode">
           <option value="positions">Прежний поиск · масса и позиции спецификации</option>
-          <option value="zone-merge">Эксперимент · разбиения и Точка 3</option>
+          <option value="zone-merge">Эксперимент · масса и число зон</option>
         </select></label>
-        <p id="search-mode-note">Отдельный эксперимент с укрупнением зон: <a href="/partitions">открыть «Разбиения и Точка 3»</a>.</p>
+        <p id="search-mode-note">Отдельный эксперимент с укрупнением зон: <a href="/partitions">открыть разбиения</a>.</p>
         <details class="result-details"><summary>Настройки поиска и раскроя · можно оставить стандартные</summary>
         <p>Они влияют на время поиска и форму вариантов, а не изменяют исходную потребность.
           Больше предложений и времени — шире поиск, но это не гарантия лучшего результата.
@@ -151,13 +151,14 @@
         <h3 id="zone-tradeoff-title">Разбиения · масса и количество зон</h3>
         <p>Каждая точка — отдельная раскладка всех четырёх направлений. Выберите точку мышью или клавишей Enter, чтобы увидеть её зоны и скачать JSON выбранной раскладки.</p>
         <div id="zone-tradeoff-chart"></div>
+        <p id="zone-tradeoff-legend" class="tradeoff-legend"></p>
         <p id="zone-knee-note" aria-live="polite"></p>
-        <button id="select-zone-knee" type="button">Показать кандидата на Точку 3</button>
+        <button id="select-zone-knee" type="button">Показать геометрический перегиб</button>
         <p id="zone-tradeoff-scope" class="notice"></p>
         <section id="engineering-preference" hidden aria-labelledby="engineering-preference-title">
-          <h4 id="engineering-preference-title">Выбор по инженерным примерам</h4>
+          <h4 id="engineering-preference-title">Кандидат на Точку 3 · по инженерным примерам</h4>
           <p id="engineering-preference-note"></p>
-          <button id="select-engineering-preference" type="button">Выбор по инженерным примерам</button>
+          <button id="select-engineering-preference" type="button">Показать кандидата по инженерным примерам</button>
           <div id="engineering-preference-top" aria-label="Три варианта по инженерным примерам"></div>
           <p id="engineering-preference-validation"></p>
         </section>
@@ -226,6 +227,6 @@
       <button id="run-demo" type="button">Посмотреть пример на синтетических данных</button></details>
   </main>
   <script src="/static/engineering-example.js?v=5" defer></script>
-  <script src="/static/composite.js?v=20" defer></script>
+  <script src="/static/composite.js?v=21" defer></script>
   <script src="/static/composite-history.js?v=1" defer></script>
 </body></html>

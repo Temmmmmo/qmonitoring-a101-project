@@ -1,4 +1,5 @@
 from dataclasses import replace
+import importlib
 import json
 
 import pytest
@@ -27,6 +28,9 @@ def test_full_dxf_plate_keeps_all_components_and_unions_positions(composite_plat
     assert [percent for percent, stage in progress if stage.startswith("Найдены варианты")] == [35, 45, 55, 65]
     assert progress[-1][1] == "Расчёт готов, формируем отчёт"
     assert report["direction_count"] == 4 and report["front"]
+    assert report["search_mode"] == "positions"
+    assert report["selection"] == "equal_weight_normalized_mass_and_specification_positions"
+    assert "engineering_preference" not in report
     assert report["source_graphics_mode"] == "direction-candidates"
     packet = report["source_graphics"]
     assert packet["schema_version"] == "source-isofields-zones/v1"
@@ -96,6 +100,56 @@ def test_separate_zone_merge_search_keeps_four_directions_and_selects_real_front
 def test_unknown_zone_search_mode_is_rejected_before_input_read(composite_plate_sources):
     with pytest.raises(ValueError, match="неизвестный режим"):
         analyze_composite_plate(composite_plate_sources, settings(), search_mode="typo")
+
+
+@pytest.mark.parametrize("selected_pass", [True, False])
+def test_model_view_selection_aligns_stock_blocker_and_four_direction_source_packet(
+        composite_plate_sources, monkeypatch, selected_pass):
+    from rebar.optimization.algorithms.composite_pool import solve_composite_pool
+    from rebar.optimization.contracts.composite_coverage import STO_279_COVERAGE_POLICY
+
+    application = importlib.import_module("rebar.application.analyze_composite_plate")
+
+    def multiple_valid_points(problem, **kwargs):
+        pool = solve_composite_pool(replace(problem, policy_id=STO_279_COVERAGE_POLICY),
+            maximum_zones=kwargs["maximum_zones"], maximum_candidates=32,
+            solver_time_limit_s=2, steel_class="A500", retain_position_alternatives=True)
+        return replace(pool, telemetry={**pool.telemetry, "timed_out": False,
+                                        "algorithm": "composite-bottom-up-partitions/v1"})
+
+    monkeypatch.setattr(application, "solve_composite_merge", multiple_valid_points)
+    monkeypatch.setattr(application, "check_stock_cutting", lambda schedule: {
+        "status": "pass" if (sum(row.total_mass_kg for row in schedule) < 5900) == selected_pass else "fail"})
+    monkeypatch.setattr(application, "build_engineering_preference", lambda report, bundle: {
+        "status": "available", "recommended_index": len(report["front"]) - 1,
+        "top_indexes": [len(report["front"]) - 1], "model_id": "test-only",
+        "training_case_ids": [], "validation": {}, "prediction_scope": "new_input"})
+    report = application.analyze_composite_plate(composite_plate_sources, settings(), search_mode="zone-merge",
+        cutting_profile="continuous", solver_time_limit_s=2)
+    assert len(report["front"]) > 2
+    assert report["selected_index"] == report["engineering_preference"]["recommended_index"]
+    assert report["selected_index"] != report["zone_tradeoff"]["knee"]["index"]
+    assert report["selection"] == "engineer_example_ridge_research_view"
+    assert report["source_graphics_candidate_index"] == report["selected_index"]
+    selected = report["front"][report["selected_index"]]
+    knee = report["front"][report["zone_tradeoff"]["knee"]["index"]]
+    assert selected["stock_cutting"]["status"] == ("pass" if selected_pass else "fail")
+    assert knee["stock_cutting"]["status"] != selected["stock_cutting"]["status"]
+    assert ("stock-cutting-zero-waste" in report["blocking_check_ids"]) is (not selected_pass)
+    for i, j in enumerate(selected["direction_candidate_indexes"]):
+        assert report["source_graphics"]["directions"][i]["zone_drafts"] == report["directions"][i]["candidates"][j]["zone_drafts"]
+    assert report["placement_eligible"] is False
+
+
+def test_missing_model_falls_back_to_geometric_knee(composite_plate_sources, monkeypatch):
+    application = importlib.import_module("rebar.application.analyze_composite_plate")
+    monkeypatch.setattr(application, "build_engineering_preference", lambda report, bundle: {
+        "status": "unavailable", "reason": "test-only missing model"})
+    report = application.analyze_composite_plate(composite_plate_sources, settings(), search_mode="zone-merge",
+        cutting_profile="continuous", solver_time_limit_s=2)
+    assert report["selection"] == "normalized_chord_distance"
+    assert report["selected_index"] == report["zone_tradeoff"]["knee"]["index"]
+    assert report["source_graphics_candidate_index"] == report["selected_index"]
 
 
 def test_zone_merge_rejects_position_limit_before_input_read(composite_plate_sources):

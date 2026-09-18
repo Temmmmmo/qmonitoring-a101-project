@@ -164,8 +164,10 @@ td { color: #3a5968; }
 .tradeoff-line { fill: none; stroke: #3473b9; stroke-width: 2; }
 .tradeoff-point { fill: #fff; stroke: #3473b9; stroke-width: 2; cursor: pointer; }
 .tradeoff-point.knee { fill: #f7b94e; }
+.tradeoff-point.preference { fill: #198c70; }
 .tradeoff-point.selected { stroke: #143c66; stroke-width: 4; }
 .tradeoff-point:focus { outline: none; stroke: #c84618; stroke-width: 4; }
+.tradeoff-legend { margin: .5rem 0; font-size: .85rem; color: #41556a; }
 #engineering-preference { margin-top: 1.25rem; padding: 1rem; border: 1px solid #a9bdb1; border-radius: 10px; background: #f4faf5; }
 #engineering-preference h4 { margin: 0 0 .5rem; font-size: 1.1rem; }
 #engineering-preference p { margin: .5rem 0; }

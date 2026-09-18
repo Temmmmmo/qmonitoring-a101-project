@@ -311,6 +311,13 @@ function renderDirection() {
   }
   q("#direction-tabs").querySelectorAll("button").forEach((button, i) => button.setAttribute("aria-pressed", i === activeDirection));
 }
+function validEngineeringPreference(front) {
+  const preference = result?.engineering_preference;
+  const validIndex = index => Number.isInteger(index) && index >= 0 && index < front.length;
+  return preference?.status === "available" && validIndex(preference.recommended_index) &&
+    Array.isArray(preference.top_indexes) && preference.top_indexes.length > 0 &&
+    preference.top_indexes.every(validIndex) ? preference : null;
+}
 function renderZoneTradeoff() {
   const enabled = result?.complexity_axis === "zone_count" && !layoutVariants.length;
   q("#zone-tradeoff").hidden = !enabled;
@@ -318,20 +325,26 @@ function renderZoneTradeoff() {
   if (!enabled) return;
   const front = result.front || [];
   renderEngineeringPreference(front);
+  const preference = validEngineeringPreference(front);
   const knee = result.zone_tradeoff?.knee;
   const chosen = Number(q("#candidate").value);
   const hasKnee = knee?.status === "candidate" && Number.isInteger(knee.index) &&
     knee.index >= 0 && knee.index < front.length;
   q("#select-zone-knee").hidden = !hasKnee;
+  const markersCoincide = hasKnee && preference?.recommended_index === knee.index;
+  q("#zone-tradeoff-legend").textContent = markersCoincide
+    ? "● Зелёная точка — кандидат по инженерным примерам совпадает с геометрическим перегибом. Тёмная обводка — выбранный вариант."
+    : `${hasKnee ? "● Жёлтая точка — геометрический перегиб. " : ""}` +
+      `${preference ? "● Зелёная точка — кандидат по инженерным примерам. " : ""}` +
+      "Тёмная обводка — выбранный вариант.";
   q("#zone-tradeoff-scope").textContent = "Масса дополнительного армирования после 40d и выбранного раскроя. " +
-    "Количество зон, физических стержней и позиций — разные показатели. Показан фронт найденных разбиений, не глобальный оптимум. " +
+    "Зоны, стержни и позиции считаются отдельно. Показаны только найденные проверенные варианты, не глобальный оптимум. " +
     (result.zone_tradeoff?.timed_out ? "Лимит времени достигнут: показаны только полностью проверенные варианты. " : "") +
     (result.diagnostic_front_before_cutting?.length ? "Кривая ограничена вариантами с успешным подбором безотходного раскроя." : "");
   q("#zone-knee-note").textContent = hasKnee
-    ? `Кандидат на Точку 3: вариант ${knee.index + 1}, ${fmt(front[knee.index].zone_count, 0)} зон, ` +
-      `${fmt(front[knee.index].additional_mass_kg)} кг. До него экономия ${fmt(knee.coarser?.kg_per_extra_zone)} кг на добавленную зону; ` +
-      `при следующем дроблении — ${fmt(knee.finer?.kg_per_extra_zone)} кг/зону. Это геометрическая подсказка, не подтверждённый инженерный выбор.`
-    : front.length ? "Выраженное колено не найдено: вариантов недостаточно или кривая не имеет отчётливого перегиба. Минимум массы служит резервным выбором."
+    ? `Геометрический перегиб: вариант ${knee.index + 1}, ${fmt(front[knee.index].zone_count, 0)} зон, ` +
+      `${fmt(front[knee.index].additional_mass_kg)} кг. Это подсказка по форме кривой; инженерное предпочтение она не подтверждает.`
+    : front.length ? "Выраженный геометрический перегиб не найден: вариантов недостаточно или кривая почти прямая. При отсутствии другой подсказки резервный выбор — минимум массы."
       : "Полного разбиения в заданных ограничениях не найдено. Исходный спрос не сокращён.";
   if (!front.length) { q("#zone-tradeoff-chart").innerHTML = ""; return; }
   const counts = front.map(p => p.zone_count), masses = front.map(p => p.additional_mass_kg);
@@ -340,7 +353,9 @@ function renderZoneTradeoff() {
   const plotEnd = chartWidth - 60;
   const x = n => n0 === n1 ? (90 + plotEnd) / 2 : 90 + (plotEnd - 90) * (n - n0) / (n1 - n0);
   const y = m => m0 === m1 ? 147 : 245 - 195 * (m - m0) / (m1 - m0);
-  const labels = front.map((p, i) => `Вариант ${i + 1}: ${fmt(p.zone_count, 0)} зон, ${fmt(p.additional_mass_kg)} кг${i === chosen ? ", выбран" : ""}${hasKnee && i === knee.index ? ", кандидат на Точку 3" : ""}`);
+  const labels = front.map((p, i) => `Вариант ${i + 1}: ${fmt(p.zone_count, 0)} зон, ${fmt(p.additional_mass_kg)} кг` +
+    `${i === chosen ? ", выбран" : ""}${hasKnee && i === knee.index ? ", геометрический перегиб" : ""}` +
+    `${preference && i === preference.recommended_index ? ", кандидат на Точку 3 по инженерным примерам" : ""}`);
   q("#zone-tradeoff-chart").innerHTML = `<svg viewBox="0 0 ${chartWidth} 310" style="min-width:${chartWidth}px" role="group" aria-label="График массы и числа зон найденных разбиений">
     <text x="90" y="24">Масса добавки, кг</text><path class="tradeoff-axis" d="M90 40V245H${plotEnd}"/>
     <text x="80" y="54" text-anchor="end">${fmt(m1, 0)}</text><text x="80" y="248" text-anchor="end">${fmt(m0, 0)}</text>
@@ -348,25 +363,23 @@ function renderZoneTradeoff() {
     <text x="${(90 + plotEnd) / 2}" y="298" text-anchor="middle">Количество параметрических зон · вся плита</text>
     ${front.length > 1 ? `<polyline class="tradeoff-line" points="${front.map(p => `${x(p.zone_count)},${y(p.additional_mass_kg)}`).join(" ")}"/>` : ""}
     ${front.map((p, i) => `<circle cx="${x(p.zone_count)}" cy="${y(p.additional_mass_kg)}" r="${i === chosen ? 8 : 5}"
-      class="tradeoff-point ${i === chosen ? "selected" : ""} ${hasKnee && i === knee.index ? "knee" : ""}"
+      class="tradeoff-point ${i === chosen ? "selected" : ""} ${hasKnee && i === knee.index ? "knee" : ""} ${preference && i === preference.recommended_index ? "preference" : ""}"
       data-candidate="${i}" role="button" tabindex="0" aria-pressed="${i === chosen}" aria-label="${esc(labels[i])}"><title>${esc(labels[i])}</title></circle>`).join("")}
     </svg>`;
 }
 function renderEngineeringPreference(front) {
-  const preference = result?.engineering_preference;
-  const validIndex = index => Number.isInteger(index) && index >= 0 && index < front.length;
-  if (preference?.status !== "available" || !validIndex(preference.recommended_index) ||
-      !Array.isArray(preference.top_indexes) || !preference.top_indexes.length ||
-      !preference.top_indexes.every(validIndex)) return;
+  const preference = validEngineeringPreference(front);
+  if (!preference) return;
   const top = [...new Set(preference.top_indexes)].slice(0, 3);
   const model = String(preference.model_id || "не указан");
   const training = Array.isArray(preference.training_case_ids) ? preference.training_case_ids.map(String) : [];
   const validation = preference.validation || {};
   q("#engineering-preference").hidden = false;
   q("#engineering-preference-note").textContent =
-    `Модель ${model} ранжирует уже проверенные варианты по массе и числу физических стержней. ` +
-    `Обучающие плиты: ${training.length ? training.join(", ") : "не указаны"}. Число зон не было инженерной меткой предпочтения; ` +
-    `это отдельная подсказка, не геометрическое колено и не доказанный инженерный оптимум.`;
+    `Вариант ${preference.recommended_index + 1}: ${fmt(front[preference.recommended_index].zone_count, 0)} зон, ` +
+    `${fmt(front[preference.recommended_index].additional_mass_kg)} кг. Это подсказка для проверки конструктором: ` +
+    `модель сравнивает массу и число физических стержней, а число зон в инженерских примерах не размечено. ` +
+    `Обучающих выдач: ${training.length}; модель ${model}.`;
   q("#engineering-preference-top").innerHTML = top.map((index, rank) =>
     `<button type="button" data-preference-index="${index}" aria-pressed="${index === Number(q("#candidate").value)}">` +
     `${rank + 1}. Вариант ${index + 1} · ${fmt(front[index].zone_count, 0)} зон · ${fmt(front[index].additional_mass_kg)} кг</button>`).join("");
@@ -374,8 +387,9 @@ function renderEngineeringPreference(front) {
   const regret = Number.isFinite(validation.mean_regret) ? fmt(validation.mean_regret, 3) : "—";
   const kneeRegret = Number.isFinite(validation.knee_regret) ? fmt(validation.knee_regret, 3) : "—";
   q("#engineering-preference-validation").textContent =
-    `Независимых плит при проверке: ${fmt(independent, 0)}. Средняя ошибка выбора: ${regret}; ` +
-    `для геометрического колена: ${kneeRegret}. Это экспериментальная оценка на малой выборке.`;
+    `Проверено на ${fmt(independent, 0)} отложенных инженерных выдачах. ` +
+    `Средняя нормированная ошибка выбора: ${regret}; для геометрического перегиба: ${kneeRegret}. ` +
+    `Выбор остаётся исследовательским.`;
 }
 function chooseTradeoffPoint(index) {
   if (!Number.isInteger(index) || index < 0 || index >= (result?.front.length || 0) || layoutVariants.length) return;
@@ -409,9 +423,9 @@ function updateSearchMode() {
 }
 q("#search-mode").addEventListener("change", updateSearchMode);
 if (window.location.pathname === "/partitions") {
-  document.title = "QMonitoring · Разбиения и Точка 3";
+  document.title = "QMonitoring · Разбиения и выбор варианта";
   q('.start-eyebrow').textContent = '1 · Исследовательский режим';
-  q('.engineering-start h1').textContent = 'Разбиения и Точка 3';
+  q('.engineering-start h1').textContent = 'Разбиения и выбор варианта';
   q('.start-description').textContent = 'Отдельный эксперимент по числу зон и массе добавочной арматуры. ' +
     'После расчёта выберите точку на графике и проверьте её четыре направления и JSON.';
   q('nav a[href="/partitions"]').setAttribute('aria-current', 'page');
@@ -646,7 +660,9 @@ async function runAnalysis(url, options) {
     const choices = layoutVariants.length ? layoutVariants.map((variant) => ({...variant.metrics, label: variant.label})) : result.front;
     q("#candidate").innerHTML = choices.map((point, i) => `<option value="${i}">Вариант ${i + 1}${point.label ? " · " + esc(point.label) : ""}: ${fmt(point.additional_mass_kg)} кг / ` +
       `${fmt(point.zone_count, 0)} зон / ${fmt(point.position_count, 0)} позиций / ${fmt(point.physical_bar_count, 0)} стержней</option>`).join("");
-    if (result.selected_index !== null) q("#candidate").value = String(layoutVariants.length ? 0 : result.selected_index);
+    q("#candidate").value = String(layoutVariants.length ? 0 :
+      Number.isInteger(result.selected_index) && result.selected_index >= 0 && result.selected_index < choices.length
+        ? result.selected_index : 0);
     q("#candidate").disabled = !choices.length;
     q(".candidate-control").hidden = choices.length <= 1;
     q("#output").hidden = false;

@@ -346,6 +346,23 @@ def analyze_composite_plate(
                     best_mass = point["additional_mass_kg"]
             selected = select(front)
     report_progress(97, "Расчёт готов, формируем отчёт")
+    preference = None
+    selection_method = "normalized_chord_distance" if zone_search else "equal_weight_normalized_mass_and_specification_positions"
+    if zone_search:
+        bundle_path = Path(__file__).resolve().parents[1] / "learning" / "data" / "zone_preference_bundle.json"
+        try:
+            bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            bundle = None
+        preference = build_engineering_preference({
+            "schema_version": "composite-plate-analysis/v1", "search_mode": search_mode,
+            "direction_count": len(PLATE_DIRECTIONS), "directions": by_direction, "front": front,
+            "status": "full_coverage_candidates_found" if front else "no_full_plate_solution_found",
+            "placement_eligible": False, "source_demand_preserved": True,
+        }, bundle)
+        if preference["status"] == "available":
+            selected = preference["recommended_index"]
+            selection_method = "engineer_example_ridge_research_view"
     blocks = [*REMAINING_CHECKS, "stock-cutting-manufacturing-assumptions"]
     if zone_search:
         blocks.append("monotone-component-substitution-engineering-approval")
@@ -368,7 +385,7 @@ def analyze_composite_plate(
         "host_envelope": to_jsonable(host), "host_coordinate_policy": coordinate_policy,
         "front_scope": "zero-waste-candidates" if diagnostic_front else "coverage-candidates-with-cutting-status",
         "search_mode": search_mode, "complexity_axis": axis_key,
-        "selection": "normalized_chord_distance" if zone_search else "equal_weight_normalized_mass_and_specification_positions",
+        "selection": selection_method,
         "blocking_check_ids": blocks,
         "warning": "Расчёт всех четырёх направлений без удаления краёв. Конечный набор кандидатов, "
                    "не глобальный оптимум. Фазы заданы пользователем, высоты не назначены. "
@@ -388,19 +405,15 @@ def analyze_composite_plate(
                                   "max_evaluations_per_direction": 320,
                                   "max_steps_per_seed": 8, "extra_time_limit_s_per_direction": 5},
         }
+        report["engineering_preference"] = preference
         report["warning"] = ("Эксперимент разбиений: число зон и масса всех четырёх направлений. "
-            "Точка 3 — рекомендация по перегибу найденной кривой, не доказанный оптимум. "
+            "Начальный вариант для просмотра выбран по слабой калибровке инженерских примеров, если модель доступна; "
+            "иначе — геометрический перегиб или минимум массы, если перегиб не выражен. "
+            "Ни один выбор не доказывает инженерную Точку 3. "
             "Разрешена замена каждой добавки не более слабой; её инженерное согласование не выполнено. "
             + report["warning"])
     if front:
         report["source_graphics"] = build_source_graphics_from_demands(demands, report, case_id=case_id)
         report["source_graphics_candidate_index"] = selected
         report["source_graphics_mode"] = "direction-candidates"
-    if zone_search:
-        bundle_path = Path(__file__).resolve().parents[1] / "learning" / "data" / "zone_preference_bundle.json"
-        try:
-            bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            bundle = None
-        report["engineering_preference"] = build_engineering_preference(report, bundle)
     return report

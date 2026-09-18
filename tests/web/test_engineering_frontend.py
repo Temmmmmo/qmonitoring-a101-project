@@ -141,7 +141,8 @@ q('#candidate').value='0';vm.runInContext('result=payload;renderPoint();download
 assert.equal(q('#engineering-preference').hidden,true);
 assert(q('#zone-tradeoff-chart').innerHTML.includes('data-candidate="1"'));
 assert(q('#zone-tradeoff-chart').innerHTML.includes('aria-pressed="true"'));
-assert(q('#zone-knee-note').textContent.includes('геометрическая подсказка'));
+assert(q('#zone-knee-note').textContent.includes('Геометрический перегиб'));
+assert(!q('#zone-tradeoff-chart').innerHTML.includes('Точку 3'));
 q('#zone-tradeoff-chart').callbacks.click({target:{closest:()=>({dataset:{candidate:'1'}})}});
 assert.equal(q('#candidate').value,'1');assert.equal(q('#drawing').innerHTML,'<svg>0-1</svg>');
 assert(q('#metrics').innerHTML.includes('Параметрические зоны'));
@@ -160,10 +161,12 @@ context.payload.engineering_preference={status:'available',recommended_index:2,t
  training_case_ids:['plate-a','plate-b'],validation:{independent_cases:2,mean_regret:0.13,knee_regret:0.21}};
 vm.runInContext('renderPoint()',context);
 assert.equal(q('#engineering-preference').hidden,false);
-assert(q('#engineering-preference-note').textContent.includes('массе и числу физических стержней'));
-assert(q('#engineering-preference-note').textContent.includes('не геометрическое колено'));
-assert(q('#engineering-preference-validation').textContent.includes('Независимых плит при проверке: 2'));
+assert(q('#engineering-preference-note').textContent.includes('массу и число физических стержней'));
+assert(q('#engineering-preference-note').textContent.includes('число зон в инженерских примерах не размечено'));
+assert(q('#engineering-preference-validation').textContent.includes('2 отложенных инженерных выдачах'));
 assert(q('#engineering-preference-top').innerHTML.includes('data-preference-index="2"'));
+assert(/class="tradeoff-point[^\"]*preference/.test(q('#zone-tradeoff-chart').innerHTML));
+assert(q('#zone-tradeoff-chart').innerHTML.includes('кандидат на Точку 3 по инженерным примерам'));
 q('#select-engineering-preference').callbacks.click();
 assert.equal(q('#candidate').value,'2');assert.equal(q('#drawing').innerHTML,'<svg>0-2</svg>');
 q('#download-source').callbacks.click();
@@ -173,8 +176,15 @@ assert.equal(context.window.downloaded.value.selected_point.zone_count,12);
 assert.equal(context.window.downloaded.value.directions[0].zone_drafts[2].source_zone_id,'0-2-2');
 q('#engineering-preference-top').callbacks.click({target:{closest:()=>({dataset:{preferenceIndex:'0'}})}});
 assert.equal(q('#candidate').value,'0');assert.equal(q('#drawing').innerHTML,'<svg>0-0</svg>');
+context.payload.engineering_preference.recommended_index=1;
+vm.runInContext('renderPoint()',context);
+assert(q('#zone-tradeoff-legend').textContent.includes('совпадает с геометрическим перегибом'));
+assert(!q('#zone-tradeoff-legend').textContent.includes('Жёлтая точка'));
+assert(/class="tradeoff-point[^\"]*knee preference/.test(q('#zone-tradeoff-chart').innerHTML));
+assert(q('#zone-tradeoff-chart').innerHTML.includes('геометрический перегиб, кандидат на Точку 3 по инженерным примерам'));
 context.payload.engineering_preference={status:'available',recommended_index:99,top_indexes:[0]};
 vm.runInContext('renderPoint()',context);assert.equal(q('#engineering-preference').hidden,true);
+assert(!q('#zone-tradeoff-chart').innerHTML.includes('Точку 3'));
 delete context.payload.engineering_preference;
 context.payload.front=[];context.payload.zone_tradeoff.knee={status:'empty',index:null};
 vm.runInContext('renderPoint()',context);assert.equal(q('#zone-tradeoff-chart').innerHTML,'');
@@ -185,7 +195,32 @@ assert(!q('#zone-tradeoff-chart').innerHTML.includes('tradeoff-line'));
 assert.equal(q('#select-zone-knee').hidden,true);
 context.payload.front=front;context.payload.zone_tradeoff.knee={status:'no_distinct_knee',index:2};
 vm.runInContext('renderPoint()',context);assert.equal(q('#select-zone-knee').hidden,true);
-assert(q('#zone-knee-note').textContent.includes('Выраженное колено не найдено'));
+assert(q('#zone-knee-note').textContent.includes('Выраженный геометрический перегиб не найден'));
+context.payload.front=front;context.payload.schema_version='composite-plate-analysis/v1';context.payload.selected_index=2;
+context.payload.zone_tradeoff.knee={status:'candidate',index:1};
+context.payload.engineering_preference={status:'available',recommended_index:2,top_indexes:[2,1,0],
+ model_id:'lo-po-v1',training_case_ids:['plate-a'],validation:{independent_cases:1,mean_regret:.1,knee_regret:.2}};
+context.fetch=async()=>({ok:true,status:200,json:async()=>context.payload});
+vm.runInContext('runAnalysis("/api/composite-demo",{method:"POST"})',context).then(()=>{
+ assert.equal(q('#error').hidden,true);
+ assert.equal(q('#candidate').value,'2');assert.equal(q('#drawing').innerHTML,'<svg>0-2</svg>');
+ assert(q('#zone-tradeoff-chart').innerHTML.includes('геометрический перегиб'));
+ assert(q('#zone-tradeoff-chart').innerHTML.includes('кандидат на Точку 3 по инженерным примерам'));
+ q('#download-source').callbacks.click();
+ assert.equal(context.window.downloaded.value.directions[3].zone_drafts[2].source_zone_id,'3-2-2');
+ q('#zone-tradeoff-chart').callbacks.click({target:{closest:()=>({dataset:{candidate:'1'}})}});
+ assert.equal(q('#candidate').value,'1');assert.equal(q('#drawing').innerHTML,'<svg>0-1</svg>');
+ q('#download-selected').callbacks.click();
+ assert.equal(context.window.downloaded.value.selected_point.zone_count,8);
+ assert.equal(context.window.downloaded.value.directions[0].zone_drafts[0].source_zone_id,'0-1-0');
+ delete context.payload.engineering_preference;context.payload.selected_index=1;
+ return vm.runInContext('runAnalysis("/api/composite-demo",{method:"POST"})',context);
+}).then(()=>{
+ assert.equal(q('#error').hidden,true);assert.equal(q('#candidate').value,'1');
+ assert.equal(q('#engineering-preference').hidden,true);
+ assert(!q('#zone-tradeoff-chart').innerHTML.includes('Точку 3'));
+ assert.equal(q('#drawing').innerHTML,'<svg>0-1</svg>');
+}).catch(error=>{console.error(error);process.exitCode=1;});
 """
     node(script, STATIC / "composite.js")
 
