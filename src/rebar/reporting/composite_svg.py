@@ -1,6 +1,10 @@
 """Составная схема: каждая добавка и её реальные оси, не старый равномерный LayoutZone."""
 import html
 
+from shapely.geometry import box as geometry_box
+
+from rebar.optimization.services.composite_mesh_domain import composite_mesh_domain
+
 from rebar.models import Axis
 from rebar.optimization.services.axis_patterns import pattern_coordinates
 
@@ -9,7 +13,7 @@ from .source_graphics import _box, render_source_zone_layers
 
 
 def render_composite_svg(demand, zones, *, host_envelope=None, outline_cell_ids=(), physical_bars=None,
-                         host_rings_mm=(), source_zone_drafts=(), host_opening_rings_mm=()) -> str:
+                         host_rings_mm=(), source_zone_drafts=(), host_opening_rings_mm=(), mesh_domain=None) -> str:
     if physical_bars is not None and zones:
         raise ValueError("Render physical bars or source zones, not both inventories at once")
     boxes = [demand.bbox]
@@ -75,6 +79,8 @@ def render_composite_svg(demand, zones, *, host_envelope=None, outline_cell_ids=
                         'реальные отрезки разрезаны по границе, без добавленного защитного слоя</title></polygon>')
     source_zones = []
     source_envelopes = []
+    if zones and mesh_domain is None:
+        mesh_domain = composite_mesh_domain(demand)
     if source_zone_drafts:
         rectangles, envelopes = render_source_zone_layers(source_zone_drafts, xmin=xmin, ymax=ymax,
                                                           span=max(width, height))
@@ -93,13 +99,25 @@ def render_composite_svg(demand, zones, *, host_envelope=None, outline_cell_ids=
                 f'исходная огибающая осей после40d/раскроя, не AreaBoundary и не нормализованная партия; '
                 f'Ø{component.rebar.diameter}; L={component.installed_length_mm:.3f} мм; '
                 f'условный шаг {component.rebar.step}; {component.bar_count} шт.</title></rect>')
+        clipped = geometry_box(*zone.demand_bbox).intersection(mesh_domain)
+        polygons = (clipped,) if clipped.geom_type == "Polygon" else tuple(
+            item for item in getattr(clipped, "geoms", ()) if item.geom_type == "Polygon")
+        paths = []
+        for polygon in polygons:
+            for ring in (polygon.exterior, *polygon.interiors):
+                points = list(ring.coords)
+                paths.append("M " + " L ".join(f"{x-xmin:.3f} {ymax-y:.3f}" for x, y in points) + " Z")
+        if not paths:
+            raise ValueError("зона не пересекает исходную сетку КЭ")
+        label_point = clipped.representative_point()
         x1, y1, x2, y2 = zone.demand_bbox
         source_zones.append(f'<g data-zone-id="{html.escape(zone.id, quote=True)}">'
-            f'<rect x="{x1-xmin:.3f}" y="{ymax-y2:.3f}" width="{x2-x1:.3f}" height="{y2-y1:.3f}" '
-            f'fill="none" stroke="#173f61" stroke-width="1.8" vector-effect="non-scaling-stroke">'
-            f'<title>Z{index} · {html.escape(zone.id)}; исходный demand_bbox '
-            f'{x2-x1:.3f} × {y2-y1:.3f} мм; не физический контур стали</title></rect>'
-            f'<text x="{x1-xmin:.3f}" y="{ymax-y2:.3f}" font-size="{max(width, height)*.009:.3f}" '
+            f'<path d="{" ".join(paths)}" fill="#173f61" fill-opacity="0.07" fill-rule="evenodd" '
+            f'stroke="#173f61" stroke-width="1.8" vector-effect="non-scaling-stroke">'
+            f'<title>Z{index} · {html.escape(zone.id)}; действующая зона по КЭ, '
+            f'обрезана от расчётного окна {x2-x1:.3f} × {y2-y1:.3f} мм; '
+            f'не физический контур стали</title></path>'
+            f'<text x="{label_point.x-xmin:.3f}" y="{ymax-label_point.y:.3f}" font-size="{max(width, height)*.009:.3f}" '
             f'fill="#173f61" paint-order="stroke" stroke="white" '
             f'stroke-width="{max(width, height)*.0015:.3f}">Z{index}</text></g>')
     if host_envelope is not None:

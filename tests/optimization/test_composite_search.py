@@ -11,7 +11,9 @@ from rebar.optimization.contracts.problem import LayoutConstraints, LayoutProble
 from rebar.optimization.services.composite_coverage import evaluate_composite_coverage
 from rebar.optimization.services.composite_detailing import build_composite_zone
 from rebar.optimization.services.composite_windows import covering_composite_window
-from rebar.optimization.services.composite_mesh_domain import composite_mesh_domain, zone_inside_mesh
+from rebar.optimization.services.composite_mesh_domain import (
+    clipped_zone_footprint, composite_mesh_domain, zone_inside_mesh,
+)
 from rebar.optimization.services.finite_cover import solve_finite_cover_front
 
 from test_composite_coverage import demand_sample, zone_sample
@@ -34,6 +36,18 @@ def test_mesh_domain_excludes_white_gap_and_accepts_colored_cells():
     assert zone_inside_mesh(domain, (0, 0, 3900, 400))
     assert zone_inside_mesh(domain, (0, 800, 3900, 1200))
     assert not zone_inside_mesh(domain, (0, 0, 3900, 1200))
+
+
+def test_clipped_zone_footprint_keeps_white_hole_out_of_effective_area():
+    from shapely.geometry import box, shape
+
+    domain = box(0, 0, 100, 100).difference(box(40, 40, 60, 60))
+    footprint = clipped_zone_footprint(domain, (20, 20, 80, 80))
+    effective = shape(footprint["geometry_mm"])
+    assert domain.covers(effective)
+    assert effective.area == footprint["area_mm2"] == 3200
+    assert footprint["clipped_white_area_mm2"] == 400
+    assert len(effective.interiors) == 1
 
 
 def test_strict_composite_search_rejects_rectangles_crossing_white_gap():

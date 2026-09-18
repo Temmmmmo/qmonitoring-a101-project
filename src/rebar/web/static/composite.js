@@ -239,7 +239,9 @@ function renderDirection() {
   q("#source-legend").hidden = drawingView === "physical";
   q("#drawing-views").querySelectorAll("button").forEach((button) => button.setAttribute("aria-pressed", button.dataset.view === drawingView));
   q("#drawing-view-note").textContent = drawingView === "source"
-    ? "Исходные изополя и параметрические зоны до физической обработки. Это не физическая ведомость и не размещённая арматура. Прямоугольники не заменены контуром нормализованных стержней."
+    ? (result.zone_boundary_policy === "zone_footprints_clipped_to_union_of_source_kleenka_cells"
+      ? "Показана действующая область зон по цветным КЭ; белые участки исключены. Пунктирные огибающие осей можно включить отдельно. Геометрия физических стержней требует своей проверки."
+      : "Исходные изополя и параметрические зоны до физической обработки. Это не физическая ведомость и не размещённая арматура. Прямоугольники не заменены контуром нормализованных стержней.")
     : (isTrimmedResult() ? (result.output_kind === "repaired-trimmed-physical-bars"
         ? "Партия после обрезки и локального repair: добавленные стержни и сдвиги осей явно записаны в JSON. Внешний контур"
         : "Новая физическая партия: отрезки реально укорочены/разделены по внешнему контуру") +
@@ -392,6 +394,7 @@ q("#zoom-out").addEventListener("click", () => setZoom(zoom - .5));
 q("#zoom-reset").addEventListener("click", () => setZoom(1));
 function readableCalculationError(error) {
   const reason = String(error.message || "");
+  if (error.emptyResponse) return `Сервер прервал расчёт и не вернул результат${error.httpStatus ? ` (HTTP ${error.httpStatus})` : ""}. Повторите запуск; если ошибка повторится, передайте разработчику название плиты и время запуска.`;
   if (error.httpStatus === 409) return "Другой расчёт уже выполняется. Дождитесь его завершения и повторите запуск.";
   if (error.httpStatus === 503) return "Исходные файлы выбранной плиты недоступны на сервере. Выберите другую доступную плиту или сообщите об этом разработчику.";
   if (/fetch|network|связь/i.test(reason)) return "Не удалось связаться с сервером. Проверьте соединение и повторите запуск.";
@@ -425,7 +428,15 @@ async function runAnalysis(url, options) {
   q("#progress").textContent = "Запускаем расчёт четырёх направлений. Оптимизация и проверка физических стержней могут занять несколько минут.";
   try {
     const response = await fetch(url, options);
-    const payload = await response.json();
+    const raw = await response.text();
+    let payload;
+    try { payload = raw ? JSON.parse(raw) : null; } catch { payload = null; }
+    if (payload === null) {
+      const failure = new Error(`Пустой или повреждённый ответ сервера; HTTP ${response.status}`);
+      failure.httpStatus = response.status;
+      failure.emptyResponse = true;
+      throw failure;
+    }
     if (!response.ok) {
       const failure = new Error(typeof payload.detail === "string" ? payload.detail : JSON.stringify(payload.detail));
       failure.httpStatus = response.status;
@@ -455,7 +466,7 @@ async function runAnalysis(url, options) {
     q("#output").hidden = false;
     activeDirection = 0;
     drawingView = "source";
-    q("#source-envelopes").checked = true;
+    q("#source-envelopes").checked = result.zone_boundary_policy !== "zone_footprints_clipped_to_union_of_source_kleenka_cells";
     zoom = 1;
     renderPoint();
     q("#progress").textContent = result.front.length ? "Расчёт закончен. Проверки размещения показаны отдельно." : "Полного решения не найдено. Смотрите причины по направлениям.";

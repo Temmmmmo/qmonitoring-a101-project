@@ -25,7 +25,7 @@ from rebar.optimization.services.composite_coverage import MAX_CELLS, REMAINING_
 from rebar.optimization.services.composite_detailing import build_composite_zone
 from rebar.optimization.services.composite_host import evaluate_composite_host
 from rebar.optimization.services.composite_host_fit import fit_composite_zone_to_host
-from rebar.optimization.services.composite_mesh_domain import composite_mesh_domain, zone_inside_mesh
+from rebar.optimization.services.composite_mesh_domain import composite_mesh_domain, clipped_zone_footprint
 from rebar.optimization.services.cutting import PLATE_11700_BATCH_PROFILE
 from rebar.optimization.services.position_combinations import combine_keyed_candidates
 from rebar.optimization.services.stock_cutting import check_stock_cutting
@@ -99,8 +99,8 @@ def _same_mesh(demands):
 
 
 def _direction_candidate(problem, zones, config, index, *, mesh_domain=None):
-    if mesh_domain is not None and any(not zone_inside_mesh(mesh_domain, zone.demand_bbox) for zone in zones):
-        raise ValueError("прямоугольная зона заходит на белую область без КЭ")
+    if mesh_domain is None:
+        mesh_domain = composite_mesh_domain(problem.demand)
     check = evaluate_composite_coverage(problem.demand, zones, policy_id=problem.policy_id, constraints=problem.constraints)
     if check.status != "pass":
         raise ValueError("кандидат не прошёл независимую повторную проверку полного исходного спроса")
@@ -120,7 +120,9 @@ def _direction_candidate(problem, zones, config, index, *, mesh_domain=None):
                     "должен быть уложен вплотную, без зазора. СТО 5.5 рев3, табл. 2.7.9."}
             for zone in zones for c in zone.components if c.rebar.step == 100],
         "zone_drafts": [build_composite_zone_revit_export(problem.demand, zone, constraints=problem.constraints) for zone in zones],
-        "svg": render_composite_svg(problem.demand, zones, host_envelope=problem.host_envelope), "host_preflight": host}
+        "zone_footprints": [{"source_zone_id": zone.id, **clipped_zone_footprint(mesh_domain, zone.demand_bbox)} for zone in zones],
+        "svg": render_composite_svg(problem.demand, zones, host_envelope=problem.host_envelope,
+                                    mesh_domain=mesh_domain), "host_preflight": host}
 
 
 def _select(front):
@@ -190,8 +192,7 @@ def analyze_composite_plate(
     searches = tuple(solve_composite_pool(problem, maximum_zones=maximum_zones_per_direction,
         maximum_candidates=maximum_candidates, solver_time_limit_s=solver_time_limit_s,
         maximum_bar_length_mm=11700, complexity_axis=ComplexityAxis.POSITION_COUNT,
-        maximum_positions=maximum_positions, steel_class=config.steel_class, retain_position_alternatives=True,
-        forbid_unmeshed_zones=True)
+        maximum_positions=maximum_positions, steel_class=config.steel_class, retain_position_alternatives=True)
         for problem, config in zip(problems, ordered_settings))
     by_direction, choice_groups = [], []
     for problem, search, config, (_, source), mesh_domain in zip(problems, searches, ordered_settings, parsed, mesh_domains):
@@ -309,7 +310,7 @@ def analyze_composite_plate(
     return {"schema_version": "composite-plate-analysis/v1", "units": "mm", "case_id": case_id,
         "status": "full_coverage_candidates_found" if front else "no_full_plate_solution_found",
         "placement_eligible": False, "source_demand_preserved": True, "averaging": "not_applied",
-        "zone_boundary_policy": "rectangles_inside_union_of_source_kleenka_cells",
+        "zone_boundary_policy": "zone_footprints_clipped_to_union_of_source_kleenka_cells",
         "constraints": to_jsonable(constraints), "direction_count": len(PLATE_DIRECTIONS),
         "directions": by_direction, "front": front, "selected_index": selected,
         "diagnostic_front_before_cutting": diagnostic_front, "length_balance_attempts": balance_attempts,
