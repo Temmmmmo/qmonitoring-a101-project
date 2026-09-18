@@ -8,8 +8,13 @@ not an engineering approval or a global lower bound.
 from __future__ import annotations
 
 from dataclasses import replace
+import hashlib
+import heapq
 import math
+import struct
 from time import perf_counter
+
+import numpy as np
 
 from .composite_merge import solve_composite_merge
 from ..contracts.composite_coverage import (
@@ -25,47 +30,136 @@ from ..services.finite_cover import solve_finite_cover_front
 from ..services.zone_tradeoff import recommend_zone_knee
 
 
+class _BoundedProposalPool:
+    """Stable bottom-k sample of exact service geometries; no seen-all buffer."""
+
+    def __init__(self, limit):
+        self.limit = limit
+        self.items = {}
+        self.heap = []
+        self.observed = 0
+        self.replacements = 0
+        self.limited = False
+        self.pinned_count = 0
+
+    @staticmethod
+    def _key(zone, check):
+        def canonical(box):
+            return tuple(0.0 if coordinate == 0 else float(coordinate) for coordinate in box)
+
+        return (canonical(zone.demand_bbox), zone.level_index,
+                tuple(canonical(box) for box in check.component_service_bboxes_mm))
+
+    @staticmethod
+    def _priority(key):
+        bbox, level, service = key
+        payload = struct.pack('<i4di', level, *bbox, len(service))
+        for box in service:
+            payload += struct.pack('<4d', *box)
+        rank = int.from_bytes(hashlib.blake2b(payload, digest_size=16,
+                                              person=b'rebar-fe-pool-v1').digest(), 'big')
+        return rank, payload
+
+    @classmethod
+    def _entry(cls, key):
+        rank, payload = cls._priority(key)
+        return (-rank, bytes(255 - value for value in payload), key)
+
+    def offer(self, zone, check):
+        self.observed += 1
+        key = self._key(zone, check)
+        previous = self.items.get(key)
+        if previous is not None:
+            if check.additional_mass_kg < previous[1].additional_mass_kg - 1e-9:
+                self.items[key] = (zone, check)
+            return
+        entry = self._entry(key)
+        if len(self.items) < self.limit:
+            self.items[key] = (zone, check)
+            heapq.heappush(self.heap, entry)
+            return
+        self.limited = True
+        if entry <= self.heap[0]:
+            return
+        _, _, removed_key = heapq.heapreplace(self.heap, entry)
+        del self.items[removed_key]
+        self.items[key] = (zone, check)
+        self.replacements += 1
+
+    def pin(self, baseline_points):
+        # Pin the exact validated pair from every published V3 point, even if
+        # the sampler previously held a cheaper same-bbox proposal with a
+        # different service rectangle. Pinning itself never exceeds the cap.
+        pinned = {}
+        for point in baseline_points:
+            for zone, check in zip(point.zones, point.coverage.zones):
+                pinned[self._key(zone, check)] = (zone, check)
+        self.pinned_count = len(pinned)
+        if self.pinned_count > self.limit:
+            return False
+        pinned_keys = set(pinned)
+        self.heap = [self._entry(key) for key in self.items if key not in pinned_keys]
+        heapq.heapify(self.heap)
+        for key, pair in pinned.items():
+            if key not in self.items and len(self.items) >= self.limit:
+                if not self.heap:
+                    return False
+                _, _, removed_key = heapq.heappop(self.heap)
+                del self.items[removed_key]
+            self.items[key] = pair
+        return True
+
+
 def _whole_fe_coverage(problem, proposals, deadline, maximum_incidence_nnz):
     demand = problem.demand
     required = tuple(cell for cell in demand.cells if demand.level(cell.level_index).requires_extra)
     if perf_counter() >= deadline:
         return (), 0, "prep_timeout"
-    cell_boxes = tuple((min(x for x, _ in cell.poly), min(y for _, y in cell.poly),
-                        max(x for x, _ in cell.poly), max(y for _, y in cell.poly))
-                       for cell in required)
+    cell_boxes = np.asarray([(min(x for x, _ in cell.poly), min(y for _, y in cell.poly),
+                              max(x for x, _ in cell.poly), max(y for _, y in cell.poly))
+                             for cell in required], dtype=np.float64).reshape(-1, 4)
     if perf_counter() >= deadline:
         return (), 0, "prep_timeout"
     covers = (monotone_component_recipe_covers
               if problem.policy_id == MONOTONE_COMPONENT_STO_COVERAGE_POLICY
               else monotone_single_recipe_covers
               if problem.policy_id == MONOTONE_SINGLE_STO_COVERAGE_POLICY else recipe_covers)
-    # Recipe compatibility is independent of the rectangle. Do it once per level.
+    # Recipe compatibility is independent of the rectangle. Group by required
+    # level, then compare four bbox coordinates in a bounded NumPy slice.
+    by_level = {level.index: np.asarray([i for i, cell in enumerate(required)
+                                         if cell.level_index == level.index], dtype=np.int32)
+                for level in demand.levels if level.requires_extra}
     compatible = {}
     for level in demand.levels:
         if not level.requires_extra:
             continue
         if perf_counter() >= deadline:
             return (), 0, "prep_timeout"
-        compatible[level.index] = tuple(i for i, cell in enumerate(required)
-                                        if covers(demand.level(cell.level_index).recipe, level.recipe))
+        compatible[level.index] = tuple((required_level.recipe, indexes)
+            for required_level in demand.levels if required_level.requires_extra
+            for indexes in (by_level[required_level.index],)
+            if len(indexes) and covers(required_level.recipe, level.recipe))
     active, incidence_nnz = [], 0
     for index, (zone, check) in enumerate(proposals):
         if index % 16 == 0 and perf_counter() >= deadline:
             return (), incidence_nnz, "prep_timeout"
         served = []
-        for i in compatible.get(zone.level_index, ()):
-            required_recipe = demand.level(required[i].level_index).recipe
+        service_by_count = {}
+        for required_recipe, indexes in compatible.get(zone.level_index, ()):
             boxes = check.component_service_bboxes_mm[:len(required_recipe.additions)]
             if len(boxes) != len(required_recipe.additions):
                 continue
-            lo_x = max(box[0] for box in boxes)
-            lo_y = max(box[1] for box in boxes)
-            hi_x = min(box[2] for box in boxes)
-            hi_y = min(box[3] for box in boxes)
-            cell_box = cell_boxes[i]
-            if (lo_x <= cell_box[0] + 1e-6 and lo_y <= cell_box[1] + 1e-6
-                    and hi_x >= cell_box[2] - 1e-6 and hi_y >= cell_box[3] - 1e-6):
-                served.append(i)
+            count = len(boxes)
+            if count not in service_by_count:
+                service_by_count[count] = (max(box[0] for box in boxes), max(box[1] for box in boxes),
+                                           min(box[2] for box in boxes), min(box[3] for box in boxes))
+            lo_x, lo_y, hi_x, hi_y = service_by_count[count]
+            group = cell_boxes[indexes]
+            selected = indexes[(lo_x <= group[:, 0] + 1e-6)
+                               & (lo_y <= group[:, 1] + 1e-6)
+                               & (hi_x >= group[:, 2] - 1e-6)
+                               & (hi_y >= group[:, 3] - 1e-6)]
+            served.extend(selected.tolist())
         incidence_nnz += len(served)
         if incidence_nnz > maximum_incidence_nnz:
             return (), incidence_nnz, "incidence_limit"
@@ -120,21 +214,10 @@ def solve_composite_recombine(
         if isinstance(value, bool) or not math.isfinite(value) or not 0 < value <= 60:
             raise ValueError(f"{name} должен быть положительным и не более 60 секунд")
     wrapper_started = perf_counter()
-    proposals = {}
-    pool_overflow = False
+    pool = _BoundedProposalPool(maximum_pool_zones)
 
     def observe(zone, check):
-        nonlocal pool_overflow
-        key = (zone.demand_bbox, zone.level_index)
-        prior = proposals.get(key)
-        if prior is not None:
-            if check.additional_mass_kg < prior[1].additional_mass_kg - 1e-9:
-                proposals[key] = (zone, check)
-            return
-        if len(proposals) >= maximum_pool_zones:
-            pool_overflow = True
-            return
-        proposals[key] = (zone, check)
+        pool.offer(zone, check)
 
     def base_progress(done, total):
         if progress_callback is not None:
@@ -154,7 +237,10 @@ def solve_composite_recombine(
                           + "_plus_finite_whole_fe_proposal_recombination")
     stats = {"status": "pending", "fallback_reason": None,
              "baseline_points": len(base.points), "extra_points": 0,
-             "captured_unique_proposals": len(proposals), "maximum_pool_zones": maximum_pool_zones,
+             "captured_unique_proposals": len(pool.items), "maximum_pool_zones": maximum_pool_zones,
+             "observed_valid_proposals": pool.observed, "sample_replacements": pool.replacements,
+             "pool_limited": pool.limited,
+             "selection_method": "stable_blake2b_bottom_k_exact_bbox_level_service_plus_pinned_baseline",
              "maximum_incidence_nnz": maximum_incidence_nnz, "maximum_prep_s": maximum_prep_s,
              "solve_time_limit_s": recombine_time_limit_s,
              "scope": "finite_validated_proposal_pool_whole_fe_set_cover_not_global_optimum"}
@@ -175,16 +261,19 @@ def solve_composite_recombine(
         return fallback("no_baseline_front")
     if not base.points[0].zones:
         return fallback("empty_demand")
-    if pool_overflow:
-        return fallback("pool_limit")
-    if not proposals:
+    if not pool.items:
         return fallback("no_valid_proposals")
+    if not pool.pin(base.points):
+        return fallback("pinned_baseline_exceeds_pool_limit")
+    stats.update(pinned_baseline_zones=pool.pinned_count, active_pool_size=len(pool.items))
     prep_started = perf_counter()
+    ordered_proposals = tuple(pool.items[key] for key in sorted(pool.items, key=pool._priority))
     active, nnz, reason = _whole_fe_coverage(
-        problem, tuple(proposals.values()), prep_started + maximum_prep_s, maximum_incidence_nnz)
+        problem, ordered_proposals, prep_started + maximum_prep_s, maximum_incidence_nnz)
     stats.update(prep_s=perf_counter() - prep_started, active_proposals=len(active), incidence_nnz=nnz,
                  required_fe=sum(problem.demand.level(c.level_index).requires_extra for c in problem.demand.cells))
-    proposals.clear()
+    pool.items.clear()
+    pool.heap.clear()
     if reason:
         return fallback(reason)
     if perf_counter() >= prep_started + maximum_prep_s:
