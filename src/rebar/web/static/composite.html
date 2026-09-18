@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>QMonitoring · Раскладка всей плиты</title>
-  <link rel="stylesheet" href="/static/composite.css?v=6">
+  <link rel="stylesheet" href="/static/composite.css?v=7">
   <link rel="stylesheet" href="/static/engineering-start.css?v=3">
 </head>
 <body>
@@ -58,10 +58,19 @@
         <a href="#custom-inputs" class="start-secondary" id="open-custom-inputs">Загрузить свои четыре DXF →</a>
         <a href="/revit" class="start-secondary">Инструменты Revit →</a></div></details>
     </div>
+    <section class="job-history" aria-labelledby="job-history-title">
+      <div class="job-history-heading"><h2 id="job-history-title">Недавние расчёты</h2>
+        <button id="refresh-job-history" type="button">Обновить список</button></div>
+      <p class="job-history-note">Расчёты своих DXF на этом сервере. Можно вернуться к выполняющемуся заданию или открыть готовый результат.
+        Результаты доступны в течение часа после завершения, до перезапуска сервера.</p>
+      <p id="job-history-status" role="status">Загружаем список…</p>
+      <ul id="job-history-list"></ul>
+    </section>
     <p id="progress" role="status" aria-live="polite"></p>
     <div id="progress-track" hidden><label for="progress-bar">Этапы расчёта · <span id="progress-percent">0%</span></label>
       <progress id="progress-bar" max="100" value="0"></progress></div>
     <p id="error" role="alert" hidden></p>
+    <p id="running-job-link" hidden><a id="open-running-job" href="#job-history-title">Открыть выполняющийся расчёт →</a></p>
     <details id="error-details" class="result-details" hidden><summary>Техническая причина ошибки</summary><pre id="error-technical"></pre></details>
     <details id="custom-inputs" class="custom-inputs">
       <summary>Свой проект · четыре DXF и шкалы .shk или PNG</summary>
@@ -197,5 +206,6 @@
       <button id="run-demo" type="button">Посмотреть пример на синтетических данных</button></details>
   </main>
   <script src="/static/engineering-example.js?v=5" defer></script>
-  <script src="/static/composite.js?v=17" defer></script>
+  <script src="/static/composite.js?v=19" defer></script>
+  <script src="/static/composite-history.js?v=1" defer></script>
 </body></html>

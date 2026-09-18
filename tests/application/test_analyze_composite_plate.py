@@ -27,6 +27,15 @@ def test_full_dxf_plate_keeps_all_components_and_unions_positions(composite_plat
     assert [percent for percent, stage in progress if stage.startswith("Найдены варианты")] == [35, 45, 55, 65]
     assert progress[-1][1] == "Расчёт готов, формируем отчёт"
     assert report["direction_count"] == 4 and report["front"]
+    assert report["source_graphics_mode"] == "direction-candidates"
+    packet = report["source_graphics"]
+    assert packet["schema_version"] == "source-isofields-zones/v1"
+    assert packet["case_id"] and not packet["placement_eligible"]
+    assert len(packet["source_files"]) == 8
+    selected = report["front"][report["source_graphics_candidate_index"]]
+    for i, row in enumerate(packet["directions"]):
+        assert row["zone_drafts"] == report["directions"][i]["candidates"][selected["direction_candidate_indexes"][i]]["zone_drafts"]
+        assert len(row["cells"]) == report["directions"][i]["source_cell_count"]
     assert report["source_demand_preserved"] and not report["placement_eligible"]
     assert [source.dxf_path.read_bytes() for source in sources] == before
     assert report["averaging"] == "not_applied"

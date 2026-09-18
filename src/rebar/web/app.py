@@ -57,7 +57,7 @@ from rebar.application.revit_installation import (
 from rebar.web.revit_inspection import router as revit_inspection_router
 from rebar.web.engineering_examples import router as engineering_examples_router
 from rebar.web.revit_workflow import router as revit_workflow_router
-from rebar.web.composite_jobs import JobInputError, composite_jobs
+from rebar.web.composite_jobs import JobInputError, RESULT_TTL_S, composite_jobs
 
 STATIC_DIR = Path(__file__).with_name("static")
 MAX_UPLOAD_BYTES = 30 * 1024 * 1024
@@ -253,14 +253,15 @@ async def analyze_composite_plate_upload(
                 except OSError as error:
                     raise JobInputError(400, f"Не удалось прочитать файл: {error}") from error
 
-            job_id = composite_jobs.start(temporary, run_job)
+            job_id = composite_jobs.start(temporary, run_job, case_id=case_id.strip())
             if job_id is None:
-                raise HTTPException(status_code=409, detail="Другой расчёт плиты уже выполняется")
+                active = composite_jobs.active_job()
+                return JSONResponse(status_code=409, content={
+                    "detail": "Другой расчёт плиты уже выполняется",
+                    "active_job_id": active.id if active is not None else None})
             temporary = None  # the job now owns and cleans up its input files
             job = composite_jobs.get(job_id)
-            return JSONResponse(status_code=202, content={"job_id": job_id, "status": "running",
-                                                          "progress_percent": job.progress_percent,
-                                                          "progress_stage": job.progress_stage})
+            return JSONResponse(status_code=202, content=job.summary())
         return await run_in_threadpool(calculate)
     except (ValueError, KeyError, DXFError, MissingRebarSpecificationError, RebarMappingError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
@@ -273,15 +274,19 @@ async def analyze_composite_plate_upload(
             await upload.close()
 
 
+@app.get("/api/analyze-composite-plate/jobs")
+def composite_plate_job_history():
+    return {"jobs": [job.summary() for job in composite_jobs.list_jobs()],
+            "retention_seconds": RESULT_TTL_S}
+
+
 @app.get("/api/analyze-composite-plate/jobs/{job_id}")
 def composite_plate_job_result(job_id: str):
     job = composite_jobs.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Задание не найдено или срок хранения результата истёк")
     if job.status == "running":
-        return JSONResponse(status_code=202, content={"job_id": job_id, "status": "running",
-                                                      "progress_percent": job.progress_percent,
-                                                      "progress_stage": job.progress_stage})
+        return JSONResponse(status_code=202, content=job.summary())
     if job.status == "failed":
         raise HTTPException(status_code=job.error_status or 500, detail=job.error_detail)
     return FileResponse(job.result_path, media_type="application/json")

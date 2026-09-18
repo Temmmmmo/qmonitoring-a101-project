@@ -52,6 +52,21 @@ def test_original_source_dispatch_is_lossless_without_physical_certificate(modul
     assert value == before
 
 
+def test_custom_dxf_result_exports_to_existing_revit_source_reader(module, composite_plate_sources):
+    from rebar.application.analyze_composite_plate import analyze_composite_plate, CompositeDirectionSettings
+    from rebar.optimization.contracts.plate import PLATE_DIRECTIONS
+
+    settings = tuple(CompositeDirectionSettings(direction, 0, 150, 50, "A500", "Synthetic test")
+                     for direction in PLATE_DIRECTIONS)
+    report = analyze_composite_plate(composite_plate_sources, settings, maximum_candidates=32,
+                                     solver_time_limit_s=1, cutting_profile="continuous")
+    packet = report["source_graphics"]
+    primitives = module.build_preview_primitives(packet, 0, 0)
+    assert module._validate_primitives(primitives) == primitives
+    assert primitives["summary"]["source_cell_count"] == sum(d["source_cell_count"] for d in report["directions"])
+    assert primitives["summary"]["source_zone_count"] == report["front"][report["selected_index"]]["zone_count"]
+
+
 @pytest.mark.parametrize("field,value", [("placement_eligible", True), ("engineering_approval", True),
     ("units", "m"), ("source_stage", "physical-normalized"), ("provenance_status", "approved")])
 def test_reject_approval_or_wrong_source_stage(module, field, value):

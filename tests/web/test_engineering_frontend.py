@@ -239,12 +239,92 @@ vm.runInContext('runAnalysis("/api/analyze-composite-plate",{method:"POST",body:
     node(script, STATIC / 'composite.js')
 
 
-@pytest.mark.parametrize("file", ["engineering-example.js", "home.js", "composite.js"])
+@pytest.mark.parametrize("file", ["engineering-example.js", "home.js", "composite.js", "composite-history.js"])
 def test_javascript_syntax(file):
     executable = shutil.which("node")
     if executable is None:
         pytest.skip("Node unavailable")
     subprocess.run([executable, "--check", str(STATIC / file)], check=True, capture_output=True, timeout=10)
+
+
+def test_saved_job_url_resumes_polling_and_opens_result_without_new_post():
+    script = r"""
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const nodes=new Map();const make=()=>({innerHTML:'',textContent:'',value:'0',disabled:false,hidden:false,dataset:{},style:{},
+ addEventListener(){},querySelectorAll(){return[];},setAttribute(){},scrollIntoView(){}});
+const q=id=>{if(!nodes.has(id))nodes.set(id,make());return nodes.get(id);};
+const requests=[],urls=[];
+const replies=[{job_id:'saved',status:'running',progress_percent:65,progress_stage:'Варианты готовы',created_at:Date.now()/1000-30},
+ {schema_version:'composite-plate-analysis/v1',case_id:'Сохранённая плита',front:[],directions:[{},{},{},{}],source_demand_preserved:true}];
+const context={document:{querySelector:q,body:{classList:{add(){},remove(){}}}},
+ window:{location:{search:'?job=saved&run=1',hash:''},engineeringExampleReady:Promise.resolve(null),history:{replaceState(a,b,url){urls.push(url);}}},
+ fetch:async(url,options)=>{requests.push({url,options});const body=replies.shift();
+   return {ok:true,status:body.job_id?202:200,json:async()=>body};},URLSearchParams,Intl,console,
+ setTimeout:callback=>{callback();return 0;},clearTimeout,setInterval,clearInterval};
+vm.createContext(context);vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),context);
+vm.runInContext('renderPoint=()=>{}',context);
+setImmediate(()=>{
+ try {
+  assert.equal(requests.length,2);
+  assert(requests.every(r=>r.url==='/api/analyze-composite-plate/jobs/saved' && r.options.method!=='POST'));
+  assert.deepEqual(urls,['/composite?job=saved']);
+  assert.equal(q('#result-title').textContent,'Сохранённая плита');
+  assert.equal(q('#output').hidden,false);assert.equal(q('#error').hidden,true);
+  assert.equal(q('#progress-bar').value,100);
+ } catch(error){console.error(error);process.exitCode=1;}
+});
+"""
+    node(script, STATIC / "composite.js")
+
+
+def test_busy_upload_offers_link_to_the_running_job():
+    script = r"""
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const nodes=new Map();const make=()=>({innerHTML:'',textContent:'',value:'0',disabled:false,hidden:false,dataset:{},style:{},
+ addEventListener(){},querySelectorAll(){return[];},setAttribute(){}});
+const q=id=>{if(!nodes.has(id))nodes.set(id,make());return nodes.get(id);};
+const context={document:{querySelector:q,body:{classList:{add(){},remove(){}}}},
+ window:{location:{search:'',hash:''},engineeringExampleReady:Promise.resolve(null)},
+ fetch:async()=>({ok:false,status:409,json:async()=>({detail:'busy',active_job_id:'existing'})}),
+ URLSearchParams,Intl,console,setTimeout,clearTimeout,setInterval,clearInterval};
+vm.createContext(context);vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),context);
+vm.runInContext('runAnalysis("/api/analyze-composite-plate",{method:"POST"})',context).then(()=>{
+ assert.equal(q('#running-job-link').hidden,false);
+ assert.equal(q('#open-running-job').href,'/composite?job=existing');
+ assert(q('#error').textContent.includes('Откройте его'));
+}).catch(error=>{console.error(error);process.exitCode=1;});
+"""
+    node(script, STATIC / "composite.js")
+
+
+def test_job_history_links_running_and_finished_reports_without_html_injection():
+    script = r"""
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+class Element {constructor(){this.textContent='';this.children=[];this.disabled=false;this.callbacks={};}
+ append(...items){this.children.push(...items);}replaceChildren(...items){this.children=items;}
+ addEventListener(name,fn){this.callbacks[name]=fn;}}
+const nodes=new Map();const q=id=>{if(!nodes.has(id))nodes.set(id,new Element());return nodes.get(id);};
+const jobs=[{job_id:'active',case_id:'<img src=x onerror=alert(1)>',created_at:100,status:'running',progress_percent:35,progress_stage:'Поиск'},
+ {job_id:'finished',case_id:'Плита 1',created_at:90,status:'complete'},
+ {job_id:'failed',case_id:'',created_at:80,status:'failed'}];
+const context={document:{querySelector:q,createElement:()=>new Element()},window:{},
+ fetch:async(url,options)=>{assert.equal(url,'/api/analyze-composite-plate/jobs');assert.equal(options.cache,'no-store');
+  return {ok:true,json:async()=>({jobs})};},setInterval(){}};
+vm.createContext(context);vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),context);
+setImmediate(()=>{
+ try {
+  const rows=q('#job-history-list').children;
+  assert.equal(rows.length,3);
+  assert.equal(rows[0].children[0].href,'/composite?job=active');
+  assert.equal(rows[0].children[0].children[0].children[0].textContent,jobs[0].case_id);
+  assert(rows[0].children[0].children[1].textContent.includes('35%'));
+  assert(rows[1].children[0].children[1].textContent.includes('открыть результат'));
+  assert(rows[2].children[0].children[1].textContent.includes('открыть пояснение'));
+  assert.equal(q('#refresh-job-history').disabled,false);
+ } catch(error){console.error(error);process.exitCode=1;}
+});
+"""
+    node(script, STATIC / "composite-history.js")
 
 
 @pytest.mark.parametrize("state", ["available", "unavailable", "synthetic", "missing", "bad-id", "api-error"])
@@ -417,6 +497,54 @@ assert.equal(q('#download-source').disabled,true);
 assert(q('#handoff-note').textContent.includes('пакет зон не подготовлен'));
 """
     node(script, STATIC / "composite.js")
+
+
+def test_uploaded_dxf_export_button_tracks_selected_candidate(composite_plate_sources, tmp_path):
+    import json
+
+    from rebar.application.analyze_composite_plate import analyze_composite_plate, CompositeDirectionSettings
+    from rebar.optimization.contracts.plate import PLATE_DIRECTIONS
+
+    settings = tuple(CompositeDirectionSettings(d, 0, 150, 50, "A500", "Synthetic test") for d in PLATE_DIRECTIONS)
+    report = analyze_composite_plate(composite_plate_sources, settings, maximum_candidates=32,
+                                     solver_time_limit_s=1, cutting_profile="continuous")
+    path = tmp_path / "report.json"
+    path.write_text(json.dumps(report), encoding="utf-8")
+    script = r"""
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const elements=new Map();const make=()=>({innerHTML:'',textContent:'',value:'0',disabled:false,hidden:false,dataset:{},style:{},
+ callbacks:{},addEventListener(name,fn){this.callbacks[name]=fn;},querySelectorAll(){return[];},setAttribute(){},scrollIntoView(){}});
+const q=id=>{if(!elements.has(id))elements.set(id,make());return elements.get(id);};
+const context={document:{querySelector:q,body:{classList:{add(){},remove(){}}}},
+ window:{location:{search:'',hash:''},engineeringExampleReady:Promise.resolve(null)},
+ URLSearchParams,Intl,console,setTimeout,clearTimeout,setInterval,clearInterval};
+vm.createContext(context);vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),context);
+context.payload=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));
+q('#candidate').value=String(context.payload.selected_index);
+vm.runInContext('result=payload;renderPoint();download=(value)=>{window.downloaded=value;}',context);
+assert.equal(q('#download-source').disabled,false);q('#download-source').callbacks.click();
+assert.equal(context.window.downloaded.schema_version,'source-isofields-zones/v1');
+assert.equal(context.window.downloaded.placement_eligible,false);
+const original=JSON.stringify(context.payload.source_graphics);
+const selected=context.payload.front[context.payload.selected_index];
+const indexes=context.payload.directions.map((d,i)=>{
+ const candidate=JSON.parse(JSON.stringify(d.candidates[selected.direction_candidate_indexes[i]]));
+ candidate.zone_drafts.forEach(z=>{z.source_zone_id='alternative-'+z.source_zone_id;});
+ d.candidates.push(candidate);return d.candidates.length-1;
+});
+context.payload.front.push({...selected,direction_candidate_indexes:indexes});
+q('#candidate').value=String(context.payload.front.length-1);
+vm.runInContext('renderPoint()',context);assert.equal(q('#download-source').disabled,false);
+q('#download-source').callbacks.click();
+context.window.downloaded.directions.forEach((d,i)=>{
+ assert.deepEqual(d.zone_drafts,context.payload.directions[i].candidates[indexes[i]].zone_drafts);
+ assert.deepEqual(d.cells,context.payload.source_graphics.directions[i].cells);
+});
+assert.equal(JSON.stringify(context.payload.source_graphics),original);
+context.payload.output_kind='source-zones-only';
+assert.equal(vm.runInContext('hasSelectedSourceGraphics()',context),false);
+"""
+    node(script, STATIC / "composite.js", path)
 
 
 def test_trim_result_never_promotes_geometry_presence_to_anchor_or_reuses_old_packet():

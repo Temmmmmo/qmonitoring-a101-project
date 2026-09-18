@@ -84,23 +84,28 @@ def source_zone_40d_certificate(source_graphics):
 
 
 def build_source_graphics(problem, report, *, candidate_index=None, source_files=()):
+    return build_source_graphics_from_demands(
+        tuple(item.demand for item in problem.direction_problems), report,
+        case_id=problem.case_id, candidate_index=candidate_index, source_files=source_files)
+
+
+def build_source_graphics_from_demands(demands, report, *, case_id, candidate_index=None, source_files=()):
     """Copy the selected PRE-normalization zones and unchanged original FE.
 
     Hashes are provenance metadata, not a new geometric or engineering check.
     Only basenames leave this presentation boundary; private local paths do not.
     """
     selected = report.get("selected_index") if candidate_index is None else candidate_index
-    if report.get("case_id") != problem.case_id:
+    if report.get("case_id") != case_id:
         raise ValueError("Original source report case differs from the loaded FE problem")
     if type(selected) is not int or not 0 <= selected < len(report.get("front", ())):
         raise ValueError("A selected original source candidate is required")
     rows = report.get("directions", ())
     indexes = report["front"][selected]["direction_candidate_indexes"]
-    if len(rows) != 4 or len(problem.direction_problems) != 4 or len(indexes) != 4:
+    if len(rows) != 4 or len(demands) != 4 or len(indexes) != 4:
         raise ValueError("Four complete original source directions required")
     directions, files = [], []
-    for original, row, index in zip(problem.direction_problems, rows, indexes):
-        demand = original.demand
+    for demand, row, index in zip(demands, rows, indexes):
         direction = to_jsonable(demand.direction)
         if row["direction"] != direction or type(index) is not int or not 0 <= index < len(row["candidates"]):
             raise ValueError("Original source candidate direction/index differs")
@@ -131,7 +136,7 @@ def build_source_graphics(problem, report, *, candidate_index=None, source_files
     recorded = bool(files) and all(isinstance(row.get("sha256"), str)
         and re.fullmatch(r"[0-9a-fA-F]{64}", row["sha256"]) for row in files)
     return {"schema_version": SOURCE_GRAPHICS_SCHEMA, "units": "mm", "source_stage": SOURCE_STAGE,
-        "case_id": problem.case_id, "placement_eligible": False, "engineering_approval": False,
+        "case_id": case_id or "Своя плита", "placement_eligible": False, "engineering_approval": False,
         "source_files": files, "provenance_status": "sha256_recorded" if recorded else "unverified",
         "directions": directions,
         "label": "ИСХОДНЫЕ ИЗОПОЛЯ + ЗОНЫ / НЕ ФИЗИЧЕСКАЯ ВЕДОМОСТЬ / НЕ АРМАТУРА",

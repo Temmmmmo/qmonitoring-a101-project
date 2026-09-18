@@ -104,10 +104,26 @@ function graphicDownload() {
   const schema = pruned ? "graphic-bar-plan-pruned/v1" : "graphic-bar-plan-draft/v1";
   return packet?.schema_version === schema && packet.placement_eligible === false ? packet : null;
 }
-function hasSelectedSourceGraphics() {
-  return Boolean(result?.source_graphics) && (result.source_graphics_candidate_index === undefined ||
-    result.source_graphics_candidate_index === (layoutVariants.length ? result.selected_index : Number(q("#candidate").value)));
+function selectedSourceGraphics() {
+  const packet = result?.source_graphics;
+  if (!packet) return null;
+  if (result.source_graphics_mode === "direction-candidates" && !result.output_kind) {
+    const point = selectedPoint();
+    if (!point || packet.directions?.length !== 4 || point.direction_candidate_indexes?.length !== 4) return null;
+    const rows = [];
+    for (let i = 0; i < 4; i++) {
+      const source = packet.directions[i];
+      const candidate = result.directions[i].candidates[point.direction_candidate_indexes[i]];
+      if (!candidate || !Array.isArray(candidate.zone_drafts) || candidate.zone_drafts.length !== candidate.metrics?.zone_count ||
+          candidate.direction?.layer !== source.direction.layer || candidate.direction?.axis !== source.direction.axis) return null;
+      rows.push({...source, zone_drafts: candidate.zone_drafts});
+    }
+    return {...packet, directions: rows};
+  }
+  return result.source_graphics_candidate_index === undefined ||
+    result.source_graphics_candidate_index === (layoutVariants.length ? result.selected_index : Number(q("#candidate").value)) ? packet : null;
 }
+function hasSelectedSourceGraphics() { return Boolean(selectedSourceGraphics()); }
 function setZoom(value) {
   zoom = Math.min(3, Math.max(1, value));
   const svg = q("#drawing svg");
@@ -223,7 +239,7 @@ function renderDirection() {
   const direction = result.directions[activeDirection];
   const candidate = point ? direction.candidates[point.direction_candidate_indexes[activeDirection]] : null;
   const sourceMatches = hasSelectedSourceGraphics();
-  const source = sourceMatches ? result.source_graphics.directions?.[activeDirection] : null;
+  const source = sourceMatches ? selectedSourceGraphics().directions?.[activeDirection] : null;
   const sourceZones = (sourceMatches ? direction.source_zone_drafts : null) ?? candidate?.zone_drafts ?? [];
   const physical = isPhysicalResult();
   // Never derive source rectangles from normalized bars or crop bars to FE/host bounds.
@@ -395,7 +411,9 @@ q("#zoom-reset").addEventListener("click", () => setZoom(1));
 function readableCalculationError(error) {
   const reason = String(error.message || "");
   if (error.emptyResponse) return `Сервер прервал расчёт и не вернул результат${error.httpStatus ? ` (HTTP ${error.httpStatus})` : ""}. Повторите запуск; если ошибка повторится, передайте разработчику название плиты и время запуска.`;
+  if (error.httpStatus === 409 && error.activeJobId) return "Другой расчёт уже выполняется. Откройте его по ссылке ниже, чтобы посмотреть прогресс и результат.";
   if (error.httpStatus === 409) return "Другой расчёт уже выполняется. Дождитесь его завершения и повторите запуск.";
+  if (error.httpStatus === 404) return "Расчёт недоступен: срок хранения мог истечь или сервер был перезапущен. Проверьте раздел «Недавние расчёты».";
   if (error.httpStatus === 503) return "Исходные файлы выбранной плиты недоступны на сервере. Выберите другую доступную плиту или сообщите об этом разработчику.";
   if (/fetch|network|связь/i.test(reason)) return "Не удалось связаться с сервером. Проверьте соединение и повторите запуск.";
   if (/шкал|legend|mapping|SHK|PNG/i.test(reason)) return "Не удалось применить шкалу армирования: " + reason;
@@ -429,19 +447,23 @@ async function runAnalysis(url, options) {
   busy = true;
   q("#error").hidden = true;
   q("#error-details").hidden = true;
+  q("#running-job-link").hidden = true;
   q("#output").hidden = true;
   result = null;
   q("#run").disabled = true;
   q("#run-demo").disabled = true;
   q("#run-engineering-example").disabled = true;
   q("#run-boundary-trim").disabled = true;
-  const startedAt = Date.now();
-  const hasStages = url === "/api/analyze-composite-plate" && options?.body?.get?.("async_job") === "true";
+  let startedAt = Date.now();
+  const reopeningJob = url.startsWith("/api/analyze-composite-plate/jobs/");
+  const hasStages = reopeningJob || url === "/api/analyze-composite-plate" && options?.body?.get?.("async_job") === "true";
+  if (!reopeningJob) window.history?.replaceState(null, "", "/composite");
   q("#progress-track").hidden = !hasStages;
   q("#progress-bar").value = 0;
   q("#progress-percent").textContent = "0%";
   let currentStage = "Подготовка входных файлов";
   const showStage = (payload) => {
+    if (Number.isFinite(payload.created_at) && payload.created_at > 0) startedAt = payload.created_at * 1000;
     const percent = payload.progress_percent;
     if (!Number.isInteger(percent) || percent < 0 || percent > 100 || typeof payload.progress_stage !== "string") return;
     q("#progress-bar").value = percent;
@@ -451,19 +473,22 @@ async function runAnalysis(url, options) {
   };
   const updateProgress = () => {
     const message = hasStages
-      ? `${currentStage} · ${Math.floor((Date.now() - startedAt) / 1000)} с. Не закрывайте страницу.`
+      ? `${currentStage} · ${Math.max(0, Math.floor((Date.now() - startedAt) / 1000))} с. Можно вернуться через «Недавние расчёты».`
       : `Рассчитываем четыре направления · ${Math.floor((Date.now() - startedAt) / 1000)} с. Проверяем покрытие и всю партию. Не закрывайте страницу.`;
     q("#progress").textContent = message;
     if (url.startsWith("/api/engineering-examples/")) q("#example-status").textContent = message;
   };
   const progressTimer = setInterval(updateProgress, 1000);
   document.body.classList.add("is-calculating");
-  q("#progress").textContent = "Запускаем расчёт четырёх направлений. Оптимизация и проверка физических стержней могут занять несколько минут.";
+  q("#progress").textContent = reopeningJob ? "Открываем сохранённый расчёт…"
+    : "Запускаем расчёт четырёх направлений. Оптимизация и проверка физических стержней могут занять несколько минут.";
   try {
     let response = await fetch(url, options);
     let payload = await readAnalysisResponse(response);
     if (response.status === 202 && payload.job_id) {
       const jobId = payload.job_id;
+      window.history?.replaceState(null, "", `/composite?job=${encodeURIComponent(jobId)}`);
+      window.refreshCompositeHistory?.();
       showStage(payload);
       do {
         await new Promise((resolve) => setTimeout(resolve, 3000));
@@ -475,6 +500,11 @@ async function runAnalysis(url, options) {
     if (!response.ok) {
       const failure = new Error(typeof payload.detail === "string" ? payload.detail : JSON.stringify(payload.detail));
       failure.httpStatus = response.status;
+      if (response.status === 409 && typeof payload.active_job_id === "string") {
+        failure.activeJobId = payload.active_job_id;
+        q("#open-running-job").href = `/composite?job=${encodeURIComponent(payload.active_job_id)}`;
+        q("#running-job-link").hidden = false;
+      }
       throw failure;
     }
     result = payload;
@@ -517,6 +547,7 @@ async function runAnalysis(url, options) {
     q("#error-details").hidden = false;
     q("#progress").textContent = "Расчёт остановлен. Проверьте пояснение выше и повторите запуск.";
   } finally {
+    window.refreshCompositeHistory?.();
     clearInterval(progressTimer); document.body.classList.remove("is-calculating");
     busy = false; q("#run").disabled = false; q("#run-demo").disabled = false;
     q("#run-engineering-example").disabled = !(await window.engineeringExampleReady);
@@ -565,7 +596,8 @@ function download(value, filename) {
 }
 q("#download-report").addEventListener("click", () => { if (result) download(result, "composite-plate-report.json"); });
 q("#download-source").addEventListener("click", () => {
-  if (hasSelectedSourceGraphics()) download(result.source_graphics, "source-isofields-zones.json");
+  const packet = selectedSourceGraphics();
+  if (packet) download(packet, "source-isofields-zones.json");
 });
 q("#download-selected").addEventListener("click", () => {
   const point = selectedPoint();
@@ -598,7 +630,10 @@ q("#download-selected").addEventListener("click", () => {
       source: direction.source, settings: direction.settings, ...direction.candidates[point.direction_candidate_indexes[i]], svg: undefined }))
   }, "composite-plate-selection-DRAFT.json");
 });
-if (new URLSearchParams(window.location.search).get("demo") === "1") {
+const savedJobId = new URLSearchParams(window.location.search).get("job");
+if (savedJobId) {
+  runAnalysis(`/api/analyze-composite-plate/jobs/${encodeURIComponent(savedJobId)}`, {cache: "no-store"});
+} else if (new URLSearchParams(window.location.search).get("demo") === "1") {
   runAnalysis("/api/composite-demo", { method: "POST" });
 } else if (new URLSearchParams(window.location.search).get("run") === "1") {
   window.engineeringExampleReady.then((example) => {

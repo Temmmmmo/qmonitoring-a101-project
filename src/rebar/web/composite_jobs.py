@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 import json
 import logging
 from pathlib import Path
@@ -29,6 +29,8 @@ class JobInputError(Exception):
 class CompositeJob:
     id: str
     folder: TemporaryDirectory
+    case_id: str = ""
+    created_at: float = field(default_factory=time.time)
     status: str = "running"
     progress_percent: int = 0
     progress_stage: str = "Подготовка входных файлов"
@@ -36,6 +38,12 @@ class CompositeJob:
     error_status: int | None = None
     error_detail: str | None = None
     finished_at: float | None = None
+
+    def summary(self) -> dict:
+        """Small public history entry; no input paths or large report payload."""
+        return {"job_id": self.id, "case_id": self.case_id, "created_at": self.created_at,
+                "status": self.status, "progress_percent": self.progress_percent,
+                "progress_stage": self.progress_stage}
 
 
 class CompositeJobs:
@@ -52,13 +60,13 @@ class CompositeJobs:
                 job.folder.cleanup()
                 del self._jobs[key]
 
-    def start(self, folder: TemporaryDirectory, calculate) -> str | None:
+    def start(self, folder: TemporaryDirectory, calculate, *, case_id: str = "") -> str | None:
         """Return an opaque id, or None when another plate is still running."""
         with self._lock:
             self._prune()
             if self._active_id is not None:
                 return None
-            job = CompositeJob(uuid4().hex, folder)
+            job = CompositeJob(uuid4().hex, folder, case_id=case_id)
             self._jobs[job.id] = job
             self._active_id = job.id
             try:
@@ -105,6 +113,16 @@ class CompositeJobs:
         with self._lock:
             self._prune()
             job = self._jobs.get(job_id)
+            return replace(job) if job is not None else None
+
+    def list_jobs(self) -> list[CompositeJob]:
+        with self._lock:
+            self._prune()
+            return [replace(job) for job in reversed(self._jobs.values())]
+
+    def active_job(self) -> CompositeJob | None:
+        with self._lock:
+            job = self._jobs.get(self._active_id)
             return replace(job) if job is not None else None
 
 

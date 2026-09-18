@@ -91,7 +91,7 @@ def test_uploaded_plate_job_survives_post_and_returns_result(monkeypatch):
         files[f"dxf_{key}"] = (f"{name}.dxf", b"dxf", "application/dxf")
         files[f"shk_{key}"] = (f"{key}.png", b"png", "image/png")
     response = client.post("/api/analyze-composite-plate", files=files,
-                           data=options(async_job="true"))
+                           data=options(async_job="true", case_id="Плита над −2"))
     assert response.status_code == 202, response.text
     job_id = response.json()["job_id"]
     try:
@@ -100,9 +100,16 @@ def test_uploaded_plate_job_survives_post_and_returns_result(monkeypatch):
         assert status.status_code == 202
         assert status.json()["progress_percent"] == 35
         assert status.json()["progress_stage"] == "Найдены варианты: Низ · X"
+        history = client.get("/api/analyze-composite-plate/jobs")
+        assert history.status_code == 200
+        entry = next(job for job in history.json()["jobs"] if job["job_id"] == job_id)
+        assert entry["case_id"] == "Плита над −2"
+        assert entry["created_at"] > 0 and entry["status"] == "running"
+        assert "folder" not in entry and "result_path" not in entry
         assert all(path.exists() for path in paths)
-        assert client.post("/api/analyze-composite-plate", files=files,
-                           data=options(async_job="true")).status_code == 409
+        conflict = client.post("/api/analyze-composite-plate", files=files, data=options(async_job="true"))
+        assert conflict.status_code == 409
+        assert conflict.json()["active_job_id"] == job_id
     finally:
         release.set()
     for _ in range(100):
@@ -112,6 +119,11 @@ def test_uploaded_plate_job_survives_post_and_returns_result(monkeypatch):
         time.sleep(0.01)
     assert result.status_code == 200, result.text
     assert result.json() == {"received": 4}
+    history = client.get("/api/analyze-composite-plate/jobs").json()
+    entry = next(job for job in history["jobs"] if job["job_id"] == job_id)
+    assert entry["status"] == "complete" and entry["progress_percent"] == 100
+    assert client.get(f"/api/analyze-composite-plate/jobs/{job_id}").json() == {"received": 4}
+    assert len(paths) == 4  # reopening never starts a second calculation
     assert client.get("/api/analyze-composite-plate/jobs/unknown").status_code == 404
 
 

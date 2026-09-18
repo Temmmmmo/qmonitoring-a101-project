@@ -47,6 +47,15 @@ legend { font-weight: 650; padding: 0 7px; color: #356476; }
 #error-technical { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; color: #58707b; }
 #progress { font-size: 14px; margin: 18px 0; }
 #progress:empty { display: none; }
+.job-history { margin: 22px 0; padding: 20px; border: 1px solid #d2dfe4; border-radius: 10px; background: #fff; }
+.job-history-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.job-history-heading h2 { margin: 0; font-size: 20px; }
+.job-history-note, #job-history-status { font-size: 13px; color: #58707b; }
+#job-history-list { list-style: none; padding: 0; margin: 0; max-height: 320px; overflow: auto; }
+#job-history-list li + li { border-top: 1px solid #e3eaed; }
+#job-history-list a { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 18px; padding: 14px 0; color: #245a68; }
+#job-history-list small { display: block; color: #58707b; margin-top: 4px; }
+#running-job-link a { display: inline-block; padding: 12px 16px; border: 1px solid #b7d7dd; border-radius: 6px; color: #245a68; }
 #progress-track { margin: -10px 0 18px; max-width: 600px; color: #356476; font-size: 13px; }
 #progress-track[hidden] { display: none; }
 #progress-track progress { display: block; width: 100%; height: 16px; margin-top: 7px; accent-color: #287989; }

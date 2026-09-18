@@ -32,6 +32,7 @@ from rebar.optimization.services.position_combinations import combine_keyed_cand
 from rebar.optimization.services.stock_cutting import check_stock_cutting
 from rebar.reporting.serialization import to_jsonable
 from rebar.reporting.composite_svg import render_composite_svg
+from rebar.reporting.source_graphics import build_source_graphics_from_demands
 
 from .analyze_direction import _cutting_lengths, load_direction_mosaic
 from .analyze_plate import PlateDirectionSource
@@ -325,7 +326,7 @@ def analyze_composite_plate(
         blocks.append("full-plate-solution-not-found")
     elif front[selected]["stock_cutting"]["status"] != "pass":
         blocks.append("stock-cutting-zero-waste")
-    return {"schema_version": "composite-plate-analysis/v1", "units": "mm", "case_id": case_id,
+    report = {"schema_version": "composite-plate-analysis/v1", "units": "mm", "case_id": case_id,
         "status": "full_coverage_candidates_found" if front else "no_full_plate_solution_found",
         "placement_eligible": False, "source_demand_preserved": True, "averaging": "not_applied",
         "zone_boundary_policy": "zone_footprints_clipped_to_union_of_source_kleenka_cells",
@@ -342,3 +343,8 @@ def analyze_composite_plate(
                    "Ведомость и пакет зон — черновик, не команда размещения в Revit. "
                    "Профиль batch согласует длины выбранных наборов с раскроем; количество стержней неизменно. "
                    "Прочие профили только проверяют раскрой. Удлинённые стержни проходят повторную геометрическую проверку."}
+    if front:
+        report["source_graphics"] = build_source_graphics_from_demands(demands, report, case_id=case_id)
+        report["source_graphics_candidate_index"] = selected
+        report["source_graphics_mode"] = "direction-candidates"
+    return report
