@@ -406,6 +406,24 @@ function readableCalculationError(error) {
   if (error.httpStatus === 422) return "Исходные файлы или параметры не прошли проверку: " + reason;
   return "Расчёт не завершён. Техническая причина указана ниже — её можно передать разработчику вместе с названием плиты.";
 }
+async function readAnalysisResponse(response) {
+  let payload = null;
+  try {
+    if (typeof response.text === "function") {
+      const raw = await response.text();
+      payload = raw ? JSON.parse(raw) : null;
+    } else if (typeof response.json === "function") {
+      payload = await response.json();
+    }
+  } catch { payload = null; }
+  if (payload == null) {
+    const failure = new Error(`Пустой или повреждённый ответ сервера; HTTP ${response.status}`);
+    failure.httpStatus = response.status;
+    failure.emptyResponse = true;
+    throw failure;
+  }
+  return payload;
+}
 async function runAnalysis(url, options) {
   if (busy) return;
   busy = true;
@@ -427,21 +445,15 @@ async function runAnalysis(url, options) {
   document.body.classList.add("is-calculating");
   q("#progress").textContent = "Запускаем расчёт четырёх направлений. Оптимизация и проверка физических стержней могут занять несколько минут.";
   try {
-    const response = await fetch(url, options);
-    let payload = null;
-    try {
-      if (typeof response.text === "function") {
-        const raw = await response.text();
-        payload = raw ? JSON.parse(raw) : null;
-      } else if (typeof response.json === "function") {
-        payload = await response.json();
-      }
-    } catch { payload = null; }
-    if (payload == null) {
-      const failure = new Error(`Пустой или повреждённый ответ сервера; HTTP ${response.status}`);
-      failure.httpStatus = response.status;
-      failure.emptyResponse = true;
-      throw failure;
+    let response = await fetch(url, options);
+    let payload = await readAnalysisResponse(response);
+    if (response.status === 202 && payload.job_id) {
+      const jobId = payload.job_id;
+      do {
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        response = await fetch(`/api/analyze-composite-plate/jobs/${encodeURIComponent(jobId)}`, {cache: "no-store"});
+        payload = await readAnalysisResponse(response);
+      } while (response.status === 202 && payload.status === "running");
     }
     if (!response.ok) {
       const failure = new Error(typeof payload.detail === "string" ? payload.detail : JSON.stringify(payload.detail));
@@ -506,6 +518,7 @@ q("#composite-form").addEventListener("submit", async (event) => {
     return row;
   });
   data.set("placement_settings", JSON.stringify({ directions: settings }));
+  data.set("async_job", "true");
   await runAnalysis("/api/analyze-composite-plate", { method: "POST", body: data });
 });
 q("#run-demo").addEventListener("click", () => runAnalysis("/api/composite-demo", { method: "POST" }));

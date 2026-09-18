@@ -1,6 +1,8 @@
 import importlib
 import json
 from pathlib import Path
+from threading import Event
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -67,6 +69,46 @@ def test_composite_upload_accepts_four_png_scales(monkeypatch):
     assert response.status_code == 200, response.text
     assert response.json() == {"received": 4}
     assert all(not source.png_path.exists() for source in captured)
+
+
+def test_uploaded_plate_job_survives_post_and_returns_result(monkeypatch):
+    started, release = Event(), Event()
+    paths = []
+
+    def calculate(sources, *args, **kwargs):
+        paths.extend(source.dxf_path for source in sources)
+        started.set()
+        assert release.wait(5)
+        assert all(path.exists() for path in paths)
+        return {"received": len(sources)}
+
+    monkeypatch.setattr(web, "analyze_composite_plate", calculate)
+    names = ("Нижняя по Х", "Нижняя по У", "Верхняя по Х", "Верхняя по У")
+    files = {}
+    for direction, name in zip(PLATE_DIRECTIONS, names):
+        key = f"{direction.layer.value}_{direction.axis.value.lower()}"
+        files[f"dxf_{key}"] = (f"{name}.dxf", b"dxf", "application/dxf")
+        files[f"shk_{key}"] = (f"{key}.png", b"png", "image/png")
+    response = client.post("/api/analyze-composite-plate", files=files,
+                           data=options(async_job="true"))
+    assert response.status_code == 202, response.text
+    job_id = response.json()["job_id"]
+    try:
+        assert started.wait(5)
+        assert client.get(f"/api/analyze-composite-plate/jobs/{job_id}").status_code == 202
+        assert all(path.exists() for path in paths)
+        assert client.post("/api/analyze-composite-plate", files=files,
+                           data=options(async_job="true")).status_code == 409
+    finally:
+        release.set()
+    for _ in range(100):
+        result = client.get(f"/api/analyze-composite-plate/jobs/{job_id}")
+        if result.status_code != 202:
+            break
+        time.sleep(0.01)
+    assert result.status_code == 200, result.text
+    assert result.json() == {"received": 4}
+    assert client.get("/api/analyze-composite-plate/jobs/unknown").status_code == 404
 
 
 def test_one_click_demo_runs_without_upload_and_does_not_approve_project_settings():

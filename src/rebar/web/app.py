@@ -8,7 +8,7 @@ from typing import Annotated
 
 from ezdxf.lldxf.const import DXFError
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
@@ -57,6 +57,7 @@ from rebar.application.revit_installation import (
 from rebar.web.revit_inspection import router as revit_inspection_router
 from rebar.web.engineering_examples import router as engineering_examples_router
 from rebar.web.revit_workflow import router as revit_workflow_router
+from rebar.web.composite_jobs import JobInputError, composite_jobs
 
 STATIC_DIR = Path(__file__).with_name("static")
 MAX_UPLOAD_BYTES = 30 * 1024 * 1024
@@ -189,11 +190,13 @@ async def analyze_composite_plate_upload(
     cutting_profile: Annotated[str, Form()] = "plate-11700-batch",
     maximum_cutting_overhead_pct: Annotated[float, Form(ge=0, le=100)] = 5,
     case_id: Annotated[str, Form(max_length=200)] = "",
+    async_job: Annotated[bool, Form()] = False,
 ) -> dict:
     """Полный составной комплект, отдельная шкала для каждой оси; Excel не требуется."""
     dxfs = (dxf_bottom_x, dxf_bottom_y, dxf_top_x, dxf_top_y)
     scales = (shk_bottom_x, shk_bottom_y, shk_top_x, shk_top_y)
     uploads = (*dxfs, *scales, *((host_reference,) if host_reference is not None else ()))
+    temporary = None
     try:
         data = load_review_input(placement_settings.encode("utf-8"))
         if set(data) != {"directions"} or not isinstance(data["directions"], list) or len(data["directions"]) != 4:
@@ -209,41 +212,73 @@ async def analyze_composite_plate_upload(
             raise ValueError("подтверждена привязка, но снимок host не загружен")
         if host_reference is not None and not host_xy_confirmed:
             raise ValueError("для host нужна явная проверка совпадения XY-координат")
-        with TemporaryDirectory(prefix="rebar-composite-plate-") as folder:
-            sources = []
-            for index, (direction, dxf, scale) in enumerate(zip(PLATE_DIRECTIONS, dxfs, scales)):
-                dxf_name, scale_name = _safe_name(dxf, "input.dxf"), _safe_name(scale, "scale.shk")
-                scale_suffix = Path(scale_name).suffix.casefold()
-                if Path(dxf_name).suffix.casefold() != ".dxf" or scale_suffix not in {".shk", ".png"}:
-                    raise ValueError("для каждого направления нужны DXF и шкала .shk или .png")
-                if direction_from_filename(dxf_name) != direction:
-                    raise ValueError(f"файл {dxf_name!r} загружен не в своё направление {direction}")
-                parent = Path(folder) / str(index)
-                parent.mkdir()
-                dxf_path, scale_path = parent / dxf_name, parent / scale_name
-                await _save_upload(dxf, dxf_path)
-                await _save_upload(scale, scale_path)
-                sources.append(PlateDirectionSource(
-                    dxf_path,
-                    shk_path=scale_path if scale_suffix == ".shk" else None,
-                    png_path=scale_path if scale_suffix == ".png" else None,
-                ))
-            reference = None
-            if host_reference is not None:
-                reference = load_review_input(await host_reference.read(256 * 1024 + 1))
-            return await run_in_threadpool(analyze_composite_plate, tuple(sources), tuple(settings),
+        temporary = TemporaryDirectory(prefix="rebar-composite-plate-")
+        sources = []
+        for index, (direction, dxf, scale) in enumerate(zip(PLATE_DIRECTIONS, dxfs, scales)):
+            dxf_name, scale_name = _safe_name(dxf, "input.dxf"), _safe_name(scale, "scale.shk")
+            scale_suffix = Path(scale_name).suffix.casefold()
+            if Path(dxf_name).suffix.casefold() != ".dxf" or scale_suffix not in {".shk", ".png"}:
+                raise ValueError("для каждого направления нужны DXF и шкала .shk или .png")
+            if direction_from_filename(dxf_name) != direction:
+                raise ValueError(f"файл {dxf_name!r} загружен не в своё направление {direction}")
+            parent = Path(temporary.name) / str(index)
+            parent.mkdir()
+            dxf_path, scale_path = parent / dxf_name, parent / scale_name
+            await _save_upload(dxf, dxf_path)
+            await _save_upload(scale, scale_path)
+            sources.append(PlateDirectionSource(
+                dxf_path,
+                shk_path=scale_path if scale_suffix == ".shk" else None,
+                png_path=scale_path if scale_suffix == ".png" else None,
+            ))
+        reference = None
+        if host_reference is not None:
+            reference = load_review_input(await host_reference.read(256 * 1024 + 1))
+
+        def calculate():
+            return analyze_composite_plate(tuple(sources), tuple(settings),
                 maximum_zones_per_direction=maximum_zones, maximum_positions=maximum_positions,
                 maximum_candidates=maximum_candidates, solver_time_limit_s=solver_time_limit_s,
                 min_width_cells=min_width_cells, cutting_profile=cutting_profile, case_id=case_id,
                 maximum_cutting_overhead_pct=maximum_cutting_overhead_pct,
                 host_reference=reference, coordinate_policy=HOST_COORDINATE_POLICY if reference is not None else None)
+
+        if async_job:
+            def run_job():
+                try:
+                    return calculate()
+                except (ValueError, KeyError, DXFError, MissingRebarSpecificationError, RebarMappingError) as error:
+                    raise JobInputError(422, str(error)) from error
+                except OSError as error:
+                    raise JobInputError(400, f"Не удалось прочитать файл: {error}") from error
+
+            job_id = composite_jobs.start(temporary, run_job)
+            if job_id is None:
+                raise HTTPException(status_code=409, detail="Другой расчёт плиты уже выполняется")
+            temporary = None  # the job now owns and cleans up its input files
+            return JSONResponse(status_code=202, content={"job_id": job_id, "status": "running"})
+        return await run_in_threadpool(calculate)
     except (ValueError, KeyError, DXFError, MissingRebarSpecificationError, RebarMappingError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     except OSError as error:
         raise HTTPException(status_code=400, detail=f"Не удалось прочитать файл: {error}") from error
     finally:
+        if temporary is not None:
+            temporary.cleanup()
         for upload in uploads:
             await upload.close()
+
+
+@app.get("/api/analyze-composite-plate/jobs/{job_id}")
+def composite_plate_job_result(job_id: str):
+    job = composite_jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Задание не найдено или срок хранения результата истёк")
+    if job.status == "running":
+        return JSONResponse(status_code=202, content={"job_id": job_id, "status": "running"})
+    if job.status == "failed":
+        raise HTTPException(status_code=job.error_status or 500, detail=job.error_detail)
+    return FileResponse(job.result_path, media_type="application/json")
 
 
 @app.post("/api/composite-demo")

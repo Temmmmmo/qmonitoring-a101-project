@@ -211,6 +211,31 @@ vm.runInContext('runAnalysis("/api/analyze-composite-plate",{method:"POST"})',co
     node(script, STATIC / 'composite.js')
 
 
+def test_composite_job_polls_until_server_returns_final_status():
+    script = r"""
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const nodes=new Map();const make=()=>({innerHTML:'',textContent:'',value:'0',disabled:false,hidden:false,dataset:{},style:{},
+ addEventListener(){},querySelectorAll(){return[];},setAttribute(){}});
+const q=id=>{if(!nodes.has(id))nodes.set(id,make());return nodes.get(id);};
+const urls=[];const replies=[
+ {ok:true,status:202,json:async()=>({job_id:'abc',status:'running'})},
+ {ok:true,status:202,json:async()=>({job_id:'abc',status:'running'})},
+ {ok:false,status:422,json:async()=>({detail:'legend mismatch'})}];
+const context={document:{querySelector:q,body:{classList:{add(){},remove(){}}}},
+ window:{location:{search:'',hash:''},engineeringExampleReady:Promise.resolve(null)},
+ fetch:async url=>{urls.push(url);return replies.shift();},URLSearchParams,Intl,console,
+ setTimeout:callback=>{callback();return 0;},clearTimeout,setInterval,clearInterval};
+vm.createContext(context);vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),context);
+vm.runInContext('runAnalysis("/api/analyze-composite-plate",{method:"POST"})',context).then(()=>{
+ assert.deepEqual(urls,['/api/analyze-composite-plate',
+   '/api/analyze-composite-plate/jobs/abc','/api/analyze-composite-plate/jobs/abc']);
+ assert(q('#error').textContent.includes('legend mismatch'));
+ assert.equal(q('#error-technical').textContent,'legend mismatch');
+}).catch(error=>{console.error(error);process.exitCode=1;});
+"""
+    node(script, STATIC / 'composite.js')
+
+
 @pytest.mark.parametrize("file", ["engineering-example.js", "home.js", "composite.js"])
 def test_javascript_syntax(file):
     executable = shutil.which("node")
