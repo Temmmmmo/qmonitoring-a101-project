@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>QMonitoring · Раскладка всей плиты</title>
-  <link rel="stylesheet" href="/static/composite.css?v=9">
+  <link rel="stylesheet" href="/static/composite.css?v=10">
   <link rel="stylesheet" href="/static/engineering-start.css?v=3">
 </head>
 <body>
@@ -61,7 +61,7 @@
     <section class="job-history" aria-labelledby="job-history-title">
       <div class="job-history-heading"><h2 id="job-history-title">Недавние расчёты</h2>
         <button id="refresh-job-history" type="button">Обновить список</button></div>
-      <p class="job-history-note">Расчёты своих DXF на этом сервере. Можно вернуться к выполняющемуся заданию или открыть готовый результат.
+      <p class="job-history-note">Расчёты загруженных комплектов и готовых примеров на этом сервере. Можно вернуться к выполняющемуся заданию или открыть готовый результат.
         Результаты доступны в течение часа после завершения, до перезапуска сервера.</p>
       <p id="job-history-status" role="status">Загружаем список…</p>
       <ul id="job-history-list"></ul>
@@ -149,18 +149,41 @@
       <label class="candidate-control">Вариант раскладки<select id="candidate"></select></label>
       <section id="zone-tradeoff" hidden aria-labelledby="zone-tradeoff-title">
         <h3 id="zone-tradeoff-title">Разбиения · масса и количество зон</h3>
-        <p>Каждая точка — отдельная раскладка всех четырёх направлений. Выберите точку мышью или клавишей Enter, чтобы увидеть её зоны и скачать JSON выбранной раскладки.</p>
+        <p>Каждая точка — отдельная раскладка всех четырёх направлений. Выберите её на графике или кнопками сравнения, затем проверьте зоны и скачайте JSON именно этого варианта.</p>
         <div id="zone-tradeoff-chart"></div>
         <p id="zone-tradeoff-legend" class="tradeoff-legend"></p>
-        <p id="zone-knee-note" aria-live="polite"></p>
-        <button id="select-zone-knee" type="button">Показать геометрический перегиб</button>
+        <div class="tradeoff-selection" aria-live="polite">
+          <div><span>Выбранный вариант</span><strong id="zone-selected-title">—</strong></div>
+          <dl id="zone-selected-summary">
+            <div><dt>Зоны</dt><dd id="zone-selected-zones">—</dd></div>
+            <div><dt>Масса</dt><dd id="zone-selected-mass">—</dd></div>
+            <div><dt>Стержни</dt><dd id="zone-selected-bars">—</dd></div>
+            <div><dt>Позиции</dt><dd id="zone-selected-positions">—</dd></div>
+          </dl>
+        </div>
+        <nav class="tradeoff-navigation" aria-label="Сравнение вариантов разбиения">
+          <button id="select-zone-min-zones" type="button">Минимум зон</button>
+          <button id="select-zone-previous" type="button" aria-label="Предыдущий вариант">← Предыдущий</button>
+          <span id="zone-selected-counter" aria-live="polite">—</span>
+          <button id="select-zone-next" type="button" aria-label="Следующий вариант">Следующий →</button>
+          <button id="select-zone-min-mass" type="button">Минимум массы</button>
+        </nav>
+        <div class="tradeoff-zoom-controls">
+          <button id="zone-toggle-zoom" type="button" aria-pressed="false">Увеличить выбранный участок</button>
+          <span id="zone-visible-range">—</span>
+        </div>
+        <details id="zone-knee-guide" class="tradeoff-guide">
+          <summary>Геометрический ориентир</summary>
+          <p id="zone-knee-note" aria-live="polite"></p>
+          <button id="select-zone-knee" type="button">Показать геометрический перегиб</button>
+        </details>
         <p id="zone-tradeoff-scope" class="notice"></p>
         <section id="engineering-preference" hidden aria-labelledby="engineering-preference-title">
-          <h4 id="engineering-preference-title">Кандидат на Точку 3 · по инженерным примерам</h4>
+          <h4 id="engineering-preference-title">Варианты по инженерным примерам</h4>
           <p id="engineering-preference-note"></p>
-          <button id="select-engineering-preference" type="button">Показать кандидата по инженерным примерам</button>
+          <button id="select-engineering-preference" type="button">Показать первую подсказку</button>
           <div id="engineering-preference-top" aria-label="Три варианта по инженерным примерам"></div>
-          <p id="engineering-preference-validation"></p>
+          <details><summary>Как проверялись подсказки</summary><p id="engineering-preference-validation"></p></details>
         </section>
       </section>
       <p id="physical-metrics-caption" class="notice">Метрики относятся к выбранному решению;
@@ -226,7 +249,7 @@
       <p>Отдельная сгенерированная плита 6 × 4 м, не проект К09 и не инженерный эталон. Проверки не отключаются.</p>
       <button id="run-demo" type="button">Посмотреть пример на синтетических данных</button></details>
   </main>
-  <script src="/static/engineering-example.js?v=5" defer></script>
-  <script src="/static/composite.js?v=23" defer></script>
+  <script src="/static/engineering-example.js?v=6" defer></script>
+  <script src="/static/composite.js?v=25" defer></script>
   <script src="/static/composite-history.js?v=1" defer></script>
 </body></html>

@@ -158,18 +158,45 @@ td { color: #3a5968; }
 @media(prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
 
 #zone-tradeoff { margin: 1.5rem 0; padding: 1rem; border: 1px solid #c9d7e4; border-radius: 12px; background: #f8fbff; }
-#zone-tradeoff-chart { overflow-x: auto; }
-#zone-tradeoff-chart svg { display: block; width: 100%; max-height: 360px; font: 13px system-ui, sans-serif; fill: #30435a; }
+#zone-tradeoff-chart { width: 100%; min-height: 280px; overflow-x: auto; }
+#zone-tradeoff-chart svg { display: block; width: 100%; min-width: 620px; height: auto; max-height: 390px; font: 13px system-ui, sans-serif; fill: #30435a; }
 .tradeoff-axis { fill: none; stroke: #8496a8; }
+.tradeoff-grid { stroke: #dce6ef; stroke-width: 1; }
 .tradeoff-line { fill: none; stroke: #3473b9; stroke-width: 2; }
 .tradeoff-point { fill: #fff; stroke: #3473b9; stroke-width: 2; cursor: pointer; }
 .tradeoff-point.knee { fill: #f7b94e; }
-.tradeoff-point.preference { fill: #198c70; }
+.tradeoff-knee-halo { fill: #f7b94e; stroke: #c98509; stroke-width: 2; pointer-events: none; }
+.tradeoff-point.preference-1 { fill: #16866c; }
+.tradeoff-point.preference-2 { fill: #56a88f; }
+.tradeoff-point.preference-3 { fill: #9acdbc; }
 .tradeoff-point.selected { stroke: #143c66; stroke-width: 4; }
 .tradeoff-point:focus { outline: none; stroke: #c84618; stroke-width: 4; }
 .tradeoff-legend { margin: .5rem 0; font-size: .85rem; color: #41556a; }
+.tradeoff-selection { display: flex; justify-content: space-between; gap: 1rem; align-items: center; margin: 1rem 0 .75rem; padding: .9rem 1rem; border: 1px solid #bfd1e1; border-radius: 10px; background: #fff; }
+.tradeoff-selection span { display: block; color: #657b8d; font-size: .8rem; }
+.tradeoff-selection strong { display: block; margin-top: .2rem; font-size: 1.05rem; }
+#zone-selected-summary { display: grid; grid-template-columns: repeat(4, minmax(84px, 1fr)); gap: .5rem; margin: 0; }
+#zone-selected-summary div { padding: .35rem .65rem; border-left: 1px solid #d8e3ec; }
+#zone-selected-summary dt { color: #657b8d; font-size: .72rem; }
+#zone-selected-summary dd { margin: .15rem 0 0; font-weight: 700; }
+.tradeoff-navigation { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: .5rem; margin-bottom: 1rem; }
+.tradeoff-navigation button { min-height: 42px; }
+#zone-selected-counter { min-width: 7rem; text-align: center; color: #41556a; font-variant-numeric: tabular-nums; }
+.tradeoff-zoom-controls { display: flex; justify-content: center; align-items: center; gap: .75rem; margin: -.25rem 0 1rem; }
+#zone-visible-range { color: #657b8d; font-size: .82rem; font-variant-numeric: tabular-nums; }
+.tradeoff-guide { margin: .75rem 0; }
+.tradeoff-guide > summary, #engineering-preference summary { color: #315f72; font-weight: 650; }
 #engineering-preference { margin-top: 1.25rem; padding: 1rem; border: 1px solid #a9bdb1; border-radius: 10px; background: #f4faf5; }
 #engineering-preference h4 { margin: 0 0 .5rem; font-size: 1.1rem; }
 #engineering-preference p { margin: .5rem 0; }
 #engineering-preference-top { display: flex; flex-wrap: wrap; gap: .5rem; margin: .75rem 0; }
 #engineering-preference-top button[aria-pressed="true"] { outline: 3px solid #176245; outline-offset: 2px; }
+@media(max-width: 650px) {
+  #zone-tradeoff { padding: .75rem; }
+  #zone-tradeoff-chart { min-height: 230px; }
+  .tradeoff-selection { align-items: stretch; flex-direction: column; }
+  #zone-selected-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tradeoff-navigation button { flex: 1 1 42%; }
+  #zone-selected-counter { order: -1; flex-basis: 100%; }
+  .tradeoff-zoom-controls { align-items: stretch; flex-direction: column; text-align: center; }
+}

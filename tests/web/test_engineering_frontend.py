@@ -71,6 +71,10 @@ def test_start_is_real_one_click_and_old_workspace_remains_available():
     assert 'id="example-selector"' in html
     assert html.index('id="run-engineering-example"') < html.index('id="analysis-form"')
     assert 'href="/composite#custom-inputs"' in html
+    assert page.ids["compare-engineering-example"][0] == "a"
+    assert "hidden" in page.ids["compare-engineering-example"][1]
+    assert "Конструктор выбирает точку фронта" in html
+    assert '/composite?example=' in (STATIC / "home.js").read_text(encoding="utf-8")
 
 
 def test_composite_keeps_all_controls_but_checks_are_visible_and_metrics_unambiguous():
@@ -107,6 +111,8 @@ def test_composite_keeps_all_controls_but_checks_are_visible_and_metrics_unambig
     assert "полное исходное покрытие подтверждено в принятой модели" in js
     assert "фактическая плита Revit не проверена" in js
     assert "не сертифицирована для выбранного варианта" in js
+    assert js.count("runAnalysis(readyExampleAnalysisUrl(example), {method: \"POST\"})") == 2
+    assert '?search_mode=zone-merge' in js
     assert "required" in page.ids["boundary-trim-host"][1]
     assert 'href="/partitions"' in html
     assert page.ids["zone-tradeoff-chart"][0] == "div"
@@ -122,6 +128,12 @@ const q=id=>{if(!nodes.has(id))nodes.set(id,make());return nodes.get(id);};
 const context={document:{querySelector:q,body:{classList:{add(){},remove(){}}}},window:{location:{search:'',hash:'',pathname:'/partitions'},engineeringExampleReady:Promise.resolve(null)},
  URLSearchParams,Intl,console,setTimeout,clearTimeout,setInterval,clearInterval};
 vm.createContext(context);vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),context);
+assert.equal(vm.runInContext('readyExampleAnalysisUrl({id:"k09-typical-3-14"})',context),
+ '/api/engineering-examples/k09-typical-3-14/analyze?search_mode=zone-merge');
+context.window.location.pathname='/composite';
+assert.equal(vm.runInContext('readyExampleAnalysisUrl({id:"legacy-s1-t800"})',context),
+ '/api/engineering-examples/legacy-s1-t800/analyze');
+context.window.location.pathname='/partitions';
 assert.equal(q('[name="maximum_positions"]').disabled,true);
 assert.equal(q('[name="maximum_candidates"]').disabled,true);
 q('#search-mode').value='positions';q('#search-mode').callbacks.change();
@@ -140,14 +152,27 @@ context.payload={complexity_axis:'zone_count',front,selected_index:0,directions,
  zone_tradeoff:{knee:{status:'candidate',index:1,coarser:{kg_per_extra_zone:5},finer:{kg_per_extra_zone:1}}}};
 q('#candidate').value='0';vm.runInContext('result=payload;renderPoint();download=(value,filename)=>{window.downloaded={value,filename};}',context);
 assert.equal(q('#engineering-preference').hidden,true);
+assert.equal(q('#zone-selected-title').textContent,'Вариант 1 из 3');
+assert.equal(q('#zone-selected-counter').textContent,'1 / 3');
+assert.equal(q('#select-zone-previous').disabled,true);
+assert.equal(q('#select-zone-next').disabled,false);
 assert(q('#zone-tradeoff-chart').innerHTML.includes('data-candidate="1"'));
 assert(q('#zone-tradeoff-chart').innerHTML.includes('aria-pressed="true"'));
 assert(q('#zone-knee-note').textContent.includes('Геометрический перегиб'));
-assert(!q('#zone-tradeoff-chart').innerHTML.includes('Точку 3'));
+assert(!q('#zone-tradeoff-chart').innerHTML.includes('подсказка 1 по инженерным примерам'));
 q('#zone-tradeoff-chart').callbacks.click({target:{closest:()=>({dataset:{candidate:'1'}})}});
 assert.equal(q('#candidate').value,'1');assert.equal(q('#drawing').innerHTML,'<svg>0-1</svg>');
 assert(q('#metrics').innerHTML.includes('Параметрические зоны'));
 assert(q('#metrics').innerHTML.includes('8 <small>зон'));
+assert.equal(q('#zone-selected-title').textContent,'Вариант 2 из 3');
+assert.equal(q('#zone-selected-zones').textContent,'8');
+assert.equal(q('#zone-selected-mass').textContent,'110 кг');
+assert.equal(q('#zone-selected-counter').textContent,'2 / 3');
+for(let i=0;i<4;i++){
+ q('#direction-tabs').callbacks.click({target:{closest:()=>({dataset:{index:String(i)}})}});
+ assert.equal(q('#drawing').innerHTML,`<svg>${i}-1</svg>`);
+}
+q('#direction-tabs').callbacks.click({target:{closest:()=>({dataset:{index:'0'}})}});
 q('#download-source').callbacks.click();
 assert.equal(context.window.downloaded.value.directions[0].zone_drafts[0].source_zone_id,'0-1-0');
 assert.equal(context.window.downloaded.value.directions[3].zone_drafts[1].source_zone_id,'3-1-1');
@@ -157,6 +182,14 @@ assert.equal(context.window.downloaded.value.directions[0].zone_drafts[0].source
 let prevented=false;
 q('#zone-tradeoff-chart').callbacks.keydown({key:'Enter',preventDefault(){prevented=true},target:{closest:()=>({dataset:{candidate:'2'}})}});
 assert(prevented);assert.equal(q('#candidate').value,'2');assert.equal(q('#drawing').innerHTML,'<svg>0-2</svg>');
+assert.equal(q('#select-zone-next').disabled,true);
+q('#select-zone-next').callbacks.click();assert.equal(q('#candidate').value,'2');
+q('#select-zone-previous').callbacks.click();assert.equal(q('#candidate').value,'1');
+let spacePrevented=false;
+q('#zone-tradeoff-chart').callbacks.keydown({key:' ',preventDefault(){spacePrevented=true},target:{closest:()=>({dataset:{candidate:'0'}})}});
+assert(spacePrevented);assert.equal(q('#candidate').value,'0');
+q('#select-zone-min-mass').callbacks.click();assert.equal(q('#candidate').value,'2');
+q('#select-zone-min-zones').callbacks.click();assert.equal(q('#candidate').value,'0');
 q('#select-zone-knee').callbacks.click();assert.equal(q('#candidate').value,'1');
 context.payload.engineering_preference={status:'available',recommended_index:2,top_indexes:[2,0,1],model_id:'lo-po-v1',
  training_case_ids:['plate-a','plate-b'],validation:{independent_cases:2,mean_regret:0.13,knee_regret:0.21}};
@@ -166,8 +199,11 @@ assert(q('#engineering-preference-note').textContent.includes('массу и ч�
 assert(q('#engineering-preference-note').textContent.includes('число зон в инженерских примерах не размечено'));
 assert(q('#engineering-preference-validation').textContent.includes('2 отложенных инженерных выдачах'));
 assert(q('#engineering-preference-top').innerHTML.includes('data-preference-index="2"'));
-assert(/class="tradeoff-point[^\"]*preference/.test(q('#zone-tradeoff-chart').innerHTML));
-assert(q('#zone-tradeoff-chart').innerHTML.includes('кандидат на Точку 3 по инженерным примерам'));
+assert.equal((q('#engineering-preference-top').innerHTML.match(/data-preference-index=/g)||[]).length,3);
+assert(q('#zone-tradeoff-chart').innerHTML.includes('preference-1'));
+assert(q('#zone-tradeoff-chart').innerHTML.includes('preference-2'));
+assert(q('#zone-tradeoff-chart').innerHTML.includes('preference-3'));
+assert(q('#zone-tradeoff-chart').innerHTML.includes('подсказка 1 по инженерным примерам'));
 q('#select-engineering-preference').callbacks.click();
 assert.equal(q('#candidate').value,'2');assert.equal(q('#drawing').innerHTML,'<svg>0-2</svg>');
 q('#download-source').callbacks.click();
@@ -180,23 +216,38 @@ assert.equal(q('#candidate').value,'0');assert.equal(q('#drawing').innerHTML,'<s
 context.payload.engineering_preference.recommended_index=1;
 vm.runInContext('renderPoint()',context);
 assert(q('#zone-tradeoff-legend').textContent.includes('совпадает с геометрическим перегибом'));
-assert(!q('#zone-tradeoff-legend').textContent.includes('Жёлтая точка'));
+assert(q('#zone-tradeoff-legend').textContent.includes('Жёлтая точка — геометрический перегиб'));
+assert(q('#zone-tradeoff-chart').innerHTML.includes('tradeoff-knee-halo'));
 assert(/class="tradeoff-point[^\"]*knee preference/.test(q('#zone-tradeoff-chart').innerHTML));
-assert(q('#zone-tradeoff-chart').innerHTML.includes('геометрический перегиб, кандидат на Точку 3 по инженерным примерам'));
+assert(q('#zone-tradeoff-chart').innerHTML.includes('геометрический перегиб, подсказка 3 по инженерным примерам'));
+context.payload.engineering_preference={status:'available',recommended_index:2,top_indexes:[2,0]};
+vm.runInContext('renderPoint()',context);
+assert(q('#engineering-preference-note').textContent.startsWith('2 подсказки'));
+assert.equal((q('#engineering-preference-top').innerHTML.match(/data-preference-index=/g)||[]).length,2);
 context.payload.engineering_preference={status:'available',recommended_index:99,top_indexes:[0]};
 vm.runInContext('renderPoint()',context);assert.equal(q('#engineering-preference').hidden,true);
-assert(!q('#zone-tradeoff-chart').innerHTML.includes('Точку 3'));
+assert(!q('#zone-tradeoff-chart').innerHTML.includes('подсказка 1 по инженерным примерам'));
 delete context.payload.engineering_preference;
 context.payload.front=[];context.payload.zone_tradeoff.knee={status:'empty',index:null};
 vm.runInContext('renderPoint()',context);assert.equal(q('#zone-tradeoff-chart').innerHTML,'');
 assert.equal(q('#select-zone-knee').hidden,true);
+assert.equal(q('#zone-selected-title').textContent,'Нет проверенных вариантов');
+for(const id of ['#zone-selected-zones','#zone-selected-mass','#zone-selected-bars','#zone-selected-positions','#zone-selected-counter'])
+ assert.equal(q(id).textContent,'—');
+for(const id of ['#select-zone-min-zones','#select-zone-previous','#select-zone-next','#select-zone-min-mass'])
+ assert.equal(q(id).disabled,true);
 context.payload.front=[front[0]];context.payload.zone_tradeoff.knee={status:'insufficient_tradeoff',index:0};
 q('#candidate').value='0';vm.runInContext('renderPoint()',context);
 assert(!q('#zone-tradeoff-chart').innerHTML.includes('tradeoff-line'));
 assert.equal(q('#select-zone-knee').hidden,true);
+assert.equal((q('#zone-tradeoff-chart').innerHTML.match(/class="tradeoff-grid"/g)||[]).length,2);
+assert.equal(q('#select-zone-previous').disabled,true);assert.equal(q('#select-zone-next').disabled,true);
 context.payload.front=front;context.payload.zone_tradeoff.knee={status:'no_distinct_knee',index:2};
 vm.runInContext('renderPoint()',context);assert.equal(q('#select-zone-knee').hidden,true);
 assert(q('#zone-knee-note').textContent.includes('Выраженный геометрический перегиб не найден'));
+context.payload.complexity_axis='position_count';vm.runInContext('renderPoint()',context);
+assert.equal(q('#zone-tradeoff').hidden,true);
+context.payload.complexity_axis='zone_count';
 context.payload.front=front;context.payload.schema_version='composite-plate-analysis/v1';context.payload.selected_index=2;
 context.payload.zone_tradeoff.knee={status:'candidate',index:1};
 context.payload.engineering_preference={status:'available',recommended_index:2,top_indexes:[2,1,0],
@@ -210,7 +261,7 @@ vm.runInContext('runAnalysis("/api/composite-demo",{method:"POST"})',context).th
  assert.equal(q('#error').hidden,true);
  assert.equal(q('#candidate').value,'2');assert.equal(q('#drawing').innerHTML,'<svg>0-2</svg>');
  assert(q('#zone-tradeoff-chart').innerHTML.includes('геометрический перегиб'));
- assert(q('#zone-tradeoff-chart').innerHTML.includes('кандидат на Точку 3 по инженерным примерам'));
+ assert(q('#zone-tradeoff-chart').innerHTML.includes('подсказка 1 по инженерным примерам'));
  q('#download-source').callbacks.click();
  assert.equal(context.window.downloaded.value.directions[3].zone_drafts[2].source_zone_id,'3-2-2');
  q('#zone-tradeoff-chart').callbacks.click({target:{closest:()=>({dataset:{candidate:'1'}})}});
@@ -224,9 +275,79 @@ vm.runInContext('runAnalysis("/api/composite-demo",{method:"POST"})',context).th
 }).then(()=>{
  assert.equal(q('#error').hidden,true);assert.equal(q('#candidate').value,'1');
  assert.equal(q('#engineering-preference').hidden,true);
- assert(!q('#zone-tradeoff-chart').innerHTML.includes('Точку 3'));
+ assert(!q('#zone-tradeoff-chart').innerHTML.includes('подсказка 1 по инженерным примерам'));
  assert.equal(q('#drawing').innerHTML,'<svg>0-1</svg>');
 }).catch(error=>{console.error(error);process.exitCode=1;});
+"""
+    node(script, STATIC / "composite.js")
+
+
+def test_zone_tradeoff_zoom_keeps_absolute_selection_navigation_and_export():
+    script = r"""
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const nodes=new Map();const make=()=>({innerHTML:'',textContent:'',value:'0',disabled:false,hidden:false,dataset:{},style:{},attrs:{},
+ callbacks:{},addEventListener(name,fn){this.callbacks[name]=fn;},querySelectorAll(){return[];},
+ setAttribute(name,value){this.attrs[name]=String(value);},scrollIntoView(){}});
+const q=id=>{if(!nodes.has(id))nodes.set(id,make());return nodes.get(id);};
+const context={document:{querySelector:q,body:{classList:{add(){},remove(){}}}},window:{location:{search:'',hash:'',pathname:'/partitions'},engineeringExampleReady:Promise.resolve(null)},
+ URLSearchParams,Intl,console,setTimeout,clearTimeout,setInterval,clearInterval};
+vm.createContext(context);vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),context);
+const specs=[['bottom','X'],['bottom','Y'],['top','X'],['top','Y']];
+const directions=specs.map(([layer,axis],directionIndex)=>({direction:{layer,axis},candidates:Array.from({length:40},(_,index)=>({
+ direction:{layer,axis},metrics:{zone_count:index+1},zone_drafts:Array.from({length:index+1},(_,zoneIndex)=>({
+  source_zone_id:`${directionIndex}-${index}-${zoneIndex}`,components:[]})),
+ svg:`<svg>${directionIndex}-${index}</svg>`,coverage:{uncovered_cell_count:0},installation_notes:[]}))}));
+const front=Array.from({length:40},(_,index)=>({zone_count:4*(index+1),additional_mass_kg:1000-index,
+ position_count:4,physical_bar_count:100+index,bar_schedule:[],direction_candidate_indexes:[index,index,index,index],
+ stock_cutting:{status:'pass',groups:[]}}));
+context.payload={complexity_axis:'zone_count',front,selected_index:0,directions,blocking_check_ids:[],
+ source_graphics_mode:'direction-candidates',source_graphics:{schema_version:'source-isofields-zones/v1',directions:specs.map(([layer,axis])=>({direction:{layer,axis},cells:[],legend:[]}))},
+ zone_tradeoff:{knee:{status:'candidate',index:5}},engineering_preference:{status:'available',recommended_index:30,
+ top_indexes:[30,20,10],model_id:'held-out',training_case_ids:['a','b'],validation:{independent_cases:2}}};
+q('#candidate').value='0';
+vm.runInContext('result=payload;renderPoint();download=(value,filename)=>{window.downloaded={value,filename};}',context);
+let chart=q('#zone-tradeoff-chart').innerHTML;
+assert(chart.includes('data-visible-start="0" data-visible-end="39"'));
+assert.equal((chart.match(/data-candidate=/g)||[]).length,40);
+assert.equal(q('#zone-visible-range').textContent,'Варианты 1–40 из 40');
+assert.equal(q('#zone-toggle-zoom').attrs['aria-pressed'],'false');
+q('#zone-toggle-zoom').callbacks.click();
+chart=q('#zone-tradeoff-chart').innerHTML;
+assert(chart.includes('data-visible-start="0" data-visible-end="20"'));
+assert.equal((chart.match(/data-candidate=/g)||[]).length,21);
+assert.equal(q('#zone-visible-range').textContent,'Варианты 1–21 из 40');
+assert.equal(q('#zone-toggle-zoom').textContent,'Весь график');
+q('#zone-tradeoff-chart').callbacks.click({target:{closest:()=>({dataset:{candidate:'20'}})}});
+chart=q('#zone-tradeoff-chart').innerHTML;
+assert.equal(q('#candidate').value,'20');
+assert(chart.includes('data-visible-start="10" data-visible-end="30"'));
+assert.equal(q('#zone-visible-range').textContent,'Варианты 11–31 из 40');
+assert.equal(q('#drawing').innerHTML,'<svg>0-20</svg>');
+q('#download-selected').callbacks.click();
+assert.equal(context.window.downloaded.value.selected_point.zone_count,84);
+assert.equal(context.window.downloaded.value.directions[3].zone_drafts[0].source_zone_id,'3-20-0');
+q('#select-zone-next').callbacks.click();
+assert.equal(q('#candidate').value,'21');
+assert(q('#zone-tradeoff-chart').innerHTML.includes('data-visible-start="11" data-visible-end="31"'));
+q('#select-zone-min-mass').callbacks.click();
+assert.equal(q('#candidate').value,'39');
+assert(q('#zone-tradeoff-chart').innerHTML.includes('data-visible-start="19" data-visible-end="39"'));
+assert.equal(q('#zone-visible-range').textContent,'Варианты 20–40 из 40');
+q('#download-source').callbacks.click();
+assert.equal(context.window.downloaded.value.directions[0].zone_drafts[0].source_zone_id,'0-39-0');
+q('#select-zone-min-zones').callbacks.click();
+assert.equal(q('#candidate').value,'0');
+assert(q('#zone-tradeoff-chart').innerHTML.includes('data-visible-start="0" data-visible-end="20"'));
+q('#zone-tradeoff-chart').callbacks.click({target:{closest:()=>({dataset:{candidate:'15'}})}});
+chart=q('#zone-tradeoff-chart').innerHTML;
+const kneePosition=chart.indexOf('data-candidate="5"');
+const firstPreferencePosition=chart.indexOf('data-candidate="10"');
+const secondPreferencePosition=chart.indexOf('data-candidate="20"');
+const selectedPosition=chart.indexOf('data-candidate="15"');
+assert(kneePosition>0 && kneePosition<firstPreferencePosition && firstPreferencePosition<secondPreferencePosition && secondPreferencePosition<selectedPosition);
+q('#zone-toggle-zoom').callbacks.click();
+assert(q('#zone-tradeoff-chart').innerHTML.includes('data-visible-start="0" data-visible-end="39"'));
+assert.equal(q('#zone-toggle-zoom').textContent,'Увеличить выбранный участок');
 """
     node(script, STATIC / "composite.js")
 
@@ -459,11 +580,12 @@ profile:{engineering_approval:false,note:'Chosen research phases, not approved'}
 reference:{mass_kg:100,physical_bar_count:30,position_count:4,scope:'Full engineer scope',note:'Not an approval'},
 sources:[{direction:{layer:'bottom',axis:'X'},dxf_filename:'Настоящая нижняя.dxf',shk_filename:null,mapping_label:'Проверенная шкала'}]};
 const state=process.argv[2];if(state==='unavailable'){example.is_available=false;example.status='Actual source checksum mismatch';}if(state==='synthetic')example.source_kind='synthetic';if(state==='bad-id')example.id='../secret';
-const context={window:{location:{search:''}},document:{getElementById:get,createElement:()=>new Element(),querySelector:()=>null},URLSearchParams,Intl,
+const context={window:{location:{search:'',pathname:'/'}},document:{getElementById:get,createElement:()=>new Element(),querySelector:()=>null},URLSearchParams,Intl,
 fetch:async url=>{assert.equal(url,'/api/engineering-examples');return {ok:state!=='api-error',json:async()=>({examples:state==='missing'?[]:[example]})};}};
 vm.createContext(context);vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),context);
 context.window.engineeringExampleReady.then(value=>{assert.equal(get('run-engineering-example').disabled,state!=='available');
  if(state==='available'){assert.equal(value.id,example.id);assert(get('example-reference-note').textContent.includes('Full engineer scope'));assert(get('example-profile-note').textContent.includes('Chosen research phases'));
+ assert.equal(get('compare-engineering-example').href,'/partitions?example=k09-typical-3-14&run=1');assert.equal(get('compare-engineering-example').hidden,false);
  const row=get('example-files').children[0];assert.equal(row.children[1].textContent,'Настоящая нижняя.dxf');assert.equal(row.children[2].textContent,'Проверенная шкала');}
  else {assert.equal(value,null);if(state==='unavailable')assert(get('example-status').textContent.includes('Actual source checksum mismatch'));}
 }).catch(error=>{console.error(error);process.exitCode=1;});
@@ -491,6 +613,82 @@ context.window.engineeringExampleReady.then(value=>{
 }).catch(error=>{console.error(error);process.exitCode=1;});
 """
     node(script, STATIC / "engineering-example.js")
+
+
+@pytest.mark.parametrize("example_id", ["k09-typical-3-14", "legacy-s1-t800"])
+def test_home_selected_ready_example_keeps_old_launch_and_builds_graph_link(example_id):
+    script = r"""
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+class Element {constructor(){this.textContent='';this.disabled=true;this.hidden=true;this.children=[];this.callbacks={};}
+ replaceChildren(...x){this.children=x;}addEventListener(name,fn){this.callbacks[name]=fn;}append(...x){this.children.push(...x);}}
+const items=new Map();const get=id=>{if(!items.has(id))items.set(id,new Element());return items.get(id);};
+const examples=['k09-typical-3-14','legacy-s1-t800'].map(id=>({id,title:id,is_available:true,
+ source_kind:'real_engineering_files',description:`Ready ${id}`,sources:[]}));
+const chosen=process.argv[3],assigned=[];
+const context={window:{location:{search:`?example=${chosen}`,pathname:'/',href:`http://local/?example=${chosen}`,
+ assign(url){assigned.push(url);}}},document:{getElementById:get,createElement:()=>new Element(),querySelector:()=>null},
+ URL,URLSearchParams,Intl,fetch:async()=>({ok:true,json:async()=>({default_example_id:examples[0].id,examples})})};
+vm.createContext(context);vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),context);
+vm.runInContext(fs.readFileSync(process.argv[2],'utf8'),context);
+context.window.engineeringExampleReady.then(example=>{
+ assert.equal(example.id,chosen);assert.equal(get('example-selector').children.find(x=>x.selected).value,chosen);
+ assert.equal(get('compare-engineering-example').href,`/partitions?example=${chosen}&run=1`);
+ assert.equal(get('compare-engineering-example').hidden,false);
+ return get('run-engineering-example').callbacks.click();
+}).then(()=>{assert.deepEqual(assigned,[`/composite?example=${chosen}&run=1`]);})
+ .catch(error=>{console.error(error);process.exitCode=1;});
+"""
+    node(script, STATIC / "engineering-example.js", STATIC / "home.js", example_id)
+
+
+def test_partitions_c1_uses_graph_profile_without_legacy_physical_heights():
+    script = r"""
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+class Element {constructor(){this.textContent='';this.disabled=true;this.hidden=true;this.children=[];}
+ replaceChildren(...x){this.children=x;}addEventListener(){}append(...x){this.children.push(...x);}}
+const items=new Map();const get=id=>{if(!items.has(id))items.set(id,new Element());return items.get(id);};
+const legacy='Старый physical profile: Y deeper 36 mm';
+const example={id:'legacy-s1-t800',title:'C1',is_available:true,source_kind:'real_engineering_files',
+ description:'Ready C1',profile:{note:legacy},sources:[]};
+const context={window:{location:{search:'?example=legacy-s1-t800',pathname:'/partitions'}},
+ document:{getElementById:get,createElement:()=>new Element(),querySelector:()=>null},URLSearchParams,Intl,
+ fetch:async()=>({ok:true,json:async()=>({default_example_id:example.id,examples:[example]})})};
+vm.createContext(context);vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),context);
+context.window.engineeringExampleReady.then(value=>{
+ assert.equal(value.id,example.id);const note=get('example-profile-note').textContent;
+ assert(!note.includes(legacy));assert(note.includes('фазы 0/100/0 мм'));assert(note.includes('40d'));
+ assert(note.includes('активная область исходных КЭ'));assert(note.includes('Высоты стержней не назначены'));
+ assert(note.includes('раскрой партии проверяется отдельно'));
+}).catch(error=>{console.error(error);process.exitCode=1;});
+"""
+    node(script, STATIC / "engineering-example.js")
+
+
+@pytest.mark.parametrize("example_id", ["k09-typical-3-14", "legacy-s1-t800"])
+def test_partitions_ready_button_and_autorun_use_explicit_zone_merge(example_id):
+    script = r"""
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const nodes=new Map();const make=()=>({innerHTML:'',textContent:'',value:'0',disabled:false,hidden:false,dataset:{},style:{},
+ callbacks:{},addEventListener(name,fn){this.callbacks[name]=fn;},querySelectorAll(){return[];},setAttribute(){},scrollIntoView(){}});
+const q=id=>{if(!nodes.has(id))nodes.set(id,make());return nodes.get(id);};
+const chosen=process.argv[2],calls=[];
+const context={document:{querySelector:q,body:{classList:{add(){},remove(){}}}},
+ window:{location:{search:`?example=${chosen}&run=1`,hash:'',pathname:'/partitions'},engineeringExampleReady:Promise.resolve({id:chosen})},
+ URLSearchParams,Intl,console,setTimeout,clearTimeout,setInterval,clearInterval};
+vm.createContext(context);vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),context);
+vm.runInContext('runAnalysis=(url,options)=>{window.calls.push({url,options});return Promise.resolve();};window.calls=[];',context);
+setImmediate(async()=>{
+ try {
+  assert.equal(context.window.calls.length,1);
+  assert.equal(context.window.calls[0].url,`/api/engineering-examples/${chosen}/analyze?search_mode=zone-merge`);
+  assert.equal(context.window.calls[0].options.method,'POST');
+  await q('#run-engineering-example').callbacks.click();
+  assert.equal(context.window.calls.length,2);
+  assert.equal(context.window.calls[1].url,context.window.calls[0].url);
+ } catch(error){console.error(error);process.exitCode=1;}
+});
+"""
+    node(script, STATIC / "composite.js", example_id)
 
 
 def test_s1_mvp_cards_keep_presence_40d_and_stock_distinct_from_outer_pass():

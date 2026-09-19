@@ -4,6 +4,7 @@
 window.engineeringExampleReady = (async () => {
   const get = (id) => document.getElementById(id);
   const button = get("run-engineering-example");
+  const compare = get("compare-engineering-example");
   const status = get("example-status");
   const number = (value, suffix) => Number.isFinite(value)
     ? new Intl.NumberFormat("ru-RU", {maximumFractionDigits: 2}).format(value) + suffix : "не указан";
@@ -37,10 +38,17 @@ window.engineeringExampleReady = (async () => {
         url.searchParams.delete("run"); window.location.assign(url);
       });
     }
-    button.textContent = "Рассчитать плиту";
+    button.textContent = window.location.pathname === "/partitions" ? "Рассчитать и сравнить варианты" : "Рассчитать плиту";
+    if (compare) {
+      compare.href = `/partitions?example=${encodeURIComponent(example.id)}&run=1`;
+      compare.hidden = false;
+    }
     const hostOptions = document.querySelector(".boundary-trim-options");
     if (hostOptions) hostOptions.hidden = example.supports_working_host_trim === false;
-    get("example-description").textContent = example.description || "Настоящий комплект четырёх направлений армирования.";
+    const baseDescription = example.description || "Настоящий комплект четырёх направлений армирования.";
+    get("example-description").textContent = window.location.pathname === "/partitions"
+      ? `${baseDescription} Для сравнения применяются стандартные длины до 11 700 мм; раскрой проверяется отдельно для каждого варианта и не считается пройденным заранее.`
+      : baseDescription;
     const facts = get("example-facts");
     const items = ["4 направления", "Оригинальные DXF", "Новый расчёт по выбранному комплекту"];
     facts.replaceChildren(...items.map((text) => { const span = document.createElement("span"); span.textContent = text; return span; }));
@@ -50,7 +58,9 @@ window.engineeringExampleReady = (async () => {
     get("example-positions").textContent = number(reference.position_count, " поз.");
     get("example-reference-note").textContent = [reference.scope, reference.note].filter(Boolean).join(" ") ||
       "Для этого комплекта нет отдельного сопоставимого эталона. Проверяйте исходную потребность и гейты результата.";
-    get("example-profile-note").textContent = example.profile?.note || "Описание профиля не передано. Выбранные фазы и высоты не считаются инженерным согласованием.";
+    get("example-profile-note").textContent = window.location.pathname === "/partitions"
+      ? "Режим сравнения: фазы 0/100/0 мм для готовых примеров, контрольные 40d, каталожные длины и активная область исходных КЭ. Высоты стержней не назначены; раскрой партии проверяется отдельно для каждого варианта."
+      : example.profile?.note || "Описание профиля не передано. Выбранные фазы и высоты не считаются инженерным согласованием.";
     const files = get("example-files");
     if (files && Array.isArray(example.sources)) {
       files.replaceChildren(...example.sources.map((source) => {
@@ -75,6 +85,7 @@ window.engineeringExampleReady = (async () => {
   } catch (failure) {
     status.textContent = failure.message + " Расчёт выбранной плиты недоступен.";
     button.disabled = true;
+    if (compare) compare.hidden = true;
     return null;
   }
 })();

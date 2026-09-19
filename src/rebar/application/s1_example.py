@@ -6,7 +6,7 @@ from tempfile import TemporaryDirectory
 from rebar.models import Axis, Direction, Layer
 from rebar.optimization.mappings.legacy_s1 import LEGACY_S1_D18
 
-from .analyze_composite_plate import CompositeDirectionSettings
+from .analyze_composite_plate import CompositeDirectionSettings, analyze_composite_plate
 from .analyze_plate import PlateDirectionSource
 from .assistant_inputs import analyze_assistant_sources
 from .flat_mvp import PROFILE_ID, flat_mvp_source_web_report
@@ -51,8 +51,10 @@ def metadata(*, available, status):
                 "Это принятый профиль, не подтверждённые параметры рабочего Revit."}}
 
 
-def analyze_s1_example():
+def analyze_s1_example(*, search_mode="positions", progress_callback=None):
     from .layout_variants import build_layout_variants
+    if search_mode not in ("positions", "zone-merge"):
+        raise ValueError("неизвестный режим поиска")
     originals = source_bytes()
     with TemporaryDirectory(prefix="rebar-s1-") as temporary:
         sources, settings = [], []
@@ -62,6 +64,22 @@ def analyze_s1_example():
             sources.append(PlateDirectionSource(path, mapping_id=LEGACY_S1_D18.id))
             settings.append(CompositeDirectionSettings(Direction(Layer(layer), Axis(axis)),
                 0, 100, 0, "A500", "User-selected flat S1 MVP profile; not measured Revit", "left"))
+        if search_mode == "zone-merge":
+            report = analyze_composite_plate(tuple(sources), tuple(settings),
+                maximum_zones_per_direction=128, solver_time_limit_s=20,
+                cutting_profile="plate-11700", case_id=EXAMPLE_ID,
+                search_mode="zone-merge", progress_callback=progress_callback)
+            info = metadata(available=True, status="ready")
+            info["profile"] = {"id": "s1-zone-merge-comparison/v1",
+                "background_origin_mm": 0, "first_300_offset_mm": 100, "second_offset_mm": 0,
+                "contact_side": "left", "steel_class": "A500", "cutting_profile": "plate-11700",
+                "engineering_approval": False, "placement_eligible": False,
+                "note": "Сравнение разбиений прямых зон: исходный спрос сохраняется, а действующая область "
+                    "ограничена объединением цветных КЭ исходной сетки. Учитываются контрольные 40d и каталог "
+                    "длин; безотходный раскрой партии проверяется отдельно. Высоты осей, перепады, отверстия "
+                    "настоящей плиты и размещение в Revit не назначены и не подтверждены."}
+            report["engineering_example"] = info
+            return report
         source = analyze_assistant_sources(tuple(sources), case_id=EXAMPLE_ID, maximum_variants=5)
         def evaluate(variant):
             provenance = {"mode": "fresh-four-original-dxf", "case_id": EXAMPLE_ID,

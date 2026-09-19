@@ -181,6 +181,156 @@ def test_exact_verified_originals_feed_existing_core_and_are_cleaned_up(original
     assert all((root / example.EXAMPLE_ID / name).exists() for name in contents)
 
 
+def test_ready_k09_zone_merge_uses_shared_composite_analysis_and_cleans_snapshot(original_transport, monkeypatch):
+    archive, root, contents = original_transport
+    example.install_original_archive(archive, root)
+    seen = []
+
+    def analyze(sources, settings, **kwargs):
+        assert len(sources) == len(settings) == 4
+        for source in sources:
+            path = Path(source.dxf_path)
+            seen.append(path)
+            assert path.read_bytes() == contents[path.name]
+            assert source.mapping_id == example.MAPPING_ID
+        assert kwargs == {
+            "maximum_zones_per_direction": 128,
+            "solver_time_limit_s": 20,
+            "cutting_profile": "plate-11700",
+            "case_id": example.EXAMPLE_ID,
+            "search_mode": "zone-merge",
+            "progress_callback": "progress",
+        }
+        return {"search_mode": "zone-merge", "front": [{"zone_count": 4}]}
+
+    monkeypatch.setattr(example, "analyze_composite_plate", analyze)
+    report = example.analyze_engineering_example(
+        example.EXAMPLE_ID, search_mode="zone-merge", progress_callback="progress")
+    assert report["front"] == [{"zone_count": 4}]
+    assert report["engineering_example"]["id"] == example.EXAMPLE_ID
+    assert report["engineering_example"]["profile"]["cutting_profile"] == "plate-11700"
+    assert report["engineering_example"]["profile"]["id"] == "k09-zone-merge-comparison/v1"
+    assert "Высоты осей" in report["engineering_example"]["profile"]["note"]
+    assert seen and all(not path.exists() for path in seen)
+
+
+def test_ready_s1_zone_merge_uses_its_mapping_and_shared_composite_analysis(monkeypatch):
+    originals = tuple(("s1:" + name).encode() for _, _, name, _ in s1_example.SOURCES)
+    seen = []
+
+    def analyze(sources, settings, **kwargs):
+        assert len(sources) == len(settings) == 4
+        for source, content in zip(sources, originals):
+            path = Path(source.dxf_path)
+            seen.append(path)
+            assert path.read_bytes() == content
+            assert source.mapping_id == s1_example.LEGACY_S1_D18.id
+        assert kwargs["search_mode"] == "zone-merge"
+        assert kwargs["case_id"] == s1_example.EXAMPLE_ID
+        assert kwargs["progress_callback"] == "progress"
+        return {"search_mode": "zone-merge", "front": [{"zone_count": 8}]}
+
+    monkeypatch.setattr(s1_example, "source_bytes", lambda: originals)
+    monkeypatch.setattr(s1_example, "analyze_composite_plate", analyze)
+    report = s1_example.analyze_s1_example(search_mode="zone-merge", progress_callback="progress")
+    assert report["front"] == [{"zone_count": 8}]
+    assert report["engineering_example"]["id"] == s1_example.EXAMPLE_ID
+    assert report["engineering_example"]["profile"]["cutting_profile"] == "plate-11700"
+    assert report["engineering_example"]["profile"]["id"] == "s1-zone-merge-comparison/v1"
+    assert "Высоты осей" in report["engineering_example"]["profile"]["note"]
+    assert seen and all(not path.exists() for path in seen)
+
+
+def test_ready_zone_merge_endpoint_starts_shared_background_job(monkeypatch):
+    captured = {}
+
+    class Job:
+        def summary(self):
+            return {"job_id": "ready-zone", "case_id": example.EXAMPLE_ID, "status": "running",
+                    "progress_percent": 0, "progress_stage": "Подготовка входных файлов", "created_at": 1}
+
+    def start(folder, calculate, *, case_id):
+        captured["folder"] = folder
+        captured["case_id"] = case_id
+        captured["result"] = calculate(lambda percent, stage: captured.setdefault("progress", (percent, stage)))
+        return "ready-zone"
+
+    monkeypatch.setattr(endpoint.composite_jobs, "start", start)
+    monkeypatch.setattr(endpoint.composite_jobs, "get", lambda job_id: Job())
+    monkeypatch.setattr(endpoint, "_analyze", lambda example_id, **kwargs: {
+        "example_id": example_id, "search_mode": kwargs["search_mode"],
+        "has_progress": callable(kwargs["progress_callback"]),
+    })
+    response = client.post(
+        f"/api/engineering-examples/{example.EXAMPLE_ID}/analyze?search_mode=zone-merge")
+    assert response.status_code == 202
+    assert response.json()["job_id"] == "ready-zone"
+    assert captured["case_id"] == example.EXAMPLE_ID
+    assert captured["result"] == {
+        "example_id": example.EXAMPLE_ID, "search_mode": "zone-merge", "has_progress": True}
+    captured["folder"].cleanup()
+    assert client.post("/api/engineering-examples/unknown/analyze?search_mode=zone-merge").status_code == 404
+    assert client.post(
+        f"/api/engineering-examples/{example.EXAMPLE_ID}/analyze?search_mode=typo").status_code == 422
+
+
+def test_ready_zone_merge_busy_job_returns_active_id_and_cleans_unused_folder(monkeypatch):
+    folders = []
+
+    class Folder:
+        def __init__(self, **kwargs):
+            self.cleaned = False
+            folders.append(self)
+
+        def cleanup(self):
+            self.cleaned = True
+
+    monkeypatch.setattr(endpoint, "TemporaryDirectory", Folder)
+    monkeypatch.setattr(endpoint.composite_jobs, "start", lambda *args, **kwargs: None)
+    monkeypatch.setattr(endpoint.composite_jobs, "active_job", lambda: SimpleNamespace(id="active-ready"))
+    response = client.post(
+        f"/api/engineering-examples/{example.EXAMPLE_ID}/analyze?search_mode=zone-merge")
+    assert response.status_code == 409
+    assert response.json() == {"detail": "Другой расчёт плиты уже выполняется",
+                               "active_job_id": "active-ready"}
+    assert len(folders) == 1 and folders[0].cleaned
+
+
+@pytest.mark.parametrize(("error", "status"), [
+    (ValueError("неверный профиль"), 422),
+    (example.EngineeringFilesUnavailableError("нет исходного комплекта"), 503),
+])
+def test_ready_zone_merge_job_preserves_input_error_status_and_releases_lock(monkeypatch, error, status):
+    captured = {}
+
+    class Job:
+        def summary(self):
+            return {"job_id": "failed-ready", "case_id": example.EXAMPLE_ID, "status": "running",
+                    "progress_percent": 0, "progress_stage": "Подготовка входных файлов", "created_at": 1}
+
+    def start(folder, calculate, *, case_id):
+        try:
+            calculate(lambda *_: None)
+        except endpoint.JobInputError as job_error:
+            captured["error"] = job_error
+        finally:
+            folder.cleanup()
+        return "failed-ready"
+
+    def fail(*args, **kwargs):
+        raise error
+
+    monkeypatch.setattr(endpoint, "analyze_engineering_example", fail)
+    monkeypatch.setattr(endpoint.composite_jobs, "start", start)
+    monkeypatch.setattr(endpoint.composite_jobs, "get", lambda job_id: Job())
+    response = client.post(
+        f"/api/engineering-examples/{example.EXAMPLE_ID}/analyze?search_mode=zone-merge")
+    assert response.status_code == 202
+    assert captured["error"].status_code == status
+    assert captured["error"].detail == str(error)
+    assert not endpoint._calculation_lock.locked()
+
+
 def test_concurrent_requests_are_bounded_and_lock_recovers(monkeypatch):
     with endpoint._calculation_lock:
         response = client.post(f"/api/engineering-examples/{example.EXAMPLE_ID}/analyze")

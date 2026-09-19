@@ -1,17 +1,22 @@
 """One-click real engineering input; operators install files outside the repository."""
 from threading import Lock
+from tempfile import TemporaryDirectory
 
 from fastapi import APIRouter, HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.requests import ClientDisconnect
+from starlette.responses import JSONResponse
 
 from rebar.application.engineering_example import (
+    EXAMPLE_ID as K09_EXAMPLE_ID,
     EngineeringFilesUnavailableError, analyze_engineering_example, engineering_example_catalog,
 )
+from rebar.application.s1_example import EXAMPLE_ID as S1_EXAMPLE_ID
 from rebar.application.working_host import load_working_host_json
 from rebar.application.working_solid_host import MAX_WORKING_REPORT_BYTES, inspect_working_solid
+from rebar.web.composite_jobs import JobInputError, composite_jobs
 
 router = APIRouter()
 _calculation_lock = Lock()
@@ -38,8 +43,36 @@ def _analyze(example_id, **kwargs):
 
 
 @router.post("/api/engineering-examples/{example_id}/analyze")
-async def analyze(example_id: str):
-    return await run_in_threadpool(_analyze, example_id)
+async def analyze(example_id: str, search_mode: str = "positions"):
+    if search_mode not in ("positions", "zone-merge"):
+        raise HTTPException(422, "неизвестный режим поиска")
+    if search_mode == "positions":
+        return await run_in_threadpool(_analyze, example_id)
+    if example_id not in (K09_EXAMPLE_ID, S1_EXAMPLE_ID):
+        raise HTTPException(404, "Такого инженерного комплекта нет.")
+
+    folder = TemporaryDirectory(prefix="rebar-engineering-example-")
+
+    def run_job(progress_callback):
+        try:
+            return _analyze(example_id, search_mode="zone-merge", progress_callback=progress_callback)
+        except HTTPException as error:
+            raise JobInputError(error.status_code, str(error.detail)) from error
+
+    try:
+        job_id = composite_jobs.start(folder, run_job, case_id=example_id)
+    except Exception:
+        folder.cleanup()
+        raise
+    if job_id is None:
+        folder.cleanup()
+        active = composite_jobs.active_job()
+        return JSONResponse(status_code=409, content={
+            "detail": "Другой расчёт плиты уже выполняется",
+            "active_job_id": active.id if active is not None else None,
+        })
+    job = composite_jobs.get(job_id)
+    return JSONResponse(status_code=202, content=job.summary())
 
 
 @router.post("/api/engineering-examples/{example_id}/boundary-trim")

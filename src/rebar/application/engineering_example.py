@@ -13,7 +13,7 @@ from tempfile import TemporaryDirectory
 from zipfile import ZipFile
 
 from rebar.models import Axis, Direction, Layer
-from .analyze_composite_plate import CompositeDirectionSettings
+from .analyze_composite_plate import CompositeDirectionSettings, analyze_composite_plate
 from .analyze_plate import PlateDirectionSource
 from .assistant_inputs import analyze_assistant_sources
 from .boundary_trim_web import boundary_trim_web_report
@@ -109,15 +109,20 @@ def engineering_example_catalog() -> dict:
 
 
 def analyze_engineering_example(example_id: str, *, working_host_bytes: bytes | None = None,
-                                confirm_identity_xy: bool = False, outer_only_repair: bool = False) -> dict:
+                                confirm_identity_xy: bool = False, outer_only_repair: bool = False,
+                                search_mode: str = "positions", progress_callback=None) -> dict:
     from . import s1_example
+    if search_mode not in ("positions", "zone-merge"):
+        raise ValueError("неизвестный режим поиска")
+    if search_mode == "zone-merge" and (working_host_bytes is not None or confirm_identity_xy or outer_only_repair):
+        raise ValueError("разбиения зон запускаются без отдельной обрезки Working Host")
     if type(outer_only_repair) is not bool or (outer_only_repair and (
             example_id != EXAMPLE_ID or working_host_bytes is None or confirm_identity_xy is not True)):
         raise ValueError('Outer-only repair requires explicit K09 host and identity XY')
     if example_id == s1_example.EXAMPLE_ID:
         if working_host_bytes is not None or confirm_identity_xy:
             raise ValueError("С1 MVP использует плоский контур DXF, не снимок другой Revit-плиты")
-        return s1_example.analyze_s1_example()
+        return s1_example.analyze_s1_example(search_mode=search_mode, progress_callback=progress_callback)
     if example_id != EXAMPLE_ID:
         raise KeyError(example_id)
     if (working_host_bytes is not None) != (confirm_identity_xy is True):
@@ -133,6 +138,22 @@ def analyze_engineering_example(example_id: str, *, working_host_bytes: bytes | 
             sources.append(PlateDirectionSource(path, mapping_id=MAPPING_ID))
             settings.append(CompositeDirectionSettings(Direction(Layer(layer), Axis(axis)), 0, 100, 0,
                                                         "A500", PROFILE_SOURCE, "left"))
+        if search_mode == "zone-merge":
+            report = analyze_composite_plate(tuple(sources), tuple(settings),
+                maximum_zones_per_direction=128, solver_time_limit_s=20,
+                cutting_profile="plate-11700", case_id=EXAMPLE_ID,
+                search_mode="zone-merge", progress_callback=progress_callback)
+            info = example_metadata(available=True, status="ready")
+            info["profile"] = {"id": "k09-zone-merge-comparison/v1",
+                "background_origin_mm": 0, "first_300_offset_mm": 100, "second_offset_mm": 0,
+                "contact_side": "left", "steel_class": "A500", "cutting_profile": "plate-11700",
+                "engineering_approval": False, "placement_eligible": False,
+                "note": "Сравнение разбиений прямых зон: исходный спрос сохраняется, а действующая область "
+                    "ограничена объединением цветных КЭ исходной сетки. Учитываются контрольные 40d и каталог "
+                    "длин; безотходный раскрой партии проверяется отдельно. Высоты осей, отверстия настоящей "
+                    "плиты и размещение в Revit не назначены и не подтверждены."}
+            report["engineering_example"] = info
+            return report
         source = analyze_assistant_sources(tuple(sources), case_id=EXAMPLE_ID,
                                            maximum_source_bars=1227, maximum_variants=5)
         # Use the existing physical pipeline, not the much heavier recipe-pool baseline.
